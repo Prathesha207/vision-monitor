@@ -1,0 +1,165 @@
+name: Build Linux Executables
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+
+  # =========================
+  # 🖥️ x86_64 BUILD 2
+  # =========================
+  build-x86:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: 📦 Install system deps
+        run: |
+          sudo apt update
+          sudo apt install -y ffmpeg libgl1
+
+      - name: 📁 Prepare folders
+        run: |
+          mkdir -p storage
+          touch vision_ai.db
+          touch app/__init__.py
+          touch tube_detection/__init__.py || true
+
+      - name: 📦 Install Python deps
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller lap tensorboard
+
+      - name: ⚙️ Build App (x86)
+        run: |
+          export DATABASE_URL="sqlite:///./vision_ai.db"
+
+          rm -rf build dist run.spec
+
+          pyinstaller \
+            --onedir \
+            --collect-all app \
+            --collect-all tube_detection \
+            --collect-all segmentation_models_pytorch \
+            --collect-all fastapi \
+            --collect-all starlette \
+            --collect-all pydantic \
+            --collect-all pydantic_settings \
+            --collect-all uvicorn \
+            --collect-all jose \
+            --collect-all passlib \
+            --collect-all bcrypt \
+            --collect-all sqlalchemy \
+            --collect-all numpy \
+            --collect-all cv2 \
+            --collect-all depthai \
+            --collect-all torch \
+            --collect-all torchvision \
+            --collect-all ultralytics \
+            --collect-all av \
+            --collect-binaries torch \
+            --collect-binaries torchvision \
+            --collect-binaries av \
+            --collect-submodules ultralytics \
+            --collect-submodules segmentation_models_pytorch \
+            --add-data "app:app" \
+            --add-data "tube_detection:tube_detection" \
+            --add-data "storage:storage" \
+            --add-data "vision_ai.db:." \
+            run.py
+
+      - name: 📦 Upload artifact (x86)
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-x86
+          path: dist/run
+
+
+  # =========================
+  # 🤖 ARM64 BUILD
+  # =========================
+  build-arm64:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🐳 Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: 🐳 Setup Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🏗️ Build ARM64 inside Docker
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v ${{ github.workspace }}:/app \
+            -w /app python:3.13 bash -c "
+
+            apt update && apt install -y ffmpeg libgl1 build-essential
+
+            mkdir -p storage
+            touch vision_ai.db
+            touch app/__init__.py
+            touch tube_detection/__init__.py || true
+
+            pip install --upgrade pip
+            pip install -r requirements.txt
+            pip install pyinstaller lap tensorboard
+
+            export DATABASE_URL='sqlite:///./vision_ai.db'
+
+            rm -rf build dist run.spec
+
+            pyinstaller \
+              --onedir \
+              --collect-all app \
+              --collect-all tube_detection \
+              --collect-all segmentation_models_pytorch \
+              --collect-all fastapi \
+              --collect-all starlette \
+              --collect-all pydantic \
+              --collect-all pydantic_settings \
+              --collect-all uvicorn \
+              --collect-all jose \
+              --collect-all passlib \
+              --collect-all bcrypt \
+              --collect-all sqlalchemy \
+              --collect-all numpy \
+              --collect-all cv2 \
+              --collect-all depthai \
+              --collect-all torch \
+              --collect-all torchvision \
+              --collect-all ultralytics \
+              --collect-all av \
+              --collect-binaries torch \
+              --collect-binaries torchvision \
+              --collect-binaries av \
+              --collect-submodules ultralytics \
+              --collect-submodules segmentation_models_pytorch \
+              --add-data 'app:app' \
+              --add-data 'tube_detection:tube_detection' \
+              --add-data 'storage:storage' \
+              --add-data 'vision_ai.db:.' \
+              run.py
+          "
+
+      - name: 📦 Compress ARM64 build
+        run: |
+          tar -czf app-arm64.tar.gz dist/run
+
+      - name: 📦 Upload artifact (ARM64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-arm64
+          path: app-arm64.tar.gz

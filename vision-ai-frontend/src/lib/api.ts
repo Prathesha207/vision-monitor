@@ -1,0 +1,51 @@
+import axios from "axios";
+
+/**
+ * Dynamically resolves the Backend API URL:
+ * 1. Environment Variable `VITE_API_BASE_URL` (if set in .env or Cloudflare build).
+ * 2. If in browser: dynamically matches current hostname (localhost, LAN IP, or Cloudflare domain) on port 8003.
+ * 3. Fallback default: http://127.0.0.1:8003
+ */
+export function getApiBaseUrl(): string {
+  // 1. User saved preference in localStorage (if set)
+  if (typeof window !== 'undefined') {
+    try {
+      const saved = localStorage.getItem('vision_backend_url');
+      if (saved && saved.trim() !== '') return saved.replace(/\/+$/, '');
+    } catch {}
+  }
+
+  // 2. Explicit env override (e.g. from .env file or Cloudflare build)
+  const envUrl = (import.meta as any).env?.VITE_API_BASE_URL;
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
+    return envUrl.replace(/\/+$/, '');
+  }
+
+  // 3. Dynamic match of current browser host (e.g. http://localhost:5173 or LAN IP)
+  if (typeof window !== 'undefined' && window.location?.hostname && window.location.protocol.startsWith('http')) {
+    const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+    const host = window.location.hostname;
+    return `${protocol}//${host}:8000`;
+  }
+
+  // 4. Fallback default
+  return "http://127.0.0.1:8000";
+}
+
+export const API_BASE_URL = getApiBaseUrl();
+
+export const api = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 15000,
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+// Dynamic interceptor: ensures API calls always resolve to current host/tunnel
+api.interceptors.request.use((config) => {
+  config.baseURL = getApiBaseUrl();
+  return config;
+});
+
+export default api;

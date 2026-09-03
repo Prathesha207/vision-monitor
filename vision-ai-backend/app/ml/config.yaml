@@ -1,0 +1,78 @@
+# ------------------ duck_analyzer config ------------------
+# All thresholds and paths live here. Edit these, not the code.
+
+# paths
+# This can be left relative -- ml_inference.py always checks
+# {project}/ml/models/best.pt (and a couple of PyInstaller-frozen locations)
+# FIRST, on every machine, before ever looking at this value. This line is
+# only used as a last-resort fallback, so it's safe to leave as a relative
+# path and just make sure best.pt is actually placed at ml/models/best.pt in
+# the deployed project -- do that, and this works on any PC unmodified.
+model_path: "models/best.pt"
+# hand / pose model (skips a frame when a hand is present)
+# hand detection
+hand_backend: mediapipe     # default; use "yolo" to fall back to a pose model
+hand_conf: 0.6              # MediaPipe min_detection_confidence
+hand_track_conf: 0.5
+hand_hold_frames: 2 
+# --- local saving (for YOUR reference/debugging) ---
+# NOTE: when run through the backend (ml_inference.py), thumbnail_dir gets
+# overridden per-session automatically, and annotated_dir is explicitly
+# disabled per-session (it would otherwise write every single frame to disk
+# on top of the video already being written -- pure redundant I/O). These
+# values below only apply when running duck_analyzer.py directly/standalone.
+save_local: true
+thumbnail_dir: "C:/Users/EmageVision/Documents/duck_classification/thumbnails"
+annotated_dir: "C:/Users/EmageVision/Documents/duck_classification/annotated_images"
+
+# expected scene (expected_duck_count supplied by frontend per request)
+expected_duck_count: null
+duck_class_id: 0
+other_class_id: 1
+
+# detection
+conf: 0.25
+device: 0
+use_half: true       # FP16 on GPU (~2x faster). Set false to disable.
+# gpu_benchmark runs a one-time FP16 matmul sanity check inside
+# DuckAnalyzer.__init__. In production, a NEW DuckAnalyzer is created for
+# every uploaded video (one per session), so leaving this true means every
+# single upload pays for the benchmark print, not just once at deploy time.
+# Turn it on only when you want to manually verify GPU throughput, then
+# switch it back off.
+gpu_benchmark: false
+
+# anchor
+warmup_frames: 10
+warmup_require_exact: true
+warmup_max_frames: 300
+
+
+# matching / ID stability
+# NOTE: match_threshold / pos_weight / app_weight / provisional_match_dist
+# below are NOT read anywhere in the current analyzer.py -- that logic was
+# replaced by the rebind_* keys further down (rebind_pos_weight,
+# rebind_app_weight, rebind_threshold), which the hybrid tracker actually
+# uses. Kept here as legacy/reference only; editing these four does nothing.
+match_threshold: 0.20
+pos_weight: 0.6
+app_weight: 0.4
+new_id_patience: 20
+other_id_patience: 8
+provisional_match_dist: 0.10
+row_tolerance_frac: 0.06
+
+# shake stabilization
+anomaly_smoothing_frames: 15
+
+# tracking (for MOVING ducks)
+tracker: "botsort.yaml"
+# frames a duck must be gone before a missing_alert thumbnail fires (once per episode)
+missing_patience: 3
+strict_count: true
+rebind_pos_weight: 0.5
+rebind_app_weight: 0.5
+rebind_threshold: 0.2     # lower = easier to reclaim a slot (fewer false MISSING)
+
+# output
+jpeg_quality: 80

@@ -1,0 +1,359 @@
+@import "tailwindcss";
+
+@layer base {
+
+  /* 1. Light Theme (Default / Common) */
+  :root,
+  [data-theme="light"],
+  [data-theme="pond-light"],
+  html.theme-light,
+  html.theme-pond-light,
+  body.theme-light,
+  body.theme-pond-light {
+    --bg-page: #FAF8F5;
+    --bg-card: #FFFFFF;
+    --bg-card-subtle: #F4EFEA;
+    --border-color: #E2D9CD;
+
+    --text-primary: #182822;
+    --text-secondary: #4E655B;
+    --text-muted: #7E938A;
+
+    --accent-duck: #D97706;
+    --accent-duck-light: #FEF3C7;
+    --accent-main: #2D6A4F;
+    --accent-pond: #2D6A4F;
+    --accent-pond-dark: #1B4332;
+    --accent-pond-subtle: #EBF4EF;
+
+    --status-anomaly-bg: #FEF2F2;
+    --status-anomaly-border: #FECACA;
+    --status-anomaly-text: #DC2626;
+
+    --status-normal-bg: #EBF4EF;
+    --status-normal-border: #C6E0D2;
+    --status-normal-text: #1B4332;
+
+    --status-warn-bg: #FEF3C7;
+    --status-warn-border: #FDE68A;
+    --status-warn-text: #B45309;
+
+    --btn-primary-bg: #2D6A4F;
+    --btn-primary-hover: #1B4332;
+    --btn-primary-text: #FFFFFF;
+
+    --btn-secondary-bg: #F4EFEA;
+    --btn-secondary-hover: #E9E1D6;
+    --btn-secondary-border: #E2D9CD;
+    --btn-secondary-text: #182822;
+
+    --glass-bg: rgba(255, 255, 255, 0.94);
+    --hud-bg: rgba(255, 255, 255, 0.96);
+    --scrollbar-thumb: rgba(78, 101, 91, 0.22);
+    --scrollbar-thumb-hover: rgba(45, 106, 79, 0.5);
+    --terminal-bg: #EFE9E2;
+    --terminal-border: #DFD7CB;
+  }
+
+  /* 2. Dark Theme - Warm Duck Amber / Gold Accents */
+  [data-theme="pond-dark"],
+  html.theme-pond-dark,
+  body.theme-pond-dark,
+  body.dark {
+    --bg-page: #101216;
+    --bg-card: #181B20;
+    --bg-card-subtle: #22262E;
+    --border-color: #2E3540;
+    --text-primary: #F8FAFC;
+    --text-secondary: #CBD5E1;
+    --text-muted: #94A3B8;
+
+    --accent-primary: #F59E0B;
+    --accent-primary-soft: rgba(245, 158, 11, 0.16);
+    --accent-secondary: #FBBF24;
+    --accent-secondary-soft: rgba(251, 191, 36, 0.16);
+
+    --accent-duck: #F59E0B;
+    --accent-duck-light: rgba(245, 158, 11, 0.2);
+    --accent-pond: #F59E0B;
+    --accent-pond-dark: #B45309;
+    --accent-pond-subtle: rgba(245, 158, 11, 0.14);
+
+    --status-anomaly-bg: rgba(239, 68, 68, 0.16);
+    --status-anomaly-border: rgba(239, 68, 68, 0.45);
+    --status-anomaly-text: #FF4D4D;
+
+    --status-normal-bg: rgba(245, 158, 11, 0.16);
+    --status-normal-border: #B45309;
+    --status-normal-text: #FBBF24;
+
+    --status-warn-bg: rgba(245, 158, 11, 0.16);
+    --status-warn-border: #B45309;
+    --status-warn-text: #FBBF24;
+
+    --btn-primary-bg: #F59E0B;
+    --btn-primary-hover: #D97706;
+    --btn-primary-text: #0F172A;
+
+    --btn-secondary-bg: #22262E;
+    --btn-secondary-hover: #2D333D;
+    --btn-secondary-border: #2E3540;
+    --btn-secondary-text: #F8FAFC;
+
+    --glass-bg: rgba(24, 27, 32, 0.95);
+    --hud-bg: rgba(34, 38, 46, 0.96);
+    --scrollbar-thumb: rgba(203, 213, 225, 0.22);
+    --scrollbar-thumb-hover: rgba(245, 158, 11, 0.6);
+    --terminal-bg: #0D0F12;
+    --terminal-border: #252B35;
+  }
+
+  /* 3. Nature Theme (Botanical Forest & Terracotta Accents) */
+  [data-theme="nature"],
+  html.theme-nature,
+  body.theme-nature {
+    --bg-page: #081715;
+    --bg-card: #0E2421;
+    --bg-card-subtle: #14332F;
+    --border-color: #1C4640;
+
+    --text-primary: #F4F8F6;
+    --text-secondary: #A3C7BD;
+    --text-muted: #6B988C;
+
+    --accent-duck: #F0E491;
+    --accent-duck-light: rgba(240, 228, 145, 0.2);
+    --accent-pond: #F0E491;
+    --accent-pond-dark: #B5A54D;
+    --accent-pond-subtle: rgba(240, 228, 145, 0.14);
+
+    --status-anomaly-bg: rgba(239, 68, 68, 0.16);
+    --status-anomaly-border: rgba(239, 68, 68, 0.45);
+    --status-anomaly-text: #FF4D4D;
+
+    --status-normal-bg: rgba(240, 228, 145, 0.16);
+    --status-normal-border: #B5A54D;
+    --status-normal-text: #F0E491;
+
+    --status-warn-bg: rgba(240, 228, 145, 0.16);
+    --status-warn-border: #B5A54D;
+    --status-warn-text: #F0E491;
+
+    --btn-primary-bg: #F0E491;
+    --btn-primary-hover: #DED17A;
+    --btn-primary-text: #081715;
+
+    --btn-secondary-bg: #14332F;
+    --btn-secondary-hover: #1B443F;
+    --btn-secondary-border: #1C4640;
+    --btn-secondary-text: #F4F8F6;
+
+    --glass-bg: rgba(14, 36, 33, 0.94);
+    --hud-bg: rgba(14, 36, 33, 0.96);
+    --scrollbar-thumb: rgba(240, 228, 145, 0.22);
+    --scrollbar-thumb-hover: rgba(240, 228, 145, 0.5);
+    --terminal-bg: #05100E;
+    --terminal-border: #183C37;
+  }
+
+  html {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-page);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    width: 100%;
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-page);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    overflow-x: hidden;
+  }
+
+  /* Smooth Theme Transitions — purely for color morphing (180ms) */
+  *,
+  *::before,
+  *::after {
+    transition-property: background-color, border-color, color, fill, stroke !important;
+    transition-duration: 180ms !important;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1) !important;
+  }
+
+  /* Exclude streaming media, video frames, canvas detections & explicit animations */
+  canvas,
+  video,
+  img,
+  canvas *,
+  video *,
+  #real-video-render-box,
+  #real-video-render-box *,
+  .no-theme-transition,
+  [data-no-transition],
+  .animate-pond-ripple,
+  .animate-duck-swim,
+  .animate-duck-swim * {
+    transition: none !important;
+  }
+
+  #root {
+    width: 100%;
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+  }
+
+  #modal-root {
+    position: relative;
+    z-index: 999999;
+  }
+
+  body.modal-open,
+  html.modal-open {
+    overflow: hidden !important;
+  }
+}
+
+/* Fullscreen backdrop & root coverage to prevent black gaps on large screens */
+:fullscreen,
+::backdrop,
+*:-webkit-full-screen {
+  background-color: var(--bg-page);
+}
+
+/* Custom subtle animations */
+@keyframes pondRipple {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.7;
+  }
+
+  50% {
+    transform: scale(1.6);
+    opacity: 0.25;
+  }
+
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+@keyframes duckSwim {
+
+  0%,
+  100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+
+  50% {
+    transform: translateY(-2px) rotate(1deg);
+  }
+}
+
+.animate-pond-ripple {
+  animation: pondRipple 3s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+}
+
+.animate-duck-swim {
+  animation: duckSwim 4s ease-in-out infinite;
+}
+
+/* Custom sleek scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* Panel utilities */
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Fullscreen viewport fix - guarantees 100% viewport coverage with no black letterboxing */
+#detection-hero-viewport:fullscreen,
+#detection-hero-viewport:-webkit-full-screen,
+#detection-hero-viewport:-moz-full-screen,
+#detection-hero-viewport:-ms-fullscreen {
+  width: 100vw !important;
+  height: 100vh !important;
+  min-height: 100vh !important;
+  max-height: 100vh !important;
+  border-radius: 0px !important;
+  border: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+}
+
+#detection-hero-viewport:fullscreen video,
+#detection-hero-viewport:fullscreen canvas,
+#detection-hero-viewport:-webkit-full-screen video,
+#detection-hero-viewport:-webkit-full-screen canvas {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+}
+
+/* Custom visible & sleek scrollbar for cards */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/* Invisible scrollbar utility (allows full scrolling with zero visible scrollbar) */
+.invisible-scrollbar::-webkit-scrollbar,
+.no-scrollbar::-webkit-scrollbar,
+.hidden-scrollbar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
+.invisible-scrollbar,
+.no-scrollbar,
+.hidden-scrollbar {
+  -ms-overflow-style: none !important;
+  /* IE and Edge */
+  scrollbar-width: none !important;
+  /* Firefox */
+}

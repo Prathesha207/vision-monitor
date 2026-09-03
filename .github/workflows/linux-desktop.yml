@@ -1,0 +1,55 @@
+name: Build Linux desktop application
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "vision-ai-backend/**"
+      - "vision-ai-frontend/**"
+      - ".github/workflows/linux-desktop.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  package-linux:
+    name: AppImage and Debian package (x64)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: vision-ai-frontend/package-lock.json
+
+      - name: Install Linux runtime and build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libgl1 libglib2.0-0
+
+      - name: Build bundled backend and Linux desktop artifacts
+        run: |
+          chmod +x vision-ai-backend/build_linux_desktop.sh
+          vision-ai-backend/build_linux_desktop.sh
+
+      - name: Upload Linux installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: vision-ai-linux-x64
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            vision-ai-frontend/dist_app/*.AppImage
+            vision-ai-frontend/dist_app/*.deb

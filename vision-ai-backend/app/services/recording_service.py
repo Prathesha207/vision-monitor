@@ -1,0 +1,242 @@
+"""
+Recording service — uses PyAV for per-frame timestamps.
+
+Why PyAV instead of cv2.VideoWriter:
+  cv2.VideoWriter stamps every frame at (frame_number / declared_fps).
+  When the OAK camera delivers 3.2 fps instead of the configured 10 fps
+  (auto-exposure in low light), the result is a 19-second video for a
+  60-second recording.
+
+  PyAV records each frame with the wall-clock time it actually arrived,
+  so the saved video is always the correct duration regardless of the
+  camera's delivery rate.  No fps parameter needed at recording start,
+  no post-recording patching, no ffmpeg subprocess.
+"""
+
+import av
+import cv2
+import os
+import queue
+import threading
+import time
+import logging
+from datetime import datetime
+
+logger = logging.getLogger("recording-service")
+
+# session_id → RecordingSession
+active_recordings: dict = {}
+
+
+class RecordingSession:
+    def __init__(
+        self,
+        session_id: str,
+        width: int,
+        height: int,
+        fps: float = 30.0,           # kept for API compatibility; not used for timestamps
+        root_path: str = None,
+        recording_format: str = "MJPEG",
+    ):
+        now = datetime.now()
+        root_path = root_path or os.path.join(os.path.expanduser("~"), "Desktop", "recordings")
+        folder = os.path.join(root_path, now.strftime("%Y-%m-%d"))
+        os.makedirs(folder, exist_ok=True)
+
+        fmt = (recording_format or "MJPEG").upper()
+
+        codec_name = "mjpeg" if fmt == "MJPEG" else "ffv1"
+        pix_fmt    = "yuvj420p" if fmt == "MJPEG" else "yuv420p"
+        ext        = ".avi" if fmt == "MJPEG" else ".mkv"
+
+        filename = now.strftime(f"session_%Y-%m-%d_%H-%M-%S{ext}")
+        self.video_path = os.path.join(folder, filename)
+        self.width  = width
+        self.height = height
+        self.fmt    = fmt
+
+        try:
+            self.container = av.open(self.video_path, mode="w")
+            # rate=1000 → time_base = 1/1000 s = 1 ms per PTS unit.
+            # The nominal "1000 fps" is metadata only; MKV players use
+            # the actual PTS differences between frames for timing.
+            self.stream = self.container.add_stream(codec_name, rate=1000)
+            self.stream.width   = width
+            self.stream.height  = height
+            self.stream.pix_fmt = pix_fmt
+            if fmt == "FFV1":
+                self.stream.options = {"level": "3"}  # highest FFV1 quality
+        except Exception as e:
+            logger.error(f"[RECORD] Failed to open container: {e}")
+            self.is_running = False
+            return
+
+        self.frame_queue = queue.Queue(maxsize=500)
+        self.is_running  = True
+        # Set start clock at session creation — not on first frame — so the
+        # container duration matches the wall-clock recording time exactly.
+        self._start_mono: float = time.monotonic()
+        self._frames_written = 0
+        self._last_bgr = None       # last frame received, used for pad-frame on stop
+        self._last_pts_ms: int = 0  # PTS of that frame
+
+        self.thread = threading.Thread(target=self._worker, daemon=True)
+        self.thread.start()
+        logger.info(f"[RECORD] Started: {self.video_path} | {codec_name} | {width}x{height}")
+
+    # ── Worker thread ─────────────────────────────────────────────────────────
+
+    def _worker(self):
+        try:
+            while self.is_running or not self.frame_queue.empty():
+                try:
+                    bgr, pts_ms = self.frame_queue.get(timeout=1.0)
+                except queue.Empty:
+                    continue
+
+                try:
+                    # BGR (OpenCV) → RGB → target pixel format
+                    rgb   = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+                    frame = av.VideoFrame.from_ndarray(rgb, format="rgb24")
+                    frame = frame.reformat(format=self.stream.pix_fmt)
+
+                    # pts_ms is milliseconds since recording start.
+                    # With time_base = 1/1000, one PTS unit = 1 ms.
+                    frame.pts = pts_ms
+
+                    for pkt in self.stream.encode(frame):
+                        self.container.mux(pkt)
+
+                    self._frames_written += 1
+                    if self._frames_written % 100 == 0:
+                        logger.info(f"[RECORD] Frames written: {self._frames_written}")
+
+                except Exception as e:
+                    logger.warning(f"[RECORD] Frame encode error: {e}")
+
+        except Exception as e:
+            logger.error(f"[RECORD] Worker error: {e}")
+        finally:
+            # Flush encoder and close container inside the worker so that
+            # stop() can join() and know the file is fully written.
+            try:
+                for pkt in self.stream.encode():
+                    self.container.mux(pkt)
+                self.container.close()
+                logger.info(
+                    f"[RECORD] Closed — {self._frames_written} frames → {self.video_path}"
+                )
+            except Exception as e:
+                logger.error(f"[RECORD] Container close error: {e}")
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    def add_frame(self, bgr):
+        if not self.is_running:
+            return
+
+        pts_ms = int((time.monotonic() - self._start_mono) * 1000)
+
+        self._last_bgr = bgr
+        self._last_pts_ms = pts_ms
+
+        try:
+            self.frame_queue.put_nowait((bgr, pts_ms))
+        except queue.Full:
+            # Drop oldest frame to make room for the newest
+            try:
+                self.frame_queue.get_nowait()
+                self.frame_queue.put_nowait((bgr, pts_ms))
+            except Exception:
+                pass
+
+    def stop(self):
+        # Compute the actual wall-clock recording duration right now.
+        # The last real frame arrived some time ago (depends on camera fps).
+        # Adding a duplicate of the last frame at "now" pads the container so
+        # the video duration matches the real recording time exactly.
+        if self._last_bgr is not None:
+            pad_pts_ms = int((time.monotonic() - self._start_mono) * 1000)
+            gap_ms = pad_pts_ms - self._last_pts_ms
+            logger.info(
+                f"[RECORD] Padding video by {gap_ms} ms "
+                f"(last frame at {self._last_pts_ms} ms → pad to {pad_pts_ms} ms)"
+            )
+            try:
+                self.frame_queue.put_nowait((self._last_bgr, pad_pts_ms))
+            except queue.Full:
+                try:
+                    self.frame_queue.get_nowait()
+                    self.frame_queue.put_nowait((self._last_bgr, pad_pts_ms))
+                except Exception:
+                    pass
+
+        logger.info(
+            f"[RECORD] Stopping — {self.frame_queue.qsize()} frames still in queue"
+        )
+        self.is_running = False
+        self.thread.join(timeout=30.0)
+        if self.thread.is_alive():
+            logger.warning("[RECORD] Worker thread did not finish within 30 s")
+        # Container is already closed by the worker's finally block
+
+
+# ── Module-level helpers ──────────────────────────────────────────────────────
+
+def _resolve_recording_path(root_path: str = None) -> str:
+    if root_path:
+        return root_path
+    try:
+        from app.core.database import SessionLocal
+        from app.models.camera_model import Camera
+        
+
+        db = SessionLocal()
+        try:
+            camera    = db.query(Camera).first()
+            inference = None
+            mode = getattr(inference, "mode", None) or "production"
+            path = (
+                getattr(camera, "recording_video_testing_path", None)
+                if mode == "testing"
+                else None
+            ) or getattr(camera, "recording_video_path", None)
+            return path or os.path.join(os.path.expanduser("~"), "Desktop", "recordings")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"[RECORD] Could not resolve path from DB: {e}")
+        return os.path.join(os.path.expanduser("~"), "Desktop", "recordings")
+
+
+def start_recording(
+    session_id: str,
+    width: int,
+    height: int,
+    fps: float = 30.0,
+    root_path: str = None,
+    recording_format: str = "MJPEG",
+) -> str:
+    logger.info(f"[RECORD] Creating session: {session_id} | format={recording_format}")
+    if session_id in active_recordings:
+        logger.warning("[RECORD] Session already exists — returning existing path")
+        return active_recordings[session_id].video_path
+
+    root_path = _resolve_recording_path(root_path)
+    session = RecordingSession(session_id, width, height, fps, root_path, recording_format)
+    active_recordings[session_id] = session
+    return session.video_path
+
+
+def write_frame(session_id: str, frame) -> None:
+    session = active_recordings.get(session_id)
+    if session:
+        session.add_frame(frame)
+
+
+def stop_recording(session_id: str) -> None:
+    session = active_recordings.pop(session_id, None)
+    if not session:
+        logger.warning(f"[RECORD] No active session: {session_id}")
+        return
+    session.stop()

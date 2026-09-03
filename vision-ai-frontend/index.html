@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en" data-theme="pond-light" class="theme-pond-light">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vision Monitor AI • High Precision Anomaly Detection</title>
+  <meta name="description"
+    content="Vision Monitor AI — Real-time Object Counting, YOLOv8 Vision Intelligence and Anomaly Detection." />
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('visionmonitor-theme');
+        if (saved === 'pond-dark' || saved === 'nature' || saved === 'pond-light') {
+          document.documentElement.setAttribute('data-theme', saved);
+          document.documentElement.classList.remove('theme-pond-light', 'theme-pond-dark', 'theme-nature', 'dark');
+          if (saved === 'pond-dark') {
+            document.documentElement.classList.add('theme-pond-dark', 'dark');
+          } else if (saved === 'nature') {
+            document.documentElement.classList.add('theme-nature', 'dark');
+          } else {
+            document.documentElement.classList.add('theme-pond-light');
+          }
+        }
+      } catch (e) { }
+    })();
+  </script>
+</head>
+
+<body data-theme="pond-light" class="theme-pond-light">
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
+</html>

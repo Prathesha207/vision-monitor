@@ -1,0 +1,126 @@
+# =========================
+# Storage
+# =========================
+storage/*
+!storage/.gitkeep
+
+# =========================
+# Logs
+# =========================
+logs/
+*.log
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# =========================
+# Virtual Environments
+# =========================
+.env
+.venv/
+venv/
+env/
+venv_linux/
+
+# =========================
+# Build / Distribution
+# =========================
+build/
+dist/
+.next/
+out/
+release/
+FailedFrames/
+
+# =========================
+# FastAPI / Uvicorn
+# =========================
+*.pid
+*.reload
+
+# =========================
+# ML / AI Models
+# =========================
+*.pt
+*.pth
+*.onnx
+*.h5
+
+# =========================
+# Archives
+# =========================
+*.zip
+*.rar
+*.7z
+*.tar
+*.gz
+
+# =========================
+# Executables / Binaries
+# =========================
+*.exe
+*.dll
+*.so
+*.dylib
+*.bin
+
+# Local package/build artifacts
+*.mp4
+*.whl
+!app/ml/duck_analyzer-1.0.8-py3-none-any.whl
+vision_ai.db*
+
+# =========================
+# Electron
+# =========================
+electron/dist/
+electron/build/
+
+# =========================
+# Node.js
+# =========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =========================
+# Database
+# =========================
+*.db
+*.sqlite3
+*.db-shm
+*.db-wal
+
+# =========================
+# Output / Debug
+# =========================
+debug_frames/
+recordings/
+output/
+
+# =========================
+# Testing / Coverage
+# =========================
+.coverage
+htmlcov/
+.pytest_cache/
+
+# =========================
+# IDE / Editor
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# OS Files
+# =========================
+.DS_Store
+Thumbs.db
+
+backend/*.exe
