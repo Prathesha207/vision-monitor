@@ -34,6 +34,7 @@ interface DetectionCanvasProps {
   onToggleRunning?: () => void;
   onStopInference?: () => void;
   onResumeInference?: () => void;
+  isStreaming?: boolean;
   onRequestSwitchMode?: (type: StreamSourceType) => void;
   fps: number;
   sourceType: StreamSourceType;
@@ -63,6 +64,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   onToggleRunning,
   onStopInference,
   onResumeInference,
+  isStreaming = false,
   onRequestSwitchMode,
   fps,
   sourceType,
@@ -656,7 +658,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
             )}
 
             {/* OAK Camera / Webcam Video Element */}
-            {isCameraSource && isRunning && (
+            {isCameraSource && isStreaming && (
               <img 
                 ref={cameraImgRef}
                 src={`${getApiBaseUrl()}/oak/stream`}
@@ -728,8 +730,8 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
               </div>
             )}
 
-            {/* OAK Camera Online & Idle (Waiting for user to click Start Inference) */}
-            {isCameraSource && isCameraConnected && !isRunning && (
+            {/* OAK Camera Online & Idle (waiting for the user to start streaming) */}
+            {isCameraSource && isCameraConnected && !isStreaming && (
               <div 
                 onClick={handleCanvasClick}
                 className="absolute inset-0 w-full h-full flex flex-col items-center justify-center text-center p-6 bg-[#0B1814] text-white z-10"
@@ -747,7 +749,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                   Live Sensor Standby
                 </h3>
                 <p className="text-xs sm:text-sm text-stone-300 max-w-md mb-5 leading-relaxed font-medium">
-                  DepthAI sensor pipeline is connected. Click <b>Start Inference</b> to begin real-time YOLO duck detection.
+                  DepthAI sensor pipeline is connected. Click <b>Start Stream</b> to display live frames, then start inference when ready.
                 </p>
 
                 <div className="flex flex-wrap items-center justify-center gap-2.5">

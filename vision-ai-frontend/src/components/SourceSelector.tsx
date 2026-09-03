@@ -29,6 +29,9 @@ interface SourceSelectorProps {
   onStopInference?: () => void;
   onResumeInference?: () => void;
   onRequestSwitchMode?: (type: StreamSourceType) => void;
+  isStreaming?: boolean;
+  onStartStream?: () => void;
+  onStopStream?: () => void;
   isCameraConnected?: boolean;
   cameraStartingState?: 'idle' | 'waking_camera' | 'waiting_frame' | 'ready';
 }
@@ -48,6 +51,9 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
   onStopInference,
   onResumeInference,
   onRequestSwitchMode,
+  isStreaming = false,
+  onStartStream,
+  onStopStream,
   isCameraConnected = true,
   cameraStartingState = 'ready',
 }) => {
@@ -131,6 +137,18 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   <span>{cameraStartingState === 'waking_camera' ? 'WAKING CAMERA...' : 'WARMING UP...'}</span>
                 </button>
+              ) : isCameraMode && !isStreaming ? (
+                <button
+                  onClick={() => {
+                    playWaterDropSound();
+                    onStartStream?.();
+                  }}
+                  title="Start camera stream"
+                  className="h-8 sm:h-9 flex items-center gap-1 sm:gap-2 px-2.5 sm:px-5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-[11px] sm:text-xs shadow-sm active:scale-95 cursor-pointer transition-all shrink-0"
+                >
+                  <Play className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-current" />
+                  <span className="whitespace-nowrap">START<span className="hidden sm:inline"> STREAM</span></span>
+                </button>
               ) : isRunning ? (
                 /* When Running: provide STOP INFERENCE button */
                 <div className="flex items-center gap-1 sm:gap-2">
@@ -166,6 +184,20 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                     <span className="whitespace-nowrap">START<span className="hidden sm:inline"> INFERENCE</span></span>
                   </button>
                 </div>
+              )}
+
+              {isCameraMode && isStreaming && !isRunning && (
+                <button
+                  onClick={() => {
+                    playWaterDropSound();
+                    onStopStream?.();
+                  }}
+                  title="Stop camera stream"
+                  className="h-8 sm:h-9 flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-4 rounded-xl bg-slate-600 hover:bg-slate-500 text-white font-bold text-[11px] sm:text-xs shadow-xs active:scale-95 cursor-pointer transition-all"
+                >
+                  <Square className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-current" />
+                  <span>STOP<span className="hidden sm:inline"> STREAM</span></span>
+                </button>
               )}
 
               {/* CLEAR button only visible for uploaded video */}

@@ -132,6 +132,7 @@ export default function App() {
   // Default to idle so the canvas does not look like inference is already running
   // before the user explicitly starts the model or selects a live camera stream.
   const [isRunning, setIsRunning] = useState<boolean>(false);
+  const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [isStarting, setIsStarting] = useState<boolean>(false);
   const [feedMode, setFeedMode] = useState<'raw' | 'inference'>('inference');
   const [sourceType, setSourceType] = useState<StreamSourceType>('uploaded-video');
@@ -681,18 +682,14 @@ export default function App() {
         const startRes = await cameraService.start();
         if (startRes.status === 'error') throw new Error(startRes.message);
 
-        const streamRes = await cameraService.startStream();
-          await fetch(getApiBaseUrl() + '/oak/inference/start/live', { method: 'POST' });
-        if (streamRes.status === 'error') throw new Error(streamRes.message);
-
-        setCameraStartingState('waiting_frame');
-        addLog('Step 2/3: Stream started â€¢ Waiting for camera sensor to warm up...', 'info');
+        setIsCameraDeviceActive(true);
+        setCameraStartingState('ready');
+        addLog('Camera connected. Click Start Stream to begin frame capture.', 'success');
 
         setTimeout(() => {
           setCameraStartingState('ready');
           setIsRunning(false);
-          showToast('success', 'OAK Camera stream active');
-          addLog('Step 3/3: First live frame received (1080p). Camera stream ready. Press Start Inference to begin.', 'success');
+          showToast('success', 'OAK Camera connected');
         }, 1500); // Wait a bit for the device to connect and return images
       } catch (err) {
         showToast('error', 'Failed to start camera device');
@@ -704,6 +701,7 @@ export default function App() {
       setCameraStartingState('ready');
       try {
         await cameraService.stopStream();
+        setIsStreaming(false);
         try { await fetch(getApiBaseUrl() + '/oak/inference/stop', { method: 'POST' }); } catch(e){ }
         try { await fetch(getApiBaseUrl() + '/oak/stop', { method: 'POST' }); } catch(e){ }
       } catch (e) { }
@@ -758,6 +756,7 @@ export default function App() {
 
       const streamRes = await cameraService.startStream();
       if (streamRes?.status === 'error') throw new Error(streamRes.message || 'Stream start failed');
+      setIsStreaming(true);
 
       const inferenceRes = await cameraService.startLiveInference('live');
       if (inferenceRes?.status === 'error') throw new Error(inferenceRes.message || 'Inference start failed');
@@ -788,18 +787,47 @@ export default function App() {
     setDucks([]);
 
     try {
-      const inferenceStop = await cameraService.stopLiveInference();
-      if (inferenceStop?.status === 'error') {
-        console.warn('Live inference stop returned an error:', inferenceStop.message);
-      }
-    } catch (err) {
-      console.warn('Live inference stop call failed:', err);
-    }
-
-    try {
       await cameraService.stopStream();
+      setIsStreaming(false);
     } catch (err) {
       console.warn('Stream stop call failed:', err);
+    }
+  };
+
+  const startCameraStream = async () => {
+    setCameraStartingState('waking_camera');
+    try {
+      if (!isCameraDeviceActive) {
+        const startRes = await cameraService.start();
+        if (startRes?.status === 'error') throw new Error(startRes.message || 'Camera start failed');
+        setIsCameraDeviceActive(true);
+      }
+      const streamRes = await cameraService.startStream();
+      if (streamRes?.status === 'error') throw new Error(streamRes.message || 'Stream start failed');
+      setIsStreaming(true);
+      setCameraStartingState('ready');
+      showToast('success', 'Camera stream started');
+      addLog('Camera stream started. Ready for display or inference.', 'success');
+    } catch (error) {
+      setCameraStartingState('ready');
+      showToast('error', error instanceof Error ? error.message : 'Unable to start camera stream');
+      addLog('Camera stream failed to start.', 'error');
+    }
+  };
+
+  const stopCameraStream = async () => {
+    if (isRunning) {
+      try { await cameraService.stopLiveInference(); } catch { /* stream can still stop */ }
+      setIsRunning(false);
+      setDucks([]);
+    }
+    try {
+      await cameraService.stopStream();
+      setIsStreaming(false);
+      showToast('info', 'Camera stream stopped');
+      addLog('Camera stream stopped.', 'info');
+    } catch {
+      showToast('error', 'Unable to stop camera stream');
     }
   };
 
@@ -846,9 +874,10 @@ export default function App() {
       setCameraStartingState('ready');
       showToast('info', 'Inference paused. Click Resume or Start.');
       addLog('Inference paused â€¢ Model evaluation temporarily suspended.', 'info');
-      try {
-        await stopCameraPipeline();
-      } catch (e) { }
+      if (sourceType === 'oak-camera' || sourceType === 'webcam') {
+        try { await cameraService.stopLiveInference(); } catch (e) { }
+        setDucks([]);
+      }
       if (videoSessionId) {
         fetch(`${getApiBaseUrl()}/video/stop/${videoSessionId}`, { method: 'POST' })
           .catch(() => {});
@@ -883,7 +912,7 @@ export default function App() {
     setDucks([]);
 
     if (sourceType === 'oak-camera' || sourceType === 'webcam') {
-      stopCameraPipeline().catch(() => {});
+      cameraService.stopLiveInference().catch(() => {});
     }
     
     showToast('info', 'Inference stopped. Pipeline paused.');
@@ -906,6 +935,18 @@ export default function App() {
     setTimeout(() => setIsStarting(false), 1000);
     setIsRunning(true);
     setCameraStartingState('ready');
+    if (sourceType === 'oak-camera' || sourceType === 'webcam') {
+      cameraService.startLiveInference('live')
+        .then((result) => {
+          if (result?.status === 'error') throw new Error(result.message || 'Inference start failed');
+          showToast('success', 'Inference started');
+          addLog('AI inference started on the live camera stream.', 'success');
+        })
+        .catch((error) => {
+          setIsRunning(false);
+          showToast('error', error instanceof Error ? error.message : 'Unable to start inference');
+        });
+    }
     if (videoSessionId) {
       fetch(`${getApiBaseUrl()}/video/start/${videoSessionId}`, { method: 'POST' })
         .catch(err => console.error("Failed to start backend inference", err));
@@ -1047,6 +1088,9 @@ export default function App() {
           onToggleRunning={handleToggleRunning}
           onStopInference={handleStopInference}
           onResumeInference={handleResumeInference}
+          isStreaming={isStreaming}
+          onStartStream={startCameraStream}
+          onStopStream={stopCameraStream}
           expectedDucks={expectedDucks}
           onExpectedDucksChange={(count) => {
             setExpectedDucks(count);
@@ -1099,6 +1143,7 @@ export default function App() {
               onToggleRunning={handleToggleRunning}
               onStopInference={handleStopInference}
               onResumeInference={handleResumeInference}
+              isStreaming={isStreaming}
               onRequestSwitchMode={handleRequestSwitchMode}
               fps={fps}
               sourceType={sourceType}
