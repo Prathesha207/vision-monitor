@@ -292,7 +292,9 @@ export default function App() {
   const hasActiveVideo = isVideoSource && Boolean(customVideoUrl || customVideoName);
   const isCameraSource = sourceType === 'oak-camera' || sourceType === 'webcam';
   const hasActiveStream = (isVideoSource && hasActiveVideo) || (isCameraSource && isCameraDeviceActive && cameraStartingState === 'ready');
-  const isStandby = !hasActiveStream || !isRunning;
+  // Camera streaming and AI inference are independent. A live camera feed
+  // must not be labeled inactive merely because inference is paused.
+  const isStandby = !hasActiveStream || (isCameraSource ? !isStreaming : !isRunning);
 
   // Active ducks currently on the stream
   const activeDucks = useMemo(() => {

@@ -730,53 +730,6 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
               </div>
             )}
 
-            {/* OAK Camera Online & Idle (waiting for the user to start streaming) */}
-            {isCameraSource && isCameraConnected && !isStreaming && (
-              <div 
-                onClick={handleCanvasClick}
-                className="absolute inset-0 w-full h-full flex flex-col items-center justify-center text-center p-6 bg-[#0B1814] text-white z-10"
-              >
-                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-emerald-950/80 border border-emerald-500/40 flex items-center justify-center mb-3 sm:mb-4 text-emerald-400 shadow-md">
-                  <Camera className="w-7 h-7 sm:w-8 sm:h-8" />
-                </div>
-                
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-950/90 border border-emerald-500/40 text-emerald-200 text-xs font-semibold mb-2.5 shadow-sm">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  OAK CAMERA ONLINE &amp; READY
-                </div>
-
-                <h3 className="text-base sm:text-lg lg:text-xl font-bold text-white mb-1">
-                  Live Sensor Standby
-                </h3>
-                <p className="text-xs sm:text-sm text-stone-300 max-w-md mb-5 leading-relaxed font-medium">
-                  DepthAI sensor pipeline is connected. Click <b>Start Stream</b> to display live frames, then start inference when ready.
-                </p>
-
-                <div className="flex flex-wrap items-center justify-center gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      playWaterDropSound();
-                      if (onResumeInference) onResumeInference();
-                      else if (onToggleRunning) onToggleRunning();
-                    }}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all cursor-pointer active:scale-95"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>Start Live Inference</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onRequestSwitchMode?.('uploaded-video')}
-                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-stone-800 hover:bg-stone-700 border border-stone-700 text-stone-200 font-semibold text-xs transition-all cursor-pointer active:scale-95"
-                  >
-                    <Video className="w-3.5 h-3.5" />
-                    <span>Switch to Video Mode</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
             {/* Ripple canvas layer sized directly to the active video rectangle */}
             <canvas
               ref={canvasRef}
@@ -1030,6 +983,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
             {/* Recording Button (Camera Only) */}
             {isCameraSource && (
               <button
+                disabled={!isStreaming && !isRecording}
                 onClick={() => {
                   playWaterDropSound();
                   if (isRecording) {
@@ -1041,10 +995,13 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                     }
                   }
                 }}
-                className={`h-7 sm:h-8 px-3 flex items-center gap-2 rounded-xl backdrop-blur-md border text-xs font-bold transition-all shrink-0 shadow-xs cursor-pointer active:scale-95 ${
+                title={isStreaming ? (isRecording ? 'Stop recording' : 'Record live camera stream') : 'Start the camera stream before recording'}
+                className={`h-7 sm:h-8 px-3 flex items-center gap-2 rounded-xl backdrop-blur-md border text-xs font-bold transition-all shrink-0 shadow-xs active:scale-95 ${
                   isRecording
                     ? 'bg-red-500/20 border-red-500/50 text-red-400 animate-pulse'
-                    : 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
+                    : isStreaming
+                      ? 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] cursor-pointer'
+                      : 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-muted)] opacity-50 cursor-not-allowed'
                 }`}
               >
                 <div className={`w-2.5 h-2.5 rounded-full ${isRecording ? 'bg-red-500' : 'bg-red-500/50'}`} />
