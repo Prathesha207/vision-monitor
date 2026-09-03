@@ -371,16 +371,12 @@ class VideoInferenceService:
                 model_path = self._resolve_model_path(session_cfg.get("model_path"), ml_dir, base_dir)
                 session_cfg["model_path"] = model_path
 
-                # Opt-in: set save_raw_frames: true in config.yaml if you want
-                # every frame (and every anomaly frame) dumped to disk. Off by
-                # default -- this was never part of DuckAnalyzer's output, it's
-                # extra disk I/O this service adds on top.
-                save_raw_frames = bool(session_cfg.get("save_raw_frames", False))
-                if save_raw_frames:
-                    frames_dir = os.path.join(session_dir, "frames")
-                    anomaly_frames_dir = os.path.join(session_dir, "anomaly_frames")
-                    os.makedirs(frames_dir, exist_ok=True)
-                    os.makedirs(anomaly_frames_dir, exist_ok=True)
+                # Always save raw frames and anomaly frames for complete desktop archive
+                save_raw_frames = True
+                frames_dir = os.path.join(session_dir, "raw_frames")
+                anomaly_frames_dir = os.path.join(session_dir, "anomaly_frames")
+                os.makedirs(frames_dir, exist_ok=True)
+                os.makedirs(anomaly_frames_dir, exist_ok=True)
 
                 # Dynamic hardware detection: use GPU if CUDA is available, else fallback cleanly to CPU
                 try:
@@ -650,6 +646,47 @@ class VideoInferenceService:
                 # task actually acquired it.
                 if claimed_inference_lock:
                     app_state.exit_inference("video")
+
+                # ── Archive permanent copy to Desktop/inference_results ──
+                try:
+                    from datetime import datetime
+                    import shutil
+                    from app.core.app_paths import get_desktop_dir
+
+                    desktop = get_desktop_dir()
+                    today_str = datetime.now().strftime("%Y-%m-%d")
+                    if desktop:
+                        archive_dir = os.path.join(str(desktop), "inference_results", today_str, session_id)
+                    else:
+                        base_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                        archive_dir = os.path.join(base_root, "storage", "inference_results", today_str, session_id)
+
+                    os.makedirs(archive_dir, exist_ok=True)
+
+                    if os.path.exists(output_path):
+                        shutil.copy2(output_path, archive_dir)
+                    if os.path.exists(results_json_path):
+                        shutil.copy2(results_json_path, archive_dir)
+                    if os.path.exists(thumbnail_dir) and os.listdir(thumbnail_dir):
+                        dest_thumb = os.path.join(archive_dir, "thumbnails")
+                        if os.path.exists(dest_thumb):
+                            shutil.rmtree(dest_thumb)
+                        shutil.copytree(thumbnail_dir, dest_thumb)
+                    if os.path.exists(frames_dir) and os.listdir(frames_dir):
+                        dest_raw = os.path.join(archive_dir, "raw_frames")
+                        if os.path.exists(dest_raw):
+                            shutil.rmtree(dest_raw)
+                        shutil.copytree(frames_dir, dest_raw)
+                    if os.path.exists(anomaly_frames_dir) and os.listdir(anomaly_frames_dir):
+                        dest_anom = os.path.join(archive_dir, "anomaly_frames")
+                        if os.path.exists(dest_anom):
+                            shutil.rmtree(dest_anom)
+                        shutil.copytree(anomaly_frames_dir, dest_anom)
+
+                    session["stats"]["archived_results_dir"] = archive_dir
+                    logger.info(f"[ARCHIVE] Successfully copied finalized inference results to: {archive_dir}")
+                except Exception as arch_err:
+                    logger.warning(f"[ARCHIVE] Could not copy inference results to Desktop archive: {arch_err}")
 
                 # Never close the replacement stream or schedule expiry for a
                 # newer run of this same session.

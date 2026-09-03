@@ -1,5 +1,4 @@
 import { mapDetectionsToDucks } from './utils/mlDataMapper';
-import { StartupScreen } from './components/StartupScreen';
 import { LandingScreen } from './components/LandingScreen';
 import { lockScroll, unlockScroll } from './utils/scrollLock';
 /**
@@ -102,9 +101,28 @@ function dedupeDucks(ducks: DuckEntity[], iouThreshold = 0.25): DuckEntity[] {
   return kept;
 }
 export default function App() {
-  // 0. Backend readiness gate â€” show startup screen until /health responds
-  const [backendReady, setBackendReady] = useState<boolean>(false);
+  // 0. System initialization and live backend health tracking
   const [systemInitialized, setSystemInitialized] = useState<boolean>(false);
+  const [isBackendConnected, setIsBackendConnected] = useState<boolean>(true);
+
+  // Background health polling to keep main page status up to date
+  useEffect(() => {
+    let isMounted = true;
+    const checkBackend = async () => {
+      try {
+        const res = await fetch(`${getApiBaseUrl()}/health`, { method: 'GET', cache: 'no-store' });
+        if (isMounted) setIsBackendConnected(res.ok);
+      } catch {
+        if (isMounted) setIsBackendConnected(false);
+      }
+    };
+    checkBackend();
+    const interval = setInterval(checkBackend, 3000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   // 1. Theme and UI State
   const [theme, setTheme] = useState<ThemeMode>(() => {
@@ -279,13 +297,7 @@ export default function App() {
     };
   }, []);
 
-  const handleInitializeSystem = (videoFile?: File) => {
-    if (videoFile) {
-      setSourceType('uploaded-video');
-      setInitialUploadFile(videoFile);
-    } else if (cameraConnected === true) {
-      setSourceType('oak-camera');
-    }
+  const handleInitializeSystem = () => {
     setSystemInitialized(true);
   };
 
@@ -639,11 +651,21 @@ export default function App() {
     setCustomVideoUrl(url);
     setCustomVideoName(name);
     setSourceType('uploaded-video');
+    const isStreamUrl = url.includes('/video/stream/');
+    setLocalPreviewUrl(url);
+    setCustomVideoUrl(url);
+    setCustomVideoName(name);
+    setSourceType('uploaded-video');
     setAutoStartRecordedInference(false);
-    setIsRunning(false);
+    setIsRunning(isStreamUrl);
     setCameraStartingState('ready');
-    showToast('success', isRecordedStream ? 'Recorded video ready! Click "Start Inference" to analyze.' : `Video "${name}" uploaded. Click "Start Inference" to begin.`);
-    addLog(isRecordedStream ? `Recorded video loaded: "${name}". Ready for inference.` : `Custom video loaded: "${name}". Ready for inference.`, 'info');
+    if (isStreamUrl) {
+      showToast('success', `Inference started for "${name}"`);
+      addLog(`Desktop video inference started: "${name}"`, 'success');
+    } else {
+      showToast('success', isRecordedStream ? 'Recorded video ready! Click "Start Inference" to analyze.' : `Video "${name}" uploaded. Click "Start Inference" to begin.`);
+      addLog(isRecordedStream ? `Recorded video loaded: "${name}". Ready for inference.` : `Custom video loaded: "${name}". Ready for inference.`, 'info');
+    }
   };
 
   const handleClearCustomVideo = () => {
@@ -1041,11 +1063,6 @@ export default function App() {
     }
   }, [pendingSourceSwitch, settingsOpen, helpOpen]);
 
-  // Show startup loading screen until the backend is confirmed ready
-  if (!backendReady) {
-    return <StartupScreen onReady={() => setBackendReady(true)} />;
-  }
-
   if (!systemInitialized) {
     return (
       <LandingScreen
@@ -1166,6 +1183,7 @@ export default function App() {
               videoDimensions={videoDimensions}
               isCameraConnected={effectiveCameraConfig.connected}
               initialUploadFile={initialUploadFile}
+              isBackendConnected={isBackendConnected}
             />
           </main>
 

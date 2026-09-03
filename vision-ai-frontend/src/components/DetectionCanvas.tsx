@@ -51,6 +51,7 @@ interface DetectionCanvasProps {
   videoDimensions?: { width: number; height: number } | null;
   isCameraConnected?: boolean;
   initialUploadFile?: File;
+  isBackendConnected?: boolean;
 }
 
 export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
@@ -81,6 +82,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   videoDimensions,
   isCameraConnected = false,
   initialUploadFile,
+  isBackendConnected = true,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -100,6 +102,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
   const [isCameraDeviceActive, setIsCameraDeviceActive] = useState<boolean>(true);
   const [streamCacheBuster, setStreamCacheBuster] = useState<number>(Date.now());
+  const [isSelectingVideo, setIsSelectingVideo] = useState<boolean>(false);
 
   const ripplesRef = useRef<{ x: number; y: number; radius: number; opacity: number }[]>([]);
   const trailHistoryRef = useRef<Record<string, { x: number; y: number }[]>>({});
@@ -419,6 +422,52 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
     }
   };
 
+  const handleSelectVideoAndStart = async () => {
+    // 1. Check if running in Electron desktop app with electronAPI.selectFile
+    const electronApi = (window as any).electronAPI;
+    if (electronApi && typeof electronApi.selectFile === 'function') {
+      try {
+        setIsSelectingVideo(true);
+        const filePath = await electronApi.selectFile();
+        if (!filePath) {
+          setIsSelectingVideo(false);
+          return;
+        }
+
+        const baseUrl = getApiBaseUrl();
+        const res = await fetch(`${baseUrl}/video/inference/path`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            video_path: filePath,
+            expected_ducks: expectedDucks,
+          }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || 'Failed to start path inference');
+        }
+
+        const data = await res.json();
+        const filename = data.video_name || filePath.split(/[/\\]/).pop() || 'video.mp4';
+
+        if (onCustomVideoUploaded) {
+          const streamUrl = `${baseUrl}/video/stream/${data.session_id}`;
+          onCustomVideoUploaded(streamUrl, filename, data.session_id);
+        }
+      } catch (err: any) {
+        console.error('Desktop video selection error:', err);
+      } finally {
+        setIsSelectingVideo(false);
+      }
+      return;
+    }
+
+    // 2. Browser fallback: open HTML5 file picker for web development
+    fileInputRef.current?.click();
+  };
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     if (isVideoSource) {
@@ -529,18 +578,44 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
 
             {/* Title & Instructions */}
             <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-[var(--text-primary)] mb-1 sm:mb-2 shrink-0">
-              Upload Video for Inference
+              Select Video for Inference
             </h3>
-            <p className="text-xs sm:text-sm lg:text-base text-[var(--text-secondary)] max-w-md mb-3 sm:mb-5 shrink-0">
-              Drag &amp; drop your surveillance video here, or{' '}
+            <p className="text-xs sm:text-sm lg:text-base text-[var(--text-secondary)] max-w-md mb-4 sm:mb-6 shrink-0">
+              Choose a video from your computer to start AI inspection.
+            </p>
+
+            {/* Desktop Action Button */}
+            <div className="mb-4 sm:mb-6 shrink-0">
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="font-bold text-[var(--accent-pond)] underline underline-offset-4 hover:opacity-80 cursor-pointer transition-opacity"
+                disabled={!isBackendConnected || isSelectingVideo}
+                onClick={handleSelectVideoAndStart}
+                className={`flex items-center gap-2.5 px-6 sm:px-8 py-3 rounded-2xl font-bold text-sm sm:text-base shadow-md transition-all active:scale-95 ${
+                  !isBackendConnected
+                    ? 'bg-[var(--bg-card)] text-[var(--text-muted)] border border-[var(--border-color)] cursor-not-allowed opacity-70'
+                    : isSelectingVideo
+                    ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] cursor-wait opacity-80'
+                    : 'bg-[var(--btn-primary-bg)] hover:bg-[var(--btn-primary-hover)] text-[var(--btn-primary-text)] cursor-pointer hover:shadow-lg hover:shadow-[var(--accent-pond)]/20'
+                }`}
               >
-                browse files
+                {isSelectingVideo ? (
+                  <>
+                    <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
+                    <span>Selecting Video...</span>
+                  </>
+                ) : !isBackendConnected ? (
+                  <>
+                    <span className="w-2 h-2 rounded-full bg-rose-500" />
+                    <span>Backend Offline</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
+                    <span>Select Video &amp; Start Inference</span>
+                  </>
+                )}
               </button>
-            </p>
+            </div>
 
             {/* Supported Formats */}
             <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2.5 shrink-0">
@@ -553,8 +628,8 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
               <span className="px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[10px] sm:text-xs font-mono font-medium text-[var(--text-secondary)]">
                 MOV
               </span>
-              <span className="px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-lg bg-[var(--accent-pond-subtle)] text-[10px] sm:text-xs font-mono font-semibold text-[var(--accent-pond)] border border-[var(--border-color)]">
-                1080p / 4K UHD
+              <span className="px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[10px] sm:text-xs font-mono font-medium text-[var(--text-secondary)]">
+                MKV
               </span>
             </div>
 

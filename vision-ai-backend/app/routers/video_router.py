@@ -200,3 +200,42 @@ async def update_expected(session_id: str, payload: ExpectedCountUpdate):
     
     ml_inference_service.update_expected_ducks(session_id, payload.count)
     return {"message": "Expected duck count updated."}
+
+
+class StartPathInferenceRequest(BaseModel):
+    video_path: str
+    expected_ducks: int = 18
+
+@router.post("/inference/path")
+async def start_path_inference(data: StartPathInferenceRequest, background_tasks: BackgroundTasks):
+    video_path = os.path.abspath(data.video_path.strip('"').strip("'"))
+    if not os.path.exists(video_path) or not os.path.isfile(video_path):
+        return JSONResponse(status_code=400, content={"message": f"File does not exist: {video_path}"})
+    
+    ext = os.path.splitext(video_path)[1].lower()
+    valid_exts = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v"}
+    if ext not in valid_exts:
+        return JSONResponse(status_code=400, content={"message": f"Unsupported video extension: {ext}"})
+
+    filename = os.path.basename(video_path)
+    try:
+        session_id = ml_inference_service.create_session(data.expected_ducks, original_filename=filename)
+    except RuntimeError as e:
+        return JSONResponse(status_code=409, content={"message": str(e)})
+
+    session = ml_inference_service.sessions.get(session_id)
+    if session:
+        session["inference_video_path"] = video_path
+        session["status"] = "ready"
+        session["stats"]["status"] = "ready"
+
+    run_seq = ml_inference_service.start_run(session_id)
+    background_tasks.add_task(
+        ml_inference_service.process_video_task,
+        session_id,
+        video_path,
+        filename,
+        run_seq,
+    )
+    return {"session_id": session_id, "status": "started", "video_name": filename}
+
