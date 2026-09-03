@@ -10,6 +10,12 @@ if [[ ! -x "$BACKEND_DIR/.venv/bin/python" ]]; then
   exit 1
 fi
 
+if [[ ! -x "$FRONTEND_DIR/node_modules/.bin/vite" ]]; then
+  echo "Frontend dependencies are missing. Run ./setup_linux.sh first."
+  echo "Or run: cd $FRONTEND_DIR && npm install --include=optional"
+  exit 1
+fi
+
 cleanup() {
   kill "$BACKEND_PID" "$FRONTEND_PID" 2>/dev/null || true
 }
