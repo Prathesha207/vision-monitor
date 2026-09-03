@@ -21,6 +21,15 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# Clean up any leftover processes on port 8000 or 5173
+if command -v fuser >/dev/null 2>&1; then
+  fuser -k 8000/tcp 2>/dev/null || true
+  fuser -k 5173/tcp 2>/dev/null || true
+elif command -v lsof >/dev/null 2>&1; then
+  lsof -ti:8000 | xargs kill -9 2>/dev/null || true
+  lsof -ti:5173 | xargs kill -9 2>/dev/null || true
+fi
+
 cd "$BACKEND_DIR"
 .venv/bin/python -m uvicorn app.main:app --reload --port 8000 &
 BACKEND_PID=$!
