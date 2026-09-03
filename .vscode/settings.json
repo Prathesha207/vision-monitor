@@ -1,0 +1,14 @@
+﻿{
+  "python.defaultInterpreterPath": "C:\\Users\\EmageVision\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/vision-ai-backend",
+    "${workspaceFolder}/vision-ai-backend/app"
+  ],
+  "python.autoComplete.extraPaths": [
+    "${workspaceFolder}/vision-ai-backend",
+    "${workspaceFolder}/vision-ai-backend/app"
+  ],
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportMissingModuleSource": "none"
+  }
+}
