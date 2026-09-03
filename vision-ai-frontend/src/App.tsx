@@ -171,6 +171,7 @@ export default function App() {
   const [customVideoUrl, setCustomVideoUrl] = useState<string | undefined>();
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | undefined>();
   const [videoSessionId, setVideoSessionId] = useState<string | null>(null);
+  const [autoStartRecordedInference, setAutoStartRecordedInference] = useState(false);
   const [customVideoName, setCustomVideoName] = useState<string | undefined>();
   const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number } | null>(null);
 
@@ -620,6 +621,7 @@ export default function App() {
 
     if (sessionId) {
       setVideoSessionId(sessionId);
+      if (isRecordedStream) setAutoStartRecordedInference(true);
     }
 
     if (isRecordedStream) {
@@ -867,6 +869,15 @@ export default function App() {
       setIsStarting(false);
     }
   };
+
+  // A camera recording is already a completed input video. Start its normal
+  // uploaded-video inference flow automatically after the upload returns a
+  // backend session ID, so Record -> review -> inference is one workflow.
+  useEffect(() => {
+    if (!autoStartRecordedInference || !videoSessionId || sourceType !== 'uploaded-video') return;
+    setAutoStartRecordedInference(false);
+    void startVideoInference();
+  }, [autoStartRecordedInference, videoSessionId, sourceType]);
 
   // SEQUENTIAL ONLINE / CAMERA MODE STARTUP FLOW
   const handleToggleRunning = async () => {
