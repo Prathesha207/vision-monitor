@@ -20,13 +20,17 @@ python -m pip install -r "$BACKEND_DIR/requirements.txt"
 
 if [[ "${USE_CUDA:-0}" == "1" || ( "${USE_CUDA:-auto}" == "auto" && -n "$(command -v nvidia-smi 2>/dev/null || true)" ) ]]; then
   echo "NVIDIA GPU detected/requested; installing CUDA-enabled PyTorch..."
-  PYTORCH_CUDA_INDEX="${PYTORCH_CUDA_INDEX:-https://download.pytorch.org/whl/cu128}"
-  if ! python -m pip install --force-reinstall \
-    --index-url "$PYTORCH_CUDA_INDEX" \
-    torch torchvision; then
-    echo "CUDA wheel index $PYTORCH_CUDA_INDEX is unavailable for this Python/platform."
-    echo "Retry with: PYTORCH_CUDA_INDEX=https://download.pytorch.org/whl/cu126 USE_CUDA=1 ./build_linux_desktop.sh"
-    exit 1
+  if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
+    if python -c "import torch; raise SystemExit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
+      echo "ARM64 vendor PyTorch with CUDA is already installed; keeping it."
+    else
+      echo "ARM64 detected without vendor CUDA PyTorch; building with CPU PyTorch."
+    fi
+  else
+    PYTORCH_CUDA_INDEX="${PYTORCH_CUDA_INDEX:-https://download.pytorch.org/whl/cu128}"
+    python -m pip install --force-reinstall \
+      --index-url "$PYTORCH_CUDA_INDEX" \
+      torch torchvision
   fi
 else
   echo "Building with CPU-compatible PyTorch. Set USE_CUDA=1 to force CUDA."
