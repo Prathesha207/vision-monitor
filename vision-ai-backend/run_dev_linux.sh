@@ -6,14 +6,20 @@ BACKEND_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRONTEND_DIR="$(cd "$BACKEND_DIR/../vision-ai-frontend" && pwd)"
 
 if [[ ! -x "$BACKEND_DIR/.venv/bin/python" ]]; then
-  echo "Backend environment is missing. Run ./setup_linux.sh first."
-  exit 1
+  echo "Backend environment is missing. Creating environment and running setup..."
+  bash "$BACKEND_DIR/setup_linux.sh"
+fi
+
+# Fast import check (<0.05s): Only installs if packages are missing
+if ! "$BACKEND_DIR/.venv/bin/python" -c "import fastapi, uvicorn, cv2, torch, yaml" 2>/dev/null; then
+  echo "First-time setup: installing backend requirements..."
+  "$BACKEND_DIR/.venv/bin/python" -m pip install -r "$BACKEND_DIR/requirements.txt"
 fi
 
 if [[ ! -x "$FRONTEND_DIR/node_modules/.bin/vite" ]]; then
-  echo "Frontend dependencies are missing. Run ./setup_linux.sh first."
-  echo "Or run: cd $FRONTEND_DIR && npm install --include=optional"
-  exit 1
+  echo "Frontend dependencies are missing. Installing node_modules..."
+  cd "$FRONTEND_DIR" && npm install --include=optional
+  cd "$BACKEND_DIR"
 fi
 
 # Configurable base port (default 8000, or override with BACKEND_PORT=8080)

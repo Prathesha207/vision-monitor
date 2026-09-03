@@ -55,7 +55,8 @@ pyinstaller --noconfirm --clean --onedir --name backend run.py \
   --collect-all segmentation_models_pytorch \
   --collect-all depthai \
   --collect-all av \
-  --collect-all duck_analyzer
+  --collect-all duck_analyzer \
+  --collect-all mediapipe
 
 # Electron expects resources/backend/backend on Linux. Use a fresh Linux
 # checkout, because this replaces any Windows backend.exe copied there.
