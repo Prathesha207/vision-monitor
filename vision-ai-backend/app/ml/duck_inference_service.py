@@ -25,7 +25,10 @@ from typing import Dict, Any, Optional, Tuple
 try:
     from duck_analyzer import DuckAnalyzer
 except ImportError:
-    DuckAnalyzer = None
+    try:
+        from app.ml.duck_analyzer.analyzer import DuckAnalyzer
+    except ImportError:
+        DuckAnalyzer = None
 
 from app.ml import app_state  # shared GPU-mode flag used by ml_inference.py too
 

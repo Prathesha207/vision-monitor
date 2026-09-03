@@ -39,7 +39,13 @@ class RecordingSession:
         recording_format: str = "MJPEG",
     ):
         now = datetime.now()
-        root_path = root_path or os.path.join(os.path.expanduser("~"), "Desktop", "recordings")
+        if not root_path:
+            desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+            if os.path.exists(desktop):
+                root_path = os.path.join(desktop, "recordings")
+            else:
+                # Headless Linux fallback: save into project storage/recordings
+                root_path = os.path.join(os.getcwd(), "storage", "recordings")
         folder = os.path.join(root_path, now.strftime("%Y-%m-%d"))
         os.makedirs(folder, exist_ok=True)
 
@@ -181,7 +187,13 @@ class RecordingSession:
         # Container is already closed by the worker's finally block
 
 
-# ── Module-level helpers ──────────────────────────────────────────────────────
+def _get_default_recording_path() -> str:
+    desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+    if os.path.exists(desktop):
+        return os.path.join(desktop, "recordings")
+    backend_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(backend_root, "storage", "recordings")
+
 
 def _resolve_recording_path(root_path: str = None) -> str:
     if root_path:
@@ -201,12 +213,13 @@ def _resolve_recording_path(root_path: str = None) -> str:
                 if mode == "testing"
                 else None
             ) or getattr(camera, "recording_video_path", None)
-            return path or os.path.join(os.path.expanduser("~"), "Desktop", "recordings")
+            default_path = _get_default_recording_path()
+            return path or default_path
         finally:
             db.close()
     except Exception as e:
         logger.warning(f"[RECORD] Could not resolve path from DB: {e}")
-        return os.path.join(os.path.expanduser("~"), "Desktop", "recordings")
+        return _get_default_recording_path()
 
 
 def start_recording(

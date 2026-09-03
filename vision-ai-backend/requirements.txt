@@ -124,6 +124,7 @@ scipy>=1.7.0
 PyYAML>=5.4.0
 torch>=2.0.0
 torchvision>=0.15.0
+mediapipe>=0.10.14
 
 # Build dependency for build.py and the Linux desktop script.
 pyinstaller>=6.0.0

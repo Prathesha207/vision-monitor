@@ -378,8 +378,8 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
           setTimeout(() => {
             setUploadProgress(null);
             if (onCustomVideoUploaded) {
-              const backendVideoUrl = `${API_BASE_URL}/video/raw/${data.session_id}`;
-              onCustomVideoUploaded(backendVideoUrl, file.name, data.session_id);
+              const localBlobUrl = URL.createObjectURL(file);
+              onCustomVideoUploaded(localBlobUrl, file.name, data.session_id);
             }
           }, 350);
         } catch (e) {
@@ -643,7 +643,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
               <img
                 src={effectiveVideoUrl}
                 alt="Backend Inference Stream"
-                className="w-full h-full block object-contain select-none pointer-events-auto z-10 relative"
+                className={`w-full h-full block object-contain select-none pointer-events-auto z-10 ${isFirstFrameLoaded ? 'relative opacity-100' : 'absolute inset-0 opacity-0 pointer-events-none'}`}
                 onLoad={(e) => {
                   setIsFirstFrameLoaded(true);
                   const img = e.currentTarget;

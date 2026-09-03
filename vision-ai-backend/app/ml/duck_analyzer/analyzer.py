@@ -318,10 +318,8 @@ class DuckAnalyzer:
                     min_tracking_confidence=self.hand_track_conf,
                 )
             except ImportError:
-                raise ImportError(
-                    "hand_backend is 'mediapipe' but the mediapipe package is "
-                    "not installed. Run: pip install mediapipe  (or set "
-                    "hand_backend: yolo in config.yaml to use a YOLO model).")
+                print("[WARN] mediapipe is not installed -> hand detection disabled. (Install mediapipe with 'pip install mediapipe' to enable hand detection).")
+                self._mp_hands = None
         elif self.hand_backend == "yolo":
             if self.hand_model_path:
                 self.hand_model = YOLO(self.hand_model_path)

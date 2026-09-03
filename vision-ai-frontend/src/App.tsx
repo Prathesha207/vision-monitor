@@ -621,13 +621,12 @@ export default function App() {
 
     if (sessionId) {
       setVideoSessionId(sessionId);
-      if (isRecordedStream) setAutoStartRecordedInference(true);
     }
 
     if (isRecordedStream) {
-      // Auto-stop camera to smoothly transition into inference playback
+      // Auto-stop camera to smoothly transition into video preview
       setIsRunning(false);
-      addLog('Camera recording finished. Switching to Inference mode...', 'success');
+      addLog('Camera recording finished. Ready for inference.', 'success');
     }
 
     if (name.toLowerCase().includes('_annotated') || name.toLowerCase().startsWith('annotated_')) {
@@ -635,22 +634,16 @@ export default function App() {
       addLog(`Warning: "${name}" contains baked-in annotations from a previous run.`, 'anomaly');
     }
 
-    // Keep the local uploaded file as the visible source so the video plays immediately.
-    // Only switch to the backend MJPEG stream when inference is actually running.
-    if (url.startsWith('blob:')) {
-      setLocalPreviewUrl(url);
-      setCustomVideoUrl(url);
-    } else if (!customVideoUrl || customVideoUrl.startsWith('blob:')) {
-      setLocalPreviewUrl(url);
-      setCustomVideoUrl(url);
-    }
+    // Always update local preview and customVideoUrl so the video frame shows immediately
+    setLocalPreviewUrl(url);
+    setCustomVideoUrl(url);
     setCustomVideoName(name);
     setSourceType('uploaded-video');
-    // Do NOT auto-start inference! Set to paused/ready so the user explicitly clicks "Start Inference"
+    setAutoStartRecordedInference(false);
     setIsRunning(false);
     setCameraStartingState('ready');
-    showToast('info', `Video "${name}" uploaded. Click "Start Inference" to begin.`);
-    addLog(`Custom video loaded: "${name}". Ready for inference.`, 'info');
+    showToast('success', isRecordedStream ? 'Recorded video ready! Click "Start Inference" to analyze.' : `Video "${name}" uploaded. Click "Start Inference" to begin.`);
+    addLog(isRecordedStream ? `Recorded video loaded: "${name}". Ready for inference.` : `Custom video loaded: "${name}". Ready for inference.`, 'info');
   };
 
   const handleClearCustomVideo = () => {

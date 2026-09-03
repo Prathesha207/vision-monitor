@@ -40,6 +40,29 @@ async def upload_video(file: UploadFile = File(...), expected_ducks: int = Form(
         content = await file.read()
         with open(raw_save_path, "wb") as f:
             f.write(content)
+
+        # Permanent recording archive: if from camera recording, also save to storage/recordings and Desktop/recordings
+        if file.filename and file.filename.startswith("recorded_camera"):
+            try:
+                from datetime import datetime
+                today = datetime.now().strftime("%Y-%m-%d")
+                backend_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                storage_rec = os.path.join(backend_root, "storage", "recordings", today)
+                os.makedirs(storage_rec, exist_ok=True)
+                rec_dest = os.path.join(storage_rec, file.filename)
+                with open(rec_dest, "wb") as f:
+                    f.write(content)
+                logger.info(f"[RECORD] Saved recorded video to storage: {rec_dest}")
+
+                desktop_dir = os.path.join(os.path.expanduser("~"), "Desktop")
+                if os.path.exists(desktop_dir):
+                    desktop_rec = os.path.join(desktop_dir, "recordings", today)
+                    os.makedirs(desktop_rec, exist_ok=True)
+                    with open(os.path.join(desktop_rec, file.filename), "wb") as f:
+                        f.write(content)
+                    logger.info(f"[RECORD] Saved recorded video to desktop: {desktop_rec}")
+            except Exception as e:
+                logger.warning(f"[RECORD] Failed to copy to permanent storage/recordings: {e}")
     except Exception as e:
         logger.error(f"Error saving uploaded file: {e}")
         return JSONResponse(status_code=500, content={"message": "Failed to save uploaded video."})

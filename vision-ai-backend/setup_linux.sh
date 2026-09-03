@@ -17,6 +17,9 @@ fi
 source "$VENV_DIR/bin/activate"
 python -m pip install --upgrade pip
 python -m pip install -r "$BACKEND_DIR/requirements.txt"
+if [[ -f "$BACKEND_DIR/app/ml/requirements.txt" ]]; then
+  python -m pip install -r "$BACKEND_DIR/app/ml/requirements.txt"
+fi
 
 # The base requirements remain portable. Replace generic torch with CUDA torch
 # only when this Linux machine has an NVIDIA driver and GPU.
