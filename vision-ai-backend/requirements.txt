@@ -95,8 +95,9 @@ transformers>=4.40.0
 
 # --------------------------------------------------------------------
 # The generic torch requirement below may install CPU-only PyTorch.
-# The setup scripts replace generic PyTorch with the pinned CUDA build when
-# an NVIDIA GPU is detected before running the application or build process.
+# The setup scripts replace generic PyTorch with the latest compatible CUDA
+# wheel when an NVIDIA GPU is detected before running the app or build process.
+# On ARM64 Linux, install the PyTorch wheel supplied by the platform vendor.
 # --------------------------------------------------------------------
 
 tqdm==4.67.3

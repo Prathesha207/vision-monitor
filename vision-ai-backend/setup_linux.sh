@@ -22,9 +22,19 @@ python -m pip install -r "$BACKEND_DIR/requirements.txt"
 # only when this Linux machine has an NVIDIA driver and GPU.
 if command -v nvidia-smi >/dev/null 2>&1; then
   echo "NVIDIA GPU detected; installing CUDA-enabled PyTorch..."
-  python -m pip install --force-reinstall \
-    --index-url https://download.pytorch.org/whl/cu121 \
-    torch==2.5.1+cu121 torchvision==0.20.1+cu121
+  if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
+    echo "This Linux machine is ARM64. The official PyTorch CUDA pip wheels used by this script are x86_64 wheels."
+    echo "Install the PyTorch build supplied by your GPU/platform vendor, then rerun this script with nvidia-smi available."
+    exit 1
+  fi
+  PYTORCH_CUDA_INDEX="${PYTORCH_CUDA_INDEX:-https://download.pytorch.org/whl/cu128}"
+  if ! python -m pip install --force-reinstall \
+    --index-url "$PYTORCH_CUDA_INDEX" \
+    torch torchvision; then
+    echo "CUDA wheel index $PYTORCH_CUDA_INDEX is unavailable for this Python/platform."
+    echo "Retry with: PYTORCH_CUDA_INDEX=https://download.pytorch.org/whl/cu126 ./setup_linux.sh"
+    exit 1
+  fi
 else
   echo "No NVIDIA GPU detected; keeping CPU-compatible PyTorch."
 fi

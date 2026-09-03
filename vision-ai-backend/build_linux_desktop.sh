@@ -20,9 +20,14 @@ python -m pip install -r "$BACKEND_DIR/requirements.txt"
 
 if [[ "${USE_CUDA:-0}" == "1" || ( "${USE_CUDA:-auto}" == "auto" && -n "$(command -v nvidia-smi 2>/dev/null || true)" ) ]]; then
   echo "NVIDIA GPU detected/requested; installing CUDA-enabled PyTorch..."
-  python -m pip install --force-reinstall \
-    --index-url https://download.pytorch.org/whl/cu121 \
-    torch==2.5.1+cu121 torchvision==0.20.1+cu121
+  PYTORCH_CUDA_INDEX="${PYTORCH_CUDA_INDEX:-https://download.pytorch.org/whl/cu128}"
+  if ! python -m pip install --force-reinstall \
+    --index-url "$PYTORCH_CUDA_INDEX" \
+    torch torchvision; then
+    echo "CUDA wheel index $PYTORCH_CUDA_INDEX is unavailable for this Python/platform."
+    echo "Retry with: PYTORCH_CUDA_INDEX=https://download.pytorch.org/whl/cu126 USE_CUDA=1 ./build_linux_desktop.sh"
+    exit 1
+  fi
 else
   echo "Building with CPU-compatible PyTorch. Set USE_CUDA=1 to force CUDA."
 fi
