@@ -10,6 +10,8 @@ export function useAnomalyStatus({
   framesProcessed,
   backendStats,
   addLog,
+  ducks,
+  expectedDucks,
 }: {
   hasActiveStream: boolean;
   isRunning: boolean;
@@ -18,10 +20,9 @@ export function useAnomalyStatus({
   framesProcessed: number;
   backendStats: any;
   addLog: (message: string, level?: LogEntry['level']) => void;
+  ducks: DuckEntity[];
+  expectedDucks: number;
 }) {
-  const [expectedDucks, setExpectedDucks] = useState<number>(18);
-  const [ducks, setDucks] = useState<DuckEntity[]>([]);
-
   const activeDucks = useMemo(() => {
     if (!hasActiveStream && ducks.length === 0) return [];
     return ducks;
@@ -141,10 +142,6 @@ export function useAnomalyStatus({
   }, [isAnomaly, subMessage, anomalyStatus.expectedCount, anomalyStatus.detectedCount, addLog, hasActiveStream, isRunning]);
 
   return {
-    expectedDucks,
-    setExpectedDucks,
-    ducks,
-    setDucks,
     activeDucks,
     anomalyStatus,
   };

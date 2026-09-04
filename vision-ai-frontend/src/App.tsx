@@ -81,31 +81,23 @@ export default function App() {
   const [fps, setFps] = useState<number>(0);
   const [framesProcessed, setFramesProcessed] = useState<number>(0);
   const [uptimeSeconds, setUptimeSeconds] = useState<number>(0);
+  const [expectedDucks, setExpectedDucks] = useState<number>(18);
+  const [ducks, setDucks] = useState<import('./types').DuckEntity[]>([]);
 
-  // ─── 6. Anomaly Detection (owns expectedDucks + ducks state) ──────
+  // ─── 6. Derived Source States ──────────────────────────────────────
   const backendStats = useInferenceStore(state => state.stats);
   const isVideoSource = sourceType === 'sample-pond' || sourceType === 'uploaded-video';
   const isCameraSource = sourceType === 'oak-camera' || sourceType === 'webcam';
-
-  const anomaly = useAnomalyStatus({
-    hasActiveStream: false, // Will be recalculated below via useMemo
-    isRunning,
-    isStarting,
-    isCameraSource,
-    framesProcessed,
-    backendStats,
-    addLog,
-  });
 
   // ─── 7. Video Pipeline ─────────────────────────────────────────────
   const video = useVideoPipeline({
     showToast,
     addLog,
-    expectedDucks: anomaly.expectedDucks,
+    expectedDucks,
     sourceType,
     isRunning,
     setIsRunning,
-    setDucks: anomaly.setDucks,
+    setDucks,
     setFramesProcessed,
     setFps,
     setCameraStartingState: camera.setCameraStartingState,
@@ -117,7 +109,7 @@ export default function App() {
 
   // ─── 8. Camera Pipeline (startCameraPipeline / stopCameraPipeline) ─
   const startCameraPipeline = async (): Promise<boolean> => {
-    anomaly.setDucks([]);
+    setDucks([]);
     useInferenceStore.getState().resetStats();
     resetBBoxCache();
     camera.setCameraStartingState('waking_camera');
@@ -127,7 +119,7 @@ export default function App() {
       await fetch(`${getApiBaseUrl()}/oak/inference/update_expected/live`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ count: anomaly.expectedDucks })
+        body: JSON.stringify({ count: expectedDucks })
       }).catch(err => console.error("Failed to sync expected ducks before start", err));
 
       const startRes = await cameraService.start();
@@ -163,7 +155,7 @@ export default function App() {
   const stopCameraPipeline = async () => {
     camera.setCameraStartingState('ready');
     setIsRunning(false);
-    anomaly.setDucks([]);
+    setDucks([]);
     try {
       await cameraService.stopStream();
       camera.setIsStreaming(false);
@@ -172,15 +164,15 @@ export default function App() {
     }
   };
 
-  // ─── 9. Inference Loop (owns isRunning, isStarting, fps, frames) ──
+  // ─── 9. Inference Loop (owns transport and sets states) ────────────
   const inference = useInferenceLoop({
     sourceType,
     videoSessionId: video.videoSessionId,
-    expectedDucks: anomaly.expectedDucks,
+    expectedDucks,
     showToast,
     addLog,
     startCameraPipeline,
-    setDucks: anomaly.setDucks,
+    setDucks,
     setVideoDimensions: video.setVideoDimensions,
     cameraService,
     isRunning,
@@ -197,9 +189,9 @@ export default function App() {
 
   // Recalculate derived values that depend on inference state
   const hasActiveStream = (isVideoSource && hasActiveVideo) || (isCameraSource && camera.isCameraDeviceActive && camera.cameraStartingState === 'ready');
-  const isStandby = !hasActiveStream && anomaly.ducks.length === 0;
+  const isStandby = !hasActiveStream && ducks.length === 0;
 
-  // Re-run anomaly with correct values (React will batch this)
+  // ─── 10. Anomaly Detection (computed exactly once per render) ──────
   const anomalyFinal = useAnomalyStatus({
     hasActiveStream,
     isRunning,
@@ -208,6 +200,8 @@ export default function App() {
     framesProcessed,
     backendStats,
     addLog,
+    ducks,
+    expectedDucks,
   });
 
   // ─── 10. Mode Switching ────────────────────────────────────────────
@@ -382,7 +376,7 @@ export default function App() {
         cameraConfig={camera.effectiveCameraConfig}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenHelp={() => setHelpOpen(true)}
-        fps={inference.fps}
+        fps={fps}
         anomalyDetected={anomalyFinal.anomalyStatus.isAnomaly}
       />
 
@@ -397,10 +391,10 @@ export default function App() {
           onResumeInference={handleResumeInference}
           isStreaming={camera.isStreaming}
           onStartStream={camera.startCameraStream}
-          onStopStream={() => camera.stopCameraStream(inference.isRunning, anomaly.setDucks, inference.setIsRunning)}
-          expectedDucks={anomalyFinal.expectedDucks}
+          onStopStream={() => camera.stopCameraStream(isRunning, setDucks, setIsRunning)}
+          expectedDucks={expectedDucks}
           onExpectedDucksChange={(count) => {
-            anomalyFinal.setExpectedDucks(count);
+            setExpectedDucks(count);
             addLog(`Expected duck count set to: ${count}`, 'info');
             if (video.videoSessionId) {
               fetch(`${getApiBaseUrl()}/video/update_expected/${video.videoSessionId}`, {
@@ -433,12 +427,12 @@ export default function App() {
               anomalyStatus={anomalyFinal.anomalyStatus}
               feedMode={feedMode}
               onFeedModeChange={setFeedMode}
-              isRunning={inference.isRunning}
-              isStarting={inference.isStarting}
+              isRunning={isRunning}
+              isStarting={isStarting}
               onToggleRunning={handleToggleRunning}
               isStreaming={camera.isStreaming}
               onRequestSwitchMode={handleRequestSwitchMode}
-              fps={inference.fps}
+              fps={fps}
               sourceType={sourceType}
               customVideoUrl={video.customVideoUrl}
               videoSessionId={video.videoSessionId}
@@ -447,7 +441,7 @@ export default function App() {
               onCustomVideoUploaded={video.handleVideoUploaded}
               cameraStartingState={camera.cameraStartingState}
               onCameraDeviceChange={camera.setIsCameraDeviceActive}
-              expectedDucks={anomalyFinal.expectedDucks}
+              expectedDucks={expectedDucks}
               videoDimensions={video.videoDimensions}
               isCameraConnected={camera.effectiveCameraConfig.connected}
               initialUploadFile={video.initialUploadFile}
