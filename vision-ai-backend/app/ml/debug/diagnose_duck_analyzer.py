@@ -126,16 +126,9 @@ if hasattr(sys.stdout, "reconfigure"):
 
 def get_duck_analyzer_class():
     """
-    Load DuckAnalyzer, prioritizing the installed duck_analyzer package (e.g. 1.0.9).
-    Falls back to local source file if package is not installed.
+    Load DuckAnalyzer ALWAYS from local source file:
+    vision-ai-backend/app/ml/duck_analyzer/analyzer.py
     """
-    try:
-        from duck_analyzer import DuckAnalyzer
-        import duck_analyzer
-        return DuckAnalyzer, getattr(duck_analyzer, "__file__", "installed_package"), "site_packages"
-    except ImportError:
-        pass
-
     _script_dir = Path(__file__).resolve().parent
     _local_analyzer_file = _script_dir.parent / "duck_analyzer" / "analyzer.py"
 
@@ -150,6 +143,7 @@ def get_duck_analyzer_class():
             if duck_cls is not None:
                 return duck_cls, str(_local_analyzer_file), "local_source"
 
+    # Fallback only if local file is missing
     from duck_analyzer import DuckAnalyzer
     import duck_analyzer
     return DuckAnalyzer, getattr(duck_analyzer, "__file__", "installed_package"), "site_packages"
