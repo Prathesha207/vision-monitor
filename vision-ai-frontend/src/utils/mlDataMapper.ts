@@ -16,6 +16,9 @@ import { useInferenceStore } from '../store/inferenceStore';
  *      then filtered out of activeDucks -- even once the backend itself
  *      had already stopped calling it provisional.
  */
+// Persistent cache of last known valid bounding box coordinates for each duck ID
+const lastKnownBBoxes = new Map<string, { x: number; y: number; width: number; height: number }>();
+
 export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEntity[] => {
   const incomingDucks: DuckEntity[] = [];
   const addedIds = data.added_ids || [];
@@ -45,7 +48,15 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEnt
       const species = String(d.class_name || d.species || '').toLowerCase();
       const isDuck = species === 'duck';
       const isHand = species === 'hand';
-      const rawId = d.id !== null && d.id !== undefined ? String(d.id) : `prov-${idx + 1}`;
+      // DuckAnalyzer emits id: -1 (not null) for every detection before the
+      // anchor locks -- see analyzer.py lines 819/1158. Multiple detections
+      // in the same frame all carry that same -1 during warmup, so without
+      // this check they'd all collapse to id "-1" and collide as identical
+      // React keys in the gallery grid, which leaves orphaned/duplicated
+      // DOM nodes behind across the ~30-100ms poll cycle instead of being
+      // cleanly replaced frame to frame.
+      const hasLockedId = d.id !== null && d.id !== undefined && Number(d.id) !== -1;
+      const rawId = hasLockedId ? String(d.id) : `prov-${idx + 1}`;
       // Duck and other trackers use independent numeric ID spaces.
       const isOther = !isDuck && !isHand;
       const displayId = isOther ? `other-${rawId}` : rawId;
@@ -53,10 +64,30 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEnt
       const thumbObj = allThumbnails.slice().reverse().find((t: any) =>
         (String(t.id) === rawId || Number(t.id) === Number(rawId)) && (isOther ? t.event === 'other_present' : t.event !== 'other_present')
       );
+      const isMissingDetection = d.status === 'missing' || missingIds.includes(displayId) || missingIds.includes(Number(displayId));
+      if (pw > 0 && ph > 0 && px >= 0 && py >= 0) {
+        lastKnownBBoxes.set(displayId, { x: px, y: py, width: pw, height: ph });
+      } else if (isMissingDetection) {
+        const cached = lastKnownBBoxes.get(displayId);
+        if (cached) {
+          px = cached.x;
+          py = cached.y;
+          pw = cached.width;
+          ph = cached.height;
+        }
+      }
       let eventStatus: DuckEntity['statusEvent'] = undefined;
-      if (addedIds.includes(displayId) || addedIds.includes(Number(displayId))) eventStatus = 'added';
-      else if (thumbObj?.event === 'confirmed' || thumbObj?.event === 'added') eventStatus = 'confirmed';
-      else if (thumbObj?.event === 'other_present') eventStatus = 'other_present';
+      if (isMissingDetection) {
+        eventStatus = 'missing';
+      } else if (addedIds.includes(displayId) || addedIds.includes(Number(displayId)) || d.status === 'added') {
+        eventStatus = 'added';
+      } else if (thumbObj?.event === 'confirmed' || thumbObj?.event === 'added') {
+        eventStatus = 'confirmed';
+      } else if (thumbObj?.event === 'other_present') {
+        eventStatus = 'other_present';
+      } else if (!hasLockedId && data.anchor_locked) {
+        eventStatus = 'other_present';
+      }
 
       // Trust the backend's own per-detection verdict first -- DuckAnalyzer
       // already knows whether THIS box is anomalous (added / other-species /
@@ -65,9 +96,13 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEnt
       // send the field at all -- never override it after the fact.
       const backendIsAnomaly = typeof d.isAnomaly === 'boolean' ? d.isAnomaly : undefined;
       const isAnomaly = backendIsAnomaly ?? (
+        isMissingDetection ||
         isOther || isHand ||
         addedIds.includes(displayId) ||
-        addedIds.includes(Number(displayId))
+        addedIds.includes(Number(displayId)) ||
+        d.status === 'unbound' ||
+        d.status === 'added' ||
+        (!hasLockedId && data.anchor_locked)
       );
 
       // Trust the backend's own provisional flag. Do NOT force provisional
@@ -79,7 +114,7 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEnt
       incomingDucks.push({
         id: displayId,
         species: isHand ? 'Hand' : isDuck ? 'Duck' : 'Unknown',
-        confidence: d.confidence || d.conf || 0.9,
+        confidence: d.confidence || d.conf || (isMissingDetection ? 0.0 : 0.9),
         x: px,
         y: py,
         width: pw,
@@ -96,10 +131,12 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEnt
     });
   }
 
-  // Collect all duck IDs that are actively detected in this frame
+  // Collect all duck IDs that are actively detected (and NOT missing) in this frame
   const detectedIds = new Set<string>();
   incomingDucks.forEach(d => {
-    if (d.species === 'Duck') detectedIds.add(String(d.id));
+    if (d.species === 'Duck' && d.statusEvent !== 'missing') {
+      detectedIds.add(String(d.id));
+    }
   });
 
   // Track all missing IDs (from backend's missing_ids array)
@@ -121,7 +158,19 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEnt
   // Inject missing ducks so they appear in the gallery.
   // They stay in their numeric position, displaying their last known thumbnail, styled as 'missing'.
   resolvedMissingIds.forEach((stringMid: string) => {
-    if (detectedIds.has(stringMid)) return;
+    const existing = incomingDucks.find(d => String(d.id) === stringMid);
+    const cached = lastKnownBBoxes.get(stringMid);
+    if (existing) {
+      existing.statusEvent = 'missing';
+      existing.isAnomaly = true;
+      if ((existing.width <= 0 || existing.height <= 0 || existing.x < 0) && cached) {
+        existing.x = cached.x;
+        existing.y = cached.y;
+        existing.width = cached.width;
+        existing.height = cached.height;
+      }
+      return;
+    }
 
     const thumbObj = allThumbnails.slice().reverse().find((t: any) =>
       String(t.id) === stringMid || Number(t.id) === Number(stringMid)
@@ -129,8 +178,11 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEnt
     incomingDucks.push({
       id: stringMid,
       species: 'Duck',
-      confidence: 1.0,
-      x: -100, y: -100, width: 0, height: 0, // off screen
+      confidence: 0.0,
+      x: cached ? cached.x : -100,
+      y: cached ? cached.y : -100,
+      width: cached ? cached.width : 0,
+      height: cached ? cached.height : 0,
       vx: 0, vy: 0, heading: 0,
       isAnomaly: true,
       thumbnail: thumbObj?.thumbnail,

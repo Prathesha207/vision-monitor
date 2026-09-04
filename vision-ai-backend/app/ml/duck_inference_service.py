@@ -158,6 +158,7 @@ def run_inference(frame, session_id: str, expected_duck_count: int = 18,
                 "frames_processed": 0}, frame
 
     try:
+
         session = _get_or_create_session(session_id, expected_duck_count, video_name)
     except RuntimeError as e:
         # Covers both "config.yaml missing" and "GPU claimed by video/training"
@@ -195,6 +196,19 @@ def run_inference(frame, session_id: str, expected_duck_count: int = 18,
         or (anchor_locked and detected_ducks != session["expected_duck_count"])
     )
 
+    new_thumbnails = result.get("thumbnails", [])
+    if "thumbnails" not in session:
+        session["thumbnails"] = []
+    if new_thumbnails:
+        existing = {
+            (str(t.get("id")), str(t.get("event")))
+            for t in session["thumbnails"]
+        }
+        session["thumbnails"].extend(
+            t for t in new_thumbnails
+            if (str(t.get("id")), str(t.get("event"))) not in existing
+        )
+
     stats = {
         "session_id": session_id,
         "original_filename": session.get("original_filename"),
@@ -212,14 +226,13 @@ def run_inference(frame, session_id: str, expected_duck_count: int = 18,
         "missing_count": result.get("missing_count", 0),
         "added_count": result.get("added_count", 0),
         "detections": result.get("detections", []),
-        "thumbnails": result.get("thumbnails", []),
+        "thumbnails": session["thumbnails"],
         "is_anomaly_frame": is_anomaly,
         "video_width": frame.shape[1],
         "video_height": frame.shape[0],
     }
 
-    # Return raw frame (un-annotated) to frontend so frontend renders bounding boxes interactively
-    return stats, frame
+    return stats, annotated_frame
 
 
 def update_expected_ducks(session_id: str, count: int) -> None:

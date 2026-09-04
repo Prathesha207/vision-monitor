@@ -88,6 +88,22 @@ const initialStats: InferenceStats = {
 
 export const useInferenceStore = create<InferenceStoreState>((set) => ({
   stats: initialStats,
-  setStats: (newStats) => set((state) => ({ stats: { ...state.stats, ...newStats } })),
+  setStats: (newStats) => set((state) => {
+    let mergedThumbnails = state.stats.thumbnails || [];
+    if (Array.isArray(newStats.thumbnails) && newStats.thumbnails.length > 0) {
+      const existing = new Set(mergedThumbnails.map((t: any) => `${t.id}_${t.event}`));
+      const fresh = newStats.thumbnails.filter((t: any) => !existing.has(`${t.id}_${t.event}`));
+      if (fresh.length > 0) {
+        mergedThumbnails = [...mergedThumbnails, ...fresh];
+      }
+    }
+    return {
+      stats: {
+        ...state.stats,
+        ...newStats,
+        thumbnails: mergedThumbnails,
+      },
+    };
+  }),
   resetStats: () => set({ stats: initialStats }),
 }));

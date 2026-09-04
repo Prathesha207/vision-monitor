@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo, memo, useCallback } from 'react';
+import React, { useState, useMemo, memo, useCallback } from 'react';
 import { Sparkles, EyeOff } from 'lucide-react';
 import { DuckEntity, AnomalyStatus } from '../types';
 import { playWaterDropSound, playDuckQuackSound } from '../utils/audio';
@@ -73,16 +73,16 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
   let borderClasses = 'border border-[var(--border-color)] bg-[var(--bg-card)] hover:border-[var(--accent-pond)]';
   if (isMissing) {
     borderClasses = isSelected
-      ? 'border border-dashed border-amber-500 ring-2 ring-amber-400/50 bg-[var(--bg-card)]'
-      : 'border border-dashed border-amber-500/70 dark:border-amber-400/60 bg-[var(--bg-card)] hover:border-amber-500';
+      ? 'border-2 border-dashed border-amber-500 ring-2 ring-amber-400/50 bg-amber-500/10'
+      : 'border-2 border-dashed border-amber-500 dark:border-amber-400 bg-amber-500/10 hover:border-amber-500';
   } else if (isNew) {
     borderClasses = isSelected
-      ? 'border-2 border-cyan-500 ring-2 ring-cyan-400/50 bg-[var(--bg-card)]'
-      : 'border-2 border-cyan-500/70 dark:border-cyan-400/70 bg-[var(--bg-card)] hover:border-cyan-400';
+      ? 'border-2 border-cyan-500 ring-2 ring-cyan-400/50 bg-cyan-500/10'
+      : 'border-2 border-cyan-500/70 dark:border-cyan-400/70 bg-cyan-500/10 hover:border-cyan-400';
   } else if (isAlert) {
     borderClasses = isSelected
-      ? 'border-2 border-[var(--status-anomaly-text)] ring-2 ring-[var(--status-anomaly-text)]/40 bg-[var(--bg-card)]'
-      : 'border-2 border-[var(--status-anomaly-border)] bg-[var(--bg-card)] hover:border-[var(--status-anomaly-text)] hover:shadow-xs';
+      ? 'border-2 border-rose-500 ring-2 ring-rose-500/40 bg-rose-500/10'
+      : 'border-2 border-rose-500 bg-rose-500/10 hover:border-rose-400 hover:shadow-xs';
   } else if (isSelected) {
     borderClasses = 'border-2 border-[var(--accent-pond)] ring-2 ring-[var(--accent-pond-subtle)] bg-[var(--bg-card)]';
   }
@@ -95,11 +95,11 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
     : 'OK';
 
   const barColorClasses = isMissing
-    ? 'bg-amber-500/15 dark:bg-amber-950/40 border-amber-500/40 text-amber-700 dark:text-amber-300'
+    ? 'bg-amber-500/25 dark:bg-amber-950/60 border-amber-500/50 text-amber-900 dark:text-amber-200'
     : isNew
-    ? 'bg-cyan-500/15 dark:bg-cyan-950/40 border-cyan-500/40 text-cyan-700 dark:text-cyan-300'
+    ? 'bg-cyan-500/25 dark:bg-cyan-950/60 border-cyan-500/50 text-cyan-900 dark:text-cyan-200'
     : isAlert
-    ? 'bg-[var(--status-anomaly-bg)] border-[var(--status-anomaly-border)] text-[var(--status-anomaly-text)]'
+    ? 'bg-rose-500/25 dark:bg-rose-950/60 border-rose-500/50 text-rose-900 dark:text-rose-200'
     : 'bg-[var(--status-normal-bg)] border-[var(--status-normal-border)] text-[var(--status-normal-text)]';
 
   return (
@@ -157,8 +157,16 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
             #{duck.id.padStart(2, '0')}
           </span>
         </div>
-        {showBadge && (
-          <span className="text-[6.5px] font-extrabold shrink-0 uppercase leading-tight">
+        {(showBadge || isMissing || isAlert || isNew) && (
+          <span className={`text-[6.5px] px-1 py-0.2 rounded font-black shrink-0 uppercase leading-tight ${
+            isMissing
+              ? 'bg-amber-500 text-white shadow-xs'
+              : isNew
+              ? 'bg-cyan-500 text-white shadow-xs'
+              : isAlert
+              ? 'bg-rose-600 text-white shadow-xs'
+              : 'text-[var(--status-normal-text)]'
+          }`}>
             {badgeLabel}
           </span>
         )}
@@ -167,6 +175,7 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
   );
 }, (prev, next) => (
   prev.duck.id === next.duck.id &&
+  prev.duck.species === next.duck.species &&
   prev.duck.confidence === next.duck.confidence &&
   prev.duck.isAnomaly === next.duck.isAnomaly &&
   prev.duck.statusEvent === next.duck.statusEvent &&
@@ -208,7 +217,15 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
   };
 
   const sortedDucks = useMemo(() => {
-    return [...ducks].sort((a, b) => {
+    const seen = new Set<string>();
+    const validDucks = ducks.filter((d) => {
+      if (d.species === 'Hand' || d.handDetected) return false;
+      if (seen.has(d.id)) return false;
+      seen.add(d.id);
+      return true;
+    });
+
+    return validDucks.sort((a, b) => {
       const rankDiff = rankOf(a) - rankOf(b);
       if (rankDiff !== 0) return rankDiff;
       const numA = parseInt(a.id.replace(/\D/g, ''), 10) || 0;
@@ -218,9 +235,9 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
   }, [ducks]);
 
   // Missed = ducks that disappeared from the scene
-  const missedCount = useMemo(() => ducks.filter((d) => d.statusEvent === 'missing').length, [ducks]);
+  const missedCount = useMemo(() => sortedDucks.filter((d) => d.statusEvent === 'missing').length, [sortedDucks]);
   // Alert = only unknown/foreign species (not missing, not added — those have their own category)
-  const alertCount = useMemo(() => ducks.filter((d) => d.statusEvent === 'other_present' || (d.species !== 'Duck' && d.species !== 'Hand' && d.x >= 0)).length, [ducks]);
+  const alertCount = useMemo(() => sortedDucks.filter((d) => d.statusEvent === 'other_present' || (d.species !== 'Duck' && d.species !== 'Hand' && d.x >= 0)).length, [sortedDucks]);
 
   const filteredDucks = useMemo(() => {
     if (filter === 'missed') return sortedDucks.filter((d) => d.statusEvent === 'missing');
@@ -266,7 +283,7 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
           }`}
         >
           <span>All</span>
-          <span className="text-[8.5px] px-1.5 py-0.2 rounded-full bg-black/20 font-mono">{ducks.length}</span>
+          <span className="text-[8.5px] px-1.5 py-0.2 rounded-full bg-black/20 font-mono">{sortedDucks.length}</span>
         </button>
 
         <button

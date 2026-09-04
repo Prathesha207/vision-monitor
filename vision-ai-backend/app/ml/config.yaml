@@ -10,7 +10,7 @@ hand_track_conf: 0.5
 hand_hold_frames: 2 
 # hand ROI: draw ONCE with draw_roi.py; hand short-circuit fires only
 # when a hand overlaps this box. Delete the file to revert to whole-frame.
-roi_path: "hand_roi.json"
+roi_path: "models/hand_roi.json"
 # --- local saving (for YOUR reference/debugging) ---
 save_local: true
 thumbnail_dir: "C:/Users/EmageVision/Documents/duck_classification/thumbnails"

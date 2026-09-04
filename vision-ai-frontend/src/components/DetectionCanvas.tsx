@@ -121,10 +121,20 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   const isCameraSource = sourceType === 'oak-camera' || sourceType === 'webcam';
   const hasActiveVideo = isVideoSource && !!customVideoUrl;
 
-  // Refresh cache buster when inference starts
+  const backendStats = useInferenceStore((state) => state.stats);
+  const isHandPresent = 
+    backendStats?.status === 'HAND' || 
+    backendStats?.hand_detected === true || 
+    anomalyStatus?.message?.includes('HAND') ||
+    ducks.some((d) => d.species === 'Hand' || d.handDetected === true || d.statusEvent === 'hand_present');
+
+  const isSceneAnomaly = anomalyStatus?.isAnomaly === true || backendStats?.status === 'ANOMALY';
+
+  // Refresh cache buster and reset to anomalies-only when inference starts
   useEffect(() => {
     if (isRunning) {
       setStreamCacheBuster(Date.now());
+      setShowAllBoxes(false);
     }
   }, [isRunning]);
 
@@ -832,33 +842,32 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
             />
 
             {/* Inference Bounding Box Overlays (Mapped 1:1 on top of the real video pixels when active) */}
-            {feedMode === 'inference' && (hasActiveVideo || isCameraSource) && (
+            {feedMode === 'inference' && (hasActiveVideo || isCameraSource) && !isHandPresent && (
               <div className="absolute inset-0 w-full h-full pointer-events-none z-20">
                 {ducks
                   .filter((duck) => {
-                    const backendStats = useInferenceStore.getState().stats;
-                    const isHandPresent = 
-                      backendStats?.status === 'HAND' || 
-                      backendStats?.hand_detected === true || 
-                      anomalyStatus?.type === 'HAND' || 
-                      anomalyStatus?.message?.includes('HAND');
-                    if (isHandPresent) return false;
-
-                    const shouldShowAll = showAllBoxes;
-                    const isVisible = shouldShowAll || duck.isAnomaly || duck.id === selectedDuckId;
+                    if (duck.species === 'Hand' || duck.handDetected) return false;
+                    const isMissing = duck.statusEvent === 'missing';
+                    const isVisible = showAllBoxes || duck.isAnomaly || isMissing || duck.id === selectedDuckId;
                     return isVisible && Number.isFinite(duck.x) && Number.isFinite(duck.y) && Number.isFinite(duck.width) && Number.isFinite(duck.height) && duck.width > 0 && duck.height > 0;
                   })
                   .map((duck, idx) => {
                     const isProvisional = duck.provisional;
-                    const isAnomaly = !isProvisional && duck.isAnomaly;
+                    const isMissing = duck.statusEvent === 'missing';
+                    const isAnomaly = !isProvisional && (duck.isAnomaly || isMissing);
                     
                     let borderColor = 'border-emerald-400/80 bg-emerald-500/5';
                     let bracketColor = 'border-emerald-300';
                     let tagStyle = 'bg-black/75 text-emerald-300 border border-emerald-500/30';
                     let confColor = 'text-emerald-400';
-                    let statusText = isProvisional ? 'WARMING_UP' : (isAnomaly ? 'ANOMALY' : 'NORMAL');
+                    let statusText = isMissing ? 'MISSING' : (isProvisional ? 'WARMING_UP' : (isAnomaly ? 'ANOMALY' : 'NORMAL'));
 
-                    if (isProvisional) {
+                    if (isMissing) {
+                      borderColor = 'border-2 border-dashed border-amber-500 bg-amber-500/15';
+                      bracketColor = 'border-amber-400';
+                      tagStyle = 'bg-amber-950/90 text-amber-200 border border-amber-500/80 font-bold shadow-xs';
+                      confColor = 'text-amber-300 font-bold';
+                    } else if (isProvisional) {
                       borderColor = 'border-amber-400/90 bg-amber-500/10';
                       bracketColor = 'border-amber-300';
                       tagStyle = 'bg-amber-950/90 text-amber-200 border border-amber-500/50';
@@ -897,13 +906,15 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                           className={`absolute -top-5 left-0 px-1.5 py-0.5 rounded text-[9px] font-mono font-medium whitespace-nowrap flex items-center gap-1 backdrop-blur-xs pointer-events-none ${tagStyle}`}
                         >
                           <span>
-                            {isProvisional
+                            {isMissing
+                              ? `#${duck.id} MISSING`
+                              : isProvisional
                               ? 'WARMING_UP'
-                              : (isAnomaly
-                                ? (duck.species === 'Duck' ? `#${duck.id}` : `⚠️ ${duck.species}`)
-                                : `#${duck.id}`)}
+                              : isAnomaly
+                              ? (duck.species === 'Duck' ? `#${duck.id}` : `⚠️ ${duck.species}`)
+                              : `#${duck.id}`}
                           </span>
-                          {showConfidence && (
+                          {showConfidence && !isMissing && (
                             <span className={`text-[8.5px] opacity-80 ${confColor}`}>
                               {(duck.confidence * 100).toFixed(0)}%
                             </span>
