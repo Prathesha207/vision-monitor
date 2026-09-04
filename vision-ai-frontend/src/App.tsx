@@ -472,7 +472,7 @@ export default function App() {
             // The backend sends stats and detections together. The annotated
             // frame, when present, is a separate `frame` data URI in payload.
             useInferenceStore.getState().setStats(data);
-            if (data.status !== 'queued' && data.status !== 'error' && data.status !== 'idle' && data.status !== 'stopped') {
+            if (data.status !== 'queued' && data.status !== 'error' && data.status !== 'idle') {
               setFps(data.metrics?.fps || data.fps || 0);
               setFramesProcessed(data.frames_processed || 0);
               setUptimeSeconds(Math.floor((data.frames_processed || 0) / (data.metrics?.fps || data.fps || 30)));
@@ -529,7 +529,7 @@ export default function App() {
         // Update the global Zustand store with pure ML statistics
         useInferenceStore.getState().setStats(data);
         
-        if (data.status !== 'queued' && data.status !== 'error' && data.status !== 'idle' && data.status !== 'stopped') {
+        if (data.status !== 'queued' && data.status !== 'error' && data.status !== 'idle') {
           setFps(data.fps || 0);
           setFramesProcessed(data.frames_processed || 0);
           setUptimeSeconds(Math.floor((data.frames_processed || 0) / (data.fps || 30)));
@@ -931,15 +931,30 @@ export default function App() {
   };
 
   // Explicit Stop Inference (Pauses inference and preserves state/cards on screen)
-  const handleStopInference = () => {
+  const handleStopInference = async () => {
     playWaterDropSound();
     setCameraStartingState('ready');
     setIsRunning(false);
     
     // Stop the backend ML process if it's a video session
     if (videoSessionId) {
-      fetch(`${getApiBaseUrl()}/video/stop/${videoSessionId}`, { method: 'POST' })
-        .catch(err => console.error("Failed to stop backend inference", err));
+      try {
+        await fetch(`${getApiBaseUrl()}/video/stop/${videoSessionId}`, { method: 'POST' });
+        // Fetch one final status snapshot to ensure ducks and last_frame are perfectly synced!
+        const res = await fetch(`${getApiBaseUrl()}/video/status/${videoSessionId}`);
+        if (res.ok) {
+          const data = await res.json();
+          useInferenceStore.getState().setStats(data);
+          const vw = data.video_width || 1280;
+          const vh = data.video_height || 720;
+          const incomingDucks = mapDetectionsToDucks(data, vw, vh);
+          if (data.status !== "HAND" && !data.hand_detected) {
+            setDucks(incomingDucks);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to stop backend inference", err);
+      }
     }
 
     if (sourceType === 'oak-camera' || sourceType === 'webcam') {

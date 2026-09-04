@@ -130,13 +130,20 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
 
   const isSceneAnomaly = anomalyStatus?.isAnomaly === true || backendStats?.status === 'ANOMALY';
 
-  // Refresh cache buster and reset to anomalies-only when inference starts
+  // Refresh cache buster whenever running state changes (start or stop)
   useEffect(() => {
+    setStreamCacheBuster(Date.now());
     if (isRunning) {
-      setStreamCacheBuster(Date.now());
       setShowAllBoxes(false);
     }
   }, [isRunning]);
+
+  // When backend confirms stopped status, refresh cache buster so final frame is loaded
+  useEffect(() => {
+    if (backendStats?.status === 'stopped' && !isRunning) {
+      setStreamCacheBuster(Date.now());
+    }
+  }, [backendStats?.status, isRunning]);
 
   const effectiveVideoUrl = useMemo(() => {
     if (!hasActiveVideo) return undefined;
@@ -193,13 +200,16 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
     };
   }, [containerSize, videoAspect, videoDimensions, isCameraSource]);
 
-  // Auto-play local video
+  // Auto-play local video ONLY in raw mode or when no inference session exists
   useEffect(() => {
-    if (videoRef.current && hasActiveVideo) {
+    if (!videoRef.current) return;
+    if (hasActiveVideo && (feedMode === 'raw' || !videoSessionId)) {
       videoRef.current.muted = true;
       videoRef.current.play().catch(() => {});
+    } else {
+      videoRef.current.pause();
     }
-  }, [hasActiveVideo, customVideoUrl]);
+  }, [hasActiveVideo, customVideoUrl, feedMode, videoSessionId]);
 
   // Fullscreen listener with robust cross-browser API
   const toggleFullscreen = () => {
@@ -695,7 +705,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
             className="relative flex items-center justify-center pointer-events-auto select-none overflow-hidden"
             style={fittedRect}
           >
-            {/* Normal MP4 Playback (Local) - ALWAYS RENDERED FOR SMOOTH TRANSITION */}
+            {/* Normal MP4 Playback (Local) - ONLY active & visible when NOT in inference session */}
             {hasActiveVideo && (
               <video
                 ref={(el) => {
@@ -708,27 +718,39 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                 }}
                 key={customVideoUrl || 'main-player'}
                 src={customVideoUrl}
-                autoPlay
+                autoPlay={feedMode === 'raw' || !videoSessionId}
                 loop
                 muted
                 playsInline
                 preload="auto"
                 controls={false}
                 onCanPlay={(e) => {
-                  if (!effectiveVideoUrl?.includes('/video/stream/')) setIsFirstFrameLoaded(true);
                   e.currentTarget.muted = true;
-                  e.currentTarget.play().catch(() => {});
+                  if (feedMode === 'raw' || !videoSessionId) {
+                    setIsFirstFrameLoaded(true);
+                    e.currentTarget.play().catch(() => {});
+                  } else {
+                    e.currentTarget.pause();
+                  }
                 }}
                 onLoadedData={(e) => {
-                  if (!effectiveVideoUrl?.includes('/video/stream/')) setIsFirstFrameLoaded(true);
                   e.currentTarget.muted = true;
-                  e.currentTarget.play().catch(() => {});
+                  if (feedMode === 'raw' || !videoSessionId) {
+                    setIsFirstFrameLoaded(true);
+                    e.currentTarget.play().catch(() => {});
+                  } else {
+                    e.currentTarget.pause();
+                  }
                 }}
                 onLoadedMetadata={(e) => {
-                  if (!effectiveVideoUrl?.includes('/video/stream/')) setIsFirstFrameLoaded(true);
                   const v = e.currentTarget;
                   v.muted = true;
-                  v.play().catch(() => {});
+                  if (feedMode === 'raw' || !videoSessionId) {
+                    setIsFirstFrameLoaded(true);
+                    v.play().catch(() => {});
+                  } else {
+                    v.pause();
+                  }
                   if (v.videoWidth && v.videoHeight) {
                     setVideoAspect(v.videoWidth / v.videoHeight);
                   }
@@ -737,16 +759,23 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                   const err = e.currentTarget.error;
                   console.error('VIDEO ERROR', err?.code, err?.message);
                 }}
-                className={`w-full h-full block object-contain select-none pointer-events-auto ${effectiveVideoUrl?.includes('/video/stream/') ? 'absolute inset-0 z-0' : 'z-0 relative'}`}
+                className={`w-full h-full block object-contain select-none ${
+                  feedMode === 'inference' && videoSessionId
+                    ? 'absolute inset-0 -z-10 opacity-0 pointer-events-none'
+                    : 'absolute inset-0 z-0 opacity-100 pointer-events-auto'
+                }`}
               />
             )}
 
             {/* Backend Inference MJPEG Stream OR Last Frame when Stopped */}
-            {hasActiveVideo && feedMode === 'inference' && (effectiveVideoUrl?.includes('/video/stream/') || effectiveVideoUrl?.includes('/video/last_frame/')) && (
+            {hasActiveVideo && feedMode === 'inference' && videoSessionId && (
               <img
+                key={`backend-frame-${videoSessionId}`}
                 src={effectiveVideoUrl}
                 alt="Backend Inference Stream"
-                className={`w-full h-full block object-contain select-none pointer-events-auto z-10 ${isFirstFrameLoaded ? 'relative opacity-100' : 'absolute inset-0 opacity-0 pointer-events-none'}`}
+                className={`w-full h-full block object-contain select-none pointer-events-auto absolute inset-0 z-10 ${
+                  isFirstFrameLoaded ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                }`}
                 onLoad={(e) => {
                   setIsFirstFrameLoaded(true);
                   const img = e.currentTarget;
