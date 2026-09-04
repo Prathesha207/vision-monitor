@@ -115,6 +115,14 @@ import time
 from pathlib import Path
 from typing import List, Optional
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
 
 # ======================================================================
 # PART 1
