@@ -80,27 +80,12 @@ export function useVideoPipeline({
       showToast('success', `Inference started for "${name}"`);
       addLog(`Inference started: "${name}"`, 'success');
     } else if (sessionId) {
-      // Auto-start inference immediately on uploaded session so no second button is needed
-      setIsRunning(true);
-      fetch(`${getApiBaseUrl()}/video/update_expected/${sessionId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ count: expectedDucks })
-      }).catch(() => {});
-      fetch(`${getApiBaseUrl()}/video/start/${sessionId}`, { method: 'POST' })
-        .then(() => {
-          const streamUrl = `${getApiBaseUrl()}/video/stream/${sessionId}`;
-          setCustomVideoUrl(streamUrl);
-          showToast('success', `Inference started for "${name}"`);
-          addLog(`Inference started: "${name}"`, 'success');
-        })
-        .catch(err => {
-          console.error('Auto-start failed:', err);
-          setIsRunning(false);
-        });
+      // Just load the video and wait for user to click START INFERENCE
+      setIsRunning(false);
+      showToast('success', `Video "${name}" uploaded. Press Start Inference.`);
+      addLog(`Video uploaded: "${name}". Ready to start inference.`, 'info');
     } else {
       setIsRunning(false);
-      showToast('success', `Video "${name}" loaded.`);
       addLog(`Video loaded: "${name}"`, 'info');
     }
   };

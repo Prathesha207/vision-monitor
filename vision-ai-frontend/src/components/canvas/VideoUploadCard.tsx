@@ -45,7 +45,7 @@ export const VideoUploadCard: React.FC<VideoUploadCardProps> = ({
               {isSelectingVideo ? (
                 <>
                   <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
-                  <span>Selecting Video...</span>
+                  <span>Uploading Video...</span>
                 </>
               ) : !isBackendConnected ? (
                 <>
@@ -54,8 +54,8 @@ export const VideoUploadCard: React.FC<VideoUploadCardProps> = ({
                 </>
               ) : (
                 <>
-                  <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
-                  <span> Start Inference</span>
+                  <UploadCloud className="w-4 h-4 sm:w-5 sm:h-5" />
+                  <span> Select Video</span>
                 </>
               )}
             </button>

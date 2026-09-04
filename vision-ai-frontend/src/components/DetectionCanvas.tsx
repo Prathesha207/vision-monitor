@@ -172,12 +172,11 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
         isDragOver
           ? 'border-[var(--accent-pond)] ring-4 ring-[var(--accent-pond-subtle)]'
           : 'border-[var(--border-color)]'
-      } ${
-        isWaitingForVideo
-          ? 'bg-[var(--bg-card)]'
-          : 'bg-[#0B1814]'
       } shadow-sm`}
-      style={isFullscreen ? { width: '100%', height: '100%', minHeight: '100vh', maxHeight: '100vh' } : undefined}
+      style={{
+        backgroundColor: (isWaitingForVideo || (!isCameraConnected && isCameraSource)) ? 'var(--bg-card)' : '#000000',
+        ...(isFullscreen ? { width: '100%', height: '100%', minHeight: '100vh', maxHeight: '100vh' } : {})
+      }}
     >
       <input type="file" ref={fileInputRef} onChange={handleFileInputChange} accept="video/*" className="hidden" />
 
