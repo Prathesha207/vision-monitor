@@ -255,13 +255,5 @@ async def start_path_inference(data: StartPathInferenceRequest, background_tasks
         session["status"] = "ready"
         session["stats"]["status"] = "ready"
 
-    run_seq = ml_inference_service.start_run(session_id)
-    background_tasks.add_task(
-        ml_inference_service.process_video_task,
-        session_id,
-        video_path,
-        filename,
-        run_seq,
-    )
-    return {"session_id": session_id, "status": "started", "video_name": filename}
+    return {"session_id": session_id, "status": "ready", "video_name": filename}
 
