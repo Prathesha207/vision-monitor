@@ -1,0 +1,6 @@
+export const DEFAULT_VIDEO_WIDTH = 1920;
+export const DEFAULT_VIDEO_HEIGHT = 1080;
+export const HEALTH_POLL_INTERVAL_MS = 3000;
+export const CAMERA_POLL_INTERVAL_MS = 5000;
+export const MAX_LOG_ENTRIES = 35;
+export const TOAST_AUTO_DISMISS_MS = 4000;
