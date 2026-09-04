@@ -23,10 +23,10 @@ import yaml
 from typing import Dict, Any, Optional, Tuple
 
 try:
-    from duck_analyzer import DuckAnalyzer
+    from app.ml.duck_analyzer.analyzer import DuckAnalyzer
 except ImportError:
     try:
-        from app.ml.duck_analyzer.analyzer import DuckAnalyzer
+        from duck_analyzer import DuckAnalyzer
     except ImportError:
         DuckAnalyzer = None
 

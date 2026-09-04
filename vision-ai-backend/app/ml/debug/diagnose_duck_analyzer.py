@@ -124,6 +124,32 @@ if hasattr(sys.stdout, "reconfigure"):
 
 
 
+def get_duck_analyzer_class():
+    """
+    Load DuckAnalyzer, prioritizing the local source file:
+    vision-ai-backend/app/ml/duck_analyzer/analyzer.py
+    Falls back to installed package if local file is missing.
+    """
+    _script_dir = Path(__file__).resolve().parent
+    _local_analyzer_file = _script_dir.parent / "duck_analyzer" / "analyzer.py"
+
+    if _local_analyzer_file.exists():
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("local_duck_analyzer", str(_local_analyzer_file))
+        if spec and spec.loader:
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["local_duck_analyzer"] = module
+            spec.loader.exec_module(module)
+            duck_cls = getattr(module, "DuckAnalyzer", None)
+            if duck_cls is not None:
+                return duck_cls, str(_local_analyzer_file), "local_source"
+
+    # Fallback to installed package
+    from duck_analyzer import DuckAnalyzer
+    import duck_analyzer
+    return DuckAnalyzer, getattr(duck_analyzer, "__file__", "installed_package"), "site_packages"
+
+
 # ======================================================================
 # PART 1
 # DIAGNOSIS
@@ -321,6 +347,21 @@ def run_diagnosis() -> None:
             f"IMPORT ERROR: "
             f"{type(exc).__name__}: {exc}"
         )
+
+    # --------------------------------------------------------------
+    # local source check
+    # --------------------------------------------------------------
+
+    print()
+    print("[ local duck_analyzer source file ]")
+    print("-" * 60)
+    _local_analyzer = Path(__file__).resolve().parent.parent / "duck_analyzer" / "analyzer.py"
+    if _local_analyzer.exists():
+        print(f"FOUND local source file: {_local_analyzer}")
+        print(f"mtime: {os.path.getmtime(_local_analyzer)}")
+        print(f"size: {os.path.getsize(_local_analyzer)} bytes")
+    else:
+        print(f"Local source file NOT found at: {_local_analyzer}")
 
     # --------------------------------------------------------------
     # candidates
@@ -1032,14 +1073,14 @@ def run_manual_inference(
         return 1
 
     # --------------------------------------------------------------
-    # Import real DuckAnalyzer
+    # Import real DuckAnalyzer (prioritizing local app/ml/duck_analyzer/analyzer.py)
     # --------------------------------------------------------------
 
     try:
+        DuckAnalyzer, analyzer_source_path, source_kind = get_duck_analyzer_class()
+        print(f"[LOAD] Using DuckAnalyzer from: {analyzer_source_path} ({source_kind})")
 
-        from duck_analyzer import DuckAnalyzer
-
-    except ImportError as exc:
+    except Exception as exc:
 
         print(
             f"Could not import DuckAnalyzer: {exc}"
