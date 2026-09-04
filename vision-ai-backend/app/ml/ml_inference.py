@@ -560,11 +560,13 @@ class VideoInferenceService:
                     # Stream the annotated frame (with drawn boxes and tags) for the live MJPEG stream
                     success, buffer = cv2.imencode('.jpg', annotated_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
                     if success:
+                        frame_bytes = buffer.tobytes()
+                        session["last_frame_bytes"] = frame_bytes
                         try:
                             # If queue is full, drop frame to keep real-time behavior and avoid memory bloat
                             if session["queue"].full():
                                 session["queue"].get_nowait()
-                            session["queue"].put_nowait(buffer.tobytes())
+                            session["queue"].put_nowait(frame_bytes)
                         except asyncio.QueueFull:
                             pass
 

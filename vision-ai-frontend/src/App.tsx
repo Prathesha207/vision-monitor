@@ -647,24 +647,41 @@ export default function App() {
     }
 
     // Always update local preview and customVideoUrl so the video frame shows immediately
-    setLocalPreviewUrl(url);
-    setCustomVideoUrl(url);
-    setCustomVideoName(name);
-    setSourceType('uploaded-video');
     const isStreamUrl = url.includes('/video/stream/');
     setLocalPreviewUrl(url);
     setCustomVideoUrl(url);
     setCustomVideoName(name);
     setSourceType('uploaded-video');
     setAutoStartRecordedInference(false);
-    setIsRunning(isStreamUrl);
     setCameraStartingState('ready');
+
     if (isStreamUrl) {
+      setIsRunning(true);
       showToast('success', `Inference started for "${name}"`);
-      addLog(`Desktop video inference started: "${name}"`, 'success');
+      addLog(`Inference started: "${name}"`, 'success');
+    } else if (sessionId) {
+      // Auto-start inference immediately on uploaded session so no second button is needed
+      setIsRunning(true);
+      fetch(`${getApiBaseUrl()}/video/update_expected/${sessionId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count: expectedDucks })
+      }).catch(() => {});
+      fetch(`${getApiBaseUrl()}/video/start/${sessionId}`, { method: 'POST' })
+        .then(() => {
+          const streamUrl = `${getApiBaseUrl()}/video/stream/${sessionId}`;
+          setCustomVideoUrl(streamUrl);
+          showToast('success', `Inference started for "${name}"`);
+          addLog(`Inference started: "${name}"`, 'success');
+        })
+        .catch(err => {
+          console.error('Auto-start failed:', err);
+          setIsRunning(false);
+        });
     } else {
-      showToast('success', isRecordedStream ? 'Recorded video ready! Click "Start Inference" to analyze.' : `Video "${name}" uploaded. Click "Start Inference" to begin.`);
-      addLog(isRecordedStream ? `Recorded video loaded: "${name}". Ready for inference.` : `Custom video loaded: "${name}". Ready for inference.`, 'info');
+      setIsRunning(false);
+      showToast('success', `Video "${name}" loaded.`);
+      addLog(`Video loaded: "${name}"`, 'info');
     }
   };
 

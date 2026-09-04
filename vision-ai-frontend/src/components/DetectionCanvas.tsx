@@ -129,8 +129,12 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
 
   const effectiveVideoUrl = useMemo(() => {
     if (!hasActiveVideo) return undefined;
-    if (videoSessionId && isRunning) {
-      return `${getApiBaseUrl()}/video/stream/${videoSessionId}?t=${streamCacheBuster}`;
+    if (videoSessionId) {
+      if (isRunning) {
+        return `${getApiBaseUrl()}/video/stream/${videoSessionId}?t=${streamCacheBuster}`;
+      }
+      // When stopped / paused: display the last inference frame from backend - NO BLACK SCREEN!
+      return `${getApiBaseUrl()}/video/last_frame/${videoSessionId}?t=${streamCacheBuster}`;
     }
     return customVideoUrl;
   }, [customVideoUrl, hasActiveVideo, isRunning, videoSessionId, streamCacheBuster]);
@@ -140,11 +144,12 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
     setVideoAspect(null);
   }, [effectiveVideoUrl, hasActiveVideo, sourceType]);
 
-  // A new MJPEG URL represents a new inference run. Do not reveal stale
-  // frames or boxes until this exact stream supplies its first frame.
+  // Reset first frame loaded flag ONLY when a new run begins, preserving last frame when stopped
   useEffect(() => {
-    setIsFirstFrameLoaded(false);
-  }, [isRunning, effectiveVideoUrl]);
+    if (isRunning) {
+      setIsFirstFrameLoaded(false);
+    }
+  }, [isRunning]);
 
   // Dynamic pixel-perfect aspect ratio fitting for video and inference bounding boxes
   const fittedRect = useMemo(() => {
@@ -378,11 +383,24 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
         try {
           const data = JSON.parse(xhr.responseText);
           setUploadProgress(100);
-          setTimeout(() => {
+          setTimeout(async () => {
             setUploadProgress(null);
             if (onCustomVideoUploaded) {
-              const localBlobUrl = URL.createObjectURL(file);
-              onCustomVideoUploaded(localBlobUrl, file.name, data.session_id);
+              try {
+                // Auto-start inference immediately on uploaded video so user doesn't need to click a second time
+                await fetch(`${getApiBaseUrl()}/video/update_expected/${data.session_id}`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ count: expectedDucks })
+                }).catch(() => {});
+                await fetch(`${getApiBaseUrl()}/video/start/${data.session_id}`, { method: 'POST' });
+                const streamUrl = `${getApiBaseUrl()}/video/stream/${data.session_id}`;
+                onCustomVideoUploaded(streamUrl, file.name, data.session_id);
+              } catch (err) {
+                console.error('Auto-start inference error, falling back to local preview:', err);
+                const localBlobUrl = URL.createObjectURL(file);
+                onCustomVideoUploaded(localBlobUrl, file.name, data.session_id);
+              }
             }
           }, 350);
         } catch (e) {
@@ -611,7 +629,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                 ) : (
                   <>
                     <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
-                    <span>Select Video &amp; Start Inference</span>
+                    <span> Start Inference</span>
                   </>
                 )}
               </button>
@@ -713,8 +731,8 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
               />
             )}
 
-            {/* Backend Inference MJPEG Stream - Bypasses browser codec issues! */}
-            {hasActiveVideo && feedMode === 'inference' && effectiveVideoUrl?.includes('/video/stream/') && (
+            {/* Backend Inference MJPEG Stream OR Last Frame when Stopped */}
+            {hasActiveVideo && feedMode === 'inference' && (effectiveVideoUrl?.includes('/video/stream/') || effectiveVideoUrl?.includes('/video/last_frame/')) && (
               <img
                 src={effectiveVideoUrl}
                 alt="Backend Inference Stream"

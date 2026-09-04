@@ -2,7 +2,7 @@ import logging
 import tempfile
 import asyncio
 from fastapi import APIRouter, UploadFile, File, BackgroundTasks, Request
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, Response
 
 from app.ml.ml_inference import ml_inference_service
 
@@ -186,6 +186,32 @@ async def stop_video(session_id: str):
     
     ml_inference_service.stop_session(session_id)
     return {"message": "Stop signal sent."}
+
+@router.get("/last_frame/{session_id}")
+async def get_last_frame(session_id: str):
+    session = ml_inference_service.sessions.get(session_id)
+    if not session:
+        return JSONResponse(status_code=404, content={"message": "Session not found."})
+    frame_bytes = session.get("last_frame_bytes")
+    if not frame_bytes:
+        session_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ml", "output", session_id)
+        raw_frames_dir = os.path.join(session_dir, "raw_frames")
+        if os.path.exists(raw_frames_dir):
+            frames = sorted(os.listdir(raw_frames_dir))
+            if frames:
+                last_file = os.path.join(raw_frames_dir, frames[-1])
+                try:
+                    with open(last_file, "rb") as f:
+                        frame_bytes = f.read()
+                except Exception:
+                    pass
+    if not frame_bytes:
+        return JSONResponse(status_code=404, content={"message": "No frame available."})
+    return Response(
+        content=frame_bytes,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+    )
 
 from pydantic import BaseModel
 
