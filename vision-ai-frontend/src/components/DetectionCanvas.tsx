@@ -165,7 +165,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
       id="detection-hero-viewport"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      onDrop={(e) => handleDrop(e, isVideoSource)}
       className={`relative w-full flex-1 h-full min-h-[350px] lg:min-h-0 overflow-hidden border select-none group ${
         isFullscreen ? 'rounded-none border-none' : 'rounded-3xl'
       } ${
@@ -194,11 +194,11 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
         <CameraOfflineCard
           onSwitchToVideo={() => onRequestSwitchMode?.('uploaded-video')}
           onRetryConnection={() => window.location.reload()}
-          onCanvasClick={(e) => handleCanvasClick(e, fittedRect)}
+          onCanvasClick={(e) => handleCanvasClick(e, containerRef)}
         />
       )}
 
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-black" onClick={(e) => handleCanvasClick(e, fittedRect)}>
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-black" onClick={(e) => handleCanvasClick(e, containerRef)}>
         {/* RAW VIDEO LAYER */}
         {hasActiveVideo && (feedMode === 'raw' || !videoSessionId) && (
           <video
@@ -278,7 +278,15 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
         onToggleShowAllBoxes={() => { playWaterDropSound(); setShowAllBoxes(!showAllBoxes); }}
         isRecording={isRecording}
         onToggleRecording={() => {
-          if (isRecording) { playWaterDropSound(); stopRecording(); } else { playWaterDropSound(); startRecording(); }
+          if (isRecording) {
+            playWaterDropSound();
+            stopRecording();
+          } else {
+            playWaterDropSound();
+            if (cameraImgRef.current) {
+              startRecording(cameraImgRef.current, videoDimensions?.width || 1920, videoDimensions?.height || 1080);
+            }
+          }
         }}
         isFullscreen={isFullscreen}
         onToggleFullscreen={toggleFullscreen}

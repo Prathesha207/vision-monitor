@@ -3,7 +3,7 @@ import type { DuckEntity } from '../types';
 import { playWaterDropSound, playDuckQuackSound } from '../utils/audio';
 
 export const useRippleEffect = (
-  canvasRef: React.RefObject<HTMLCanvasElement>,
+  canvasRef: React.RefObject<HTMLCanvasElement | null>,
   ducks: DuckEntity[],
   selectedDuckId: string | null,
   onSelectDuck: (id: string | null) => void
@@ -64,7 +64,7 @@ export const useRippleEffect = (
     };
   }, []);
 
-  const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>, containerRef: React.RefObject<HTMLDivElement>) => {
+  const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>, containerRef: React.RefObject<HTMLDivElement | null>) => {
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     const clickX = e.clientX - rect.left;

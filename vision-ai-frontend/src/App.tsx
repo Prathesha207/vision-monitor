@@ -75,20 +75,24 @@ export default function App() {
   // ─── 5. Camera Hardware ────────────────────────────────────────────
   const camera = useCameraStatus(addLog, showToast);
 
+  // ─── Shared Pipeline State ─────────────────────────────────────────
+  const [isRunning, setIsRunning] = useState<boolean>(false);
+  const [isStarting, setIsStarting] = useState<boolean>(false);
+  const [fps, setFps] = useState<number>(0);
+  const [framesProcessed, setFramesProcessed] = useState<number>(0);
+  const [uptimeSeconds, setUptimeSeconds] = useState<number>(0);
+
   // ─── 6. Anomaly Detection (owns expectedDucks + ducks state) ──────
   const backendStats = useInferenceStore(state => state.stats);
   const isVideoSource = sourceType === 'sample-pond' || sourceType === 'uploaded-video';
   const isCameraSource = sourceType === 'oak-camera' || sourceType === 'webcam';
 
-  // We need a forward reference to inference.isRunning and inference.isStarting
-  // but those come from useInferenceLoop which needs anomaly.setDucks.
-  // Solution: anomaly hook owns ducks/expectedDucks state, inference hook receives setters.
   const anomaly = useAnomalyStatus({
     hasActiveStream: false, // Will be recalculated below via useMemo
-    isRunning: false,       // Placeholder — overridden by computed values
-    isStarting: false,
+    isRunning,
+    isStarting,
     isCameraSource,
-    framesProcessed: 0,
+    framesProcessed,
     backendStats,
     addLog,
   });
@@ -99,14 +103,14 @@ export default function App() {
     addLog,
     expectedDucks: anomaly.expectedDucks,
     sourceType,
-    isRunning: false, // placeholder
-    setIsRunning: () => {},
+    isRunning,
+    setIsRunning,
     setDucks: anomaly.setDucks,
-    setFramesProcessed: () => {},
-    setFps: () => {},
+    setFramesProcessed,
+    setFps,
     setCameraStartingState: camera.setCameraStartingState,
     setSourceType,
-    setIsStarting: () => {},
+    setIsStarting,
   });
 
   const hasActiveVideo = isVideoSource && Boolean(video.customVideoUrl || video.customVideoName);
@@ -142,14 +146,14 @@ export default function App() {
       await new Promise((resolve) => setTimeout(resolve, 1500));
 
       camera.setCameraStartingState('ready');
-      inference.setIsRunning(true);
+      setIsRunning(true);
       showToast('success', 'Camera inference started successfully');
       addLog('Step 3/3: First live frame received (1080p). Starting inference • YOLOv8 active.', 'success');
       return true;
     } catch (error) {
       console.error('Failed to start camera pipeline:', error);
       camera.setCameraStartingState('ready');
-      inference.setIsRunning(false);
+      setIsRunning(false);
       showToast('error', 'Failed to start camera device');
       addLog('Error: Failed to connect to OAK stream or live inference.', 'error');
       return false;
@@ -158,7 +162,7 @@ export default function App() {
 
   const stopCameraPipeline = async () => {
     camera.setCameraStartingState('ready');
-    inference.setIsRunning(false);
+    setIsRunning(false);
     anomaly.setDucks([]);
     try {
       await cameraService.stopStream();
@@ -179,14 +183,17 @@ export default function App() {
     setDucks: anomaly.setDucks,
     setVideoDimensions: video.setVideoDimensions,
     cameraService,
+    isRunning,
+    setIsRunning,
+    isStarting,
+    setIsStarting,
+    fps,
+    setFps,
+    framesProcessed,
+    setFramesProcessed,
+    uptimeSeconds,
+    setUptimeSeconds,
   });
-
-  // ─── Wire up cross-hook dependencies ──────────────────────────────
-  // Now that inference exists, wire up video pipeline setters
-  video.setIsRunning = inference.setIsRunning;
-  video.setFramesProcessed = inference.setFramesProcessed;
-  video.setFps = inference.setFps;
-  video.setIsStarting = inference.setIsStarting;
 
   // Recalculate derived values that depend on inference state
   const hasActiveStream = (isVideoSource && hasActiveVideo) || (isCameraSource && camera.isCameraDeviceActive && camera.cameraStartingState === 'ready');
@@ -195,10 +202,10 @@ export default function App() {
   // Re-run anomaly with correct values (React will batch this)
   const anomalyFinal = useAnomalyStatus({
     hasActiveStream,
-    isRunning: inference.isRunning,
-    isStarting: inference.isStarting,
+    isRunning,
+    isStarting,
     isCameraSource,
-    framesProcessed: inference.framesProcessed,
+    framesProcessed,
     backendStats,
     addLog,
   });
@@ -210,7 +217,7 @@ export default function App() {
     setPendingSourceSwitch(null);
 
     if (isTargetCamera) {
-      inference.setIsRunning(false);
+      setIsRunning(false);
       camera.setCameraStartingState('waking_camera');
       addLog('Step 1/3: Starting OAK Camera device (POST /oak/start)...', 'info');
 

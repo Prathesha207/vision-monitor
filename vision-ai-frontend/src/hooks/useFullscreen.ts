@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { playWaterDropSound } from '../utils/audio';
 
-export const useFullscreen = (containerRef: React.RefObject<HTMLDivElement>) => {
+export const useFullscreen = (containerRef: React.RefObject<HTMLDivElement | null>) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const toggleFullscreen = () => {

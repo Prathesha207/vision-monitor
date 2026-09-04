@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 
 export const useContainerFit = (
-  containerRef: React.RefObject<HTMLDivElement>,
-  canvasRef: React.RefObject<HTMLCanvasElement>,
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  canvasRef: React.RefObject<HTMLCanvasElement | null>,
   videoAspect: number | null,
   videoDimensions: { width: number; height: number } | null | undefined,
   isCameraSource: boolean

@@ -16,6 +16,16 @@ export function useInferenceLoop({
   setDucks,
   setVideoDimensions,
   cameraService,
+  isRunning,
+  setIsRunning,
+  isStarting,
+  setIsStarting,
+  fps,
+  setFps,
+  framesProcessed,
+  setFramesProcessed,
+  uptimeSeconds,
+  setUptimeSeconds
 }: {
   sourceType: StreamSourceType;
   videoSessionId: string | null;
@@ -26,13 +36,17 @@ export function useInferenceLoop({
   setDucks: (ducks: DuckEntity[]) => void;
   setVideoDimensions: (dim: { width: number; height: number }) => void;
   cameraService: any;
+  isRunning: boolean;
+  setIsRunning: (val: boolean) => void;
+  isStarting: boolean;
+  setIsStarting: (val: boolean) => void;
+  fps: number;
+  setFps: (val: number) => void;
+  framesProcessed: number;
+  setFramesProcessed: (val: number) => void;
+  uptimeSeconds: number;
+  setUptimeSeconds: (val: number) => void;
 }) {
-  const [isRunning, setIsRunning] = useState<boolean>(false);
-  const [isStarting, setIsStarting] = useState<boolean>(false);
-  const [fps, setFps] = useState<number>(0);
-  const [framesProcessed, setFramesProcessed] = useState<number>(0);
-  const [uptimeSeconds, setUptimeSeconds] = useState<number>(0);
-
   // Effect: FPS reset when idle
   useEffect(() => {
     if (!isRunning) setFps(0);

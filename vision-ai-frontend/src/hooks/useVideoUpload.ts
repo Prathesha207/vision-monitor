@@ -3,7 +3,7 @@ import { getApiBaseUrl } from '../lib/api';
 import { playWaterDropSound } from '../utils/audio';
 
 export const useVideoUpload = (
-  fileInputRef: React.RefObject<HTMLInputElement>,
+  fileInputRef: React.RefObject<HTMLInputElement | null>,
   expectedDucks: number,
   onVideoUploaded?: (videoUrl: string, fileName: string, sessionId?: string) => void,
   recordedFile?: File | null,
