@@ -1,4 +1,4 @@
-import { mapDetectionsToDucks } from './utils/mlDataMapper';
+import { mapDetectionsToDucks, resetBBoxCache } from './utils/mlDataMapper';
 import { LandingScreen } from './components/LandingScreen';
 import { lockScroll, unlockScroll } from './utils/scrollLock';
 /**
@@ -766,7 +766,7 @@ export default function App() {
     executeSwitchMode(target);
   };
 
-  const startCameraPipeline = async () => { setDucks([]); useInferenceStore.getState().resetStats();
+  const startCameraPipeline = async () => { setDucks([]); useInferenceStore.getState().resetStats(); resetBBoxCache();
     setCameraStartingState('waking_camera');
     addLog('Step 1/3: Starting OAK Camera device (POST /oak/start)...', 'info');
 
@@ -858,7 +858,7 @@ export default function App() {
     }
   };
 
-  const startVideoInference = async () => { setDucks([]); useInferenceStore.getState().resetStats();
+  const startVideoInference = async () => { setDucks([]); useInferenceStore.getState().resetStats(); resetBBoxCache();
     if (!videoSessionId) {
       showToast('error', 'Upload a video before starting inference.');
       return;
@@ -867,6 +867,7 @@ export default function App() {
     setFps(0);
     setDucks([]);
     useInferenceStore.getState().resetStats();
+    resetBBoxCache();
     setIsStarting(true);
     setIsRunning(true);
     try {
@@ -977,6 +978,7 @@ export default function App() {
     setFps(0);
     setDucks([]);
     useInferenceStore.getState().resetStats();
+    resetBBoxCache();
     setIsStarting(true);
     setTimeout(() => setIsStarting(false), 1000);
     setIsRunning(true);

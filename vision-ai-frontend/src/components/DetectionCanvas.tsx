@@ -877,7 +877,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                   .filter((duck) => {
                     if (duck.species === 'Hand' || duck.handDetected) return false;
                     const isMissing = duck.statusEvent === 'missing';
-                    const isVisible = showAllBoxes || duck.isAnomaly || isMissing || duck.id === selectedDuckId;
+                    const isVisible = showAllBoxes || duck.provisional || duck.isAnomaly || isMissing || duck.id === selectedDuckId;
                     return isVisible && Number.isFinite(duck.x) && Number.isFinite(duck.y) && Number.isFinite(duck.width) && Number.isFinite(duck.height) && duck.width > 0 && duck.height > 0;
                   })
                   .map((duck, idx) => {

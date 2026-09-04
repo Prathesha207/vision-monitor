@@ -81,6 +81,7 @@ const initialStats: InferenceStats = {
   other_ids: [],
   reasons: [],
   detections: [],
+  thumbnails: [],
   video_width: 0,
   video_height: 0,
   original_filename: null,

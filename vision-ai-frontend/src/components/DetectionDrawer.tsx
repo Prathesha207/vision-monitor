@@ -60,7 +60,7 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
 
   const speciesList = Array.from(new Set(ducks.map((d) => d.species))).join(', ') || '--';
   const isEmptyState = ducks.length === 0;
-  const anomalyDucks = ducks.filter((d) => d.isAnomaly);
+  const anomalyDucks = ducks.filter((d) => d.isAnomaly && !d.provisional);
   const hasDetections = ducks.length > 0;
 
   if (!isOpen) {

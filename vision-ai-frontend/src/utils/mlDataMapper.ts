@@ -19,10 +19,15 @@ import { useInferenceStore } from '../store/inferenceStore';
 // Persistent cache of last known valid bounding box coordinates for each duck ID
 const lastKnownBBoxes = new Map<string, { x: number; y: number; width: number; height: number }>();
 
+export const resetBBoxCache = () => {
+  lastKnownBBoxes.clear();
+};
+
 export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEntity[] => {
   const incomingDucks: DuckEntity[] = [];
   const addedIds = data.added_ids || [];
   const missingIds = data.missing_ids || [];
+  const isWarmingUp = data.status === 'WARMING' || !data.anchor_locked;
 
   // Find thumbnails. Ensure we do not drop thumbnails when data.thumbnails is an empty array [] (which is truthy in JS!)
   const rawDataThumbs = Array.isArray(data.thumbnails) ? data.thumbnails : [];
@@ -56,6 +61,7 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEnt
       // DOM nodes behind across the ~30-100ms poll cycle instead of being
       // cleanly replaced frame to frame.
       const hasLockedId = d.id !== null && d.id !== undefined && Number(d.id) !== -1;
+      const isProvisional = d.provisional === true || isWarmingUp || !hasLockedId;
       const rawId = hasLockedId ? String(d.id) : `prov-${idx + 1}`;
       // Duck and other trackers use independent numeric ID spaces.
       const isOther = !isDuck && !isHand;
@@ -64,7 +70,7 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEnt
       const thumbObj = allThumbnails.slice().reverse().find((t: any) =>
         (String(t.id) === rawId || Number(t.id) === Number(rawId)) && (isOther ? t.event === 'other_present' : t.event !== 'other_present')
       );
-      const isMissingDetection = d.status === 'missing' || missingIds.includes(displayId) || missingIds.includes(Number(displayId));
+      const isMissingDetection = !isProvisional && (d.status === 'missing' || missingIds.includes(displayId) || missingIds.includes(Number(displayId)));
       if (pw > 0 && ph > 0 && px >= 0 && py >= 0) {
         lastKnownBBoxes.set(displayId, { x: px, y: py, width: pw, height: ph });
       } else if (isMissingDetection) {
@@ -79,37 +85,26 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEnt
       let eventStatus: DuckEntity['statusEvent'] = undefined;
       if (isMissingDetection) {
         eventStatus = 'missing';
-      } else if (addedIds.includes(displayId) || addedIds.includes(Number(displayId)) || d.status === 'added') {
+      } else if (!isProvisional && (addedIds.includes(displayId) || addedIds.includes(Number(displayId)) || d.status === 'added')) {
         eventStatus = 'added';
       } else if (thumbObj?.event === 'confirmed' || thumbObj?.event === 'added') {
         eventStatus = 'confirmed';
-      } else if (thumbObj?.event === 'other_present') {
-        eventStatus = 'other_present';
-      } else if (!hasLockedId && data.anchor_locked) {
+      } else if (thumbObj?.event === 'other_present' || isOther) {
         eventStatus = 'other_present';
       }
 
-      // Trust the backend's own per-detection verdict first -- DuckAnalyzer
-      // already knows whether THIS box is anomalous (added / other-species /
-      // hand / whatever). Only fall back to re-deriving it from other ML
-      // signals (species class, added_ids membership) if the backend didn't
-      // send the field at all -- never override it after the fact.
+      // Warming up / provisional detections are NEVER anomalies or errors!
       const backendIsAnomaly = typeof d.isAnomaly === 'boolean' ? d.isAnomaly : undefined;
       const isAnomaly = backendIsAnomaly ?? (
-        isMissingDetection ||
         isOther || isHand ||
-        addedIds.includes(displayId) ||
-        addedIds.includes(Number(displayId)) ||
-        d.status === 'unbound' ||
-        d.status === 'added' ||
-        (!hasLockedId && data.anchor_locked)
+        (!isProvisional && (
+          isMissingDetection ||
+          addedIds.includes(displayId) ||
+          addedIds.includes(Number(displayId)) ||
+          d.status === 'unbound' ||
+          d.status === 'added'
+        ))
       );
-
-      // Trust the backend's own provisional flag. Do NOT force provisional
-      // just because data.status === 'WARMING' or the id is still null --
-      // that was hiding real, currently-visible detections from the gallery
-      // for as long as warmup/anchor-locking took.
-      const isProvisional = d.provisional === true;
 
       incomingDucks.push({
         id: displayId,
@@ -140,19 +135,25 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEnt
   });
 
   // Track all missing IDs (from backend's missing_ids array)
-  const resolvedMissingIds = new Set<string>(missingIds.map(String));
+  // ABSOLUTELY NO missing ducks during warmup!
+  const resolvedMissingIds = new Set<string>();
 
-  // If anchor is locked, any confirmed duck that has disappeared from detections is missing!
-  // This guarantees that Duck #15's card is NEVER removed even if the backend misses or delays missing_ids.
-  if (data.anchor_locked || data.status === 'NORMAL' || data.status === 'ANOMALY') {
-    allThumbnails.forEach((t: any) => {
-      if ((t.event === 'confirmed' || t.event === 'added') && (t.species === 'duck' || !t.species)) {
-        const sid = String(t.id);
-        if (!detectedIds.has(sid)) {
-          resolvedMissingIds.add(sid);
+  if (!isWarmingUp) {
+    missingIds.forEach((mid: any) => resolvedMissingIds.add(String(mid)));
+
+    // If anchor is locked and we have active detections with real locked IDs (not provisional),
+    // any confirmed duck that has disappeared from detections is missing!
+    const hasLockedDetections = incomingDucks.some(d => !d.provisional && !d.id.startsWith('prov-'));
+    if (data.anchor_locked && hasLockedDetections) {
+      allThumbnails.forEach((t: any) => {
+        if ((t.event === 'confirmed' || t.event === 'added') && (t.species === 'duck' || !t.species)) {
+          const sid = String(t.id);
+          if (!detectedIds.has(sid)) {
+            resolvedMissingIds.add(sid);
+          }
         }
-      }
-    });
+      });
+    }
   }
 
   // Inject missing ducks so they appear in the gallery.

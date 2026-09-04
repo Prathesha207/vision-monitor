@@ -51,10 +51,11 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
   onSelect,
   onToggleMissing,
 }) => {
-  const isMissing = duck.statusEvent === 'missing';
-  const isNew = duck.statusEvent === 'added';
-  const isOther = duck.statusEvent === 'other_present' || (duck.species !== 'Duck' && duck.species !== 'Hand');
-  const isAlert = isOther || (duck.isAnomaly && !isMissing && !isNew);
+  const isProvisional = duck.provisional === true;
+  const isMissing = !isProvisional && duck.statusEvent === 'missing';
+  const isNew = !isProvisional && duck.statusEvent === 'added';
+  const isOther = !isProvisional && (duck.statusEvent === 'other_present' || (duck.species !== 'Duck' && duck.species !== 'Hand'));
+  const isAlert = !isProvisional && (isOther || (duck.isAnomaly && !isMissing && !isNew));
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -83,6 +84,10 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
     borderClasses = isSelected
       ? 'border-2 border-rose-500 ring-2 ring-rose-500/40 bg-rose-500/10'
       : 'border-2 border-rose-500 bg-rose-500/10 hover:border-rose-400 hover:shadow-xs';
+  } else if (isProvisional) {
+    borderClasses = isSelected
+      ? 'border-2 border-amber-400 ring-2 ring-amber-400/40 bg-amber-500/10'
+      : 'border-2 border-amber-400/60 bg-amber-500/10 hover:border-amber-400';
   } else if (isSelected) {
     borderClasses = 'border-2 border-[var(--accent-pond)] ring-2 ring-[var(--accent-pond-subtle)] bg-[var(--bg-card)]';
   }
@@ -92,6 +97,7 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
     : duck.statusEvent === 'hand_present' ? 'HAND'
     : isNew ? 'NEW'
     : isAlert ? 'ALERT'
+    : isProvisional ? 'WARM'
     : 'OK';
 
   const barColorClasses = isMissing
@@ -100,6 +106,8 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
     ? 'bg-cyan-500/25 dark:bg-cyan-950/60 border-cyan-500/50 text-cyan-900 dark:text-cyan-200'
     : isAlert
     ? 'bg-rose-500/25 dark:bg-rose-950/60 border-rose-500/50 text-rose-900 dark:text-rose-200'
+    : isProvisional
+    ? 'bg-amber-500/20 dark:bg-amber-950/50 border-amber-500/40 text-amber-800 dark:text-amber-300'
     : 'bg-[var(--status-normal-bg)] border-[var(--status-normal-border)] text-[var(--status-normal-text)]';
 
   return (
@@ -234,14 +242,14 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
     });
   }, [ducks]);
 
-  // Missed = ducks that disappeared from the scene
-  const missedCount = useMemo(() => sortedDucks.filter((d) => d.statusEvent === 'missing').length, [sortedDucks]);
-  // Alert = only unknown/foreign species (not missing, not added — those have their own category)
-  const alertCount = useMemo(() => sortedDucks.filter((d) => d.statusEvent === 'other_present' || (d.species !== 'Duck' && d.species !== 'Hand' && d.x >= 0)).length, [sortedDucks]);
+  // Missed = ducks that disappeared from the scene (excluding provisional warmup)
+  const missedCount = useMemo(() => sortedDucks.filter((d) => !d.provisional && d.statusEvent === 'missing').length, [sortedDucks]);
+  // Alert = only unknown/foreign species (excluding provisional warmup)
+  const alertCount = useMemo(() => sortedDucks.filter((d) => !d.provisional && (d.statusEvent === 'other_present' || (d.species !== 'Duck' && d.species !== 'Hand' && d.x >= 0))).length, [sortedDucks]);
 
   const filteredDucks = useMemo(() => {
-    if (filter === 'missed') return sortedDucks.filter((d) => d.statusEvent === 'missing');
-    if (filter === 'alert') return sortedDucks.filter((d) => d.statusEvent === 'other_present' || (d.species !== 'Duck' && d.species !== 'Hand' && d.x >= 0));
+    if (filter === 'missed') return sortedDucks.filter((d) => !d.provisional && d.statusEvent === 'missing');
+    if (filter === 'alert') return sortedDucks.filter((d) => !d.provisional && (d.statusEvent === 'other_present' || (d.species !== 'Duck' && d.species !== 'Hand' && d.x >= 0)));
     // 'all' always includes every duck — missing cards stay in their ID position, just flagged.
     return sortedDucks;
   }, [sortedDucks, filter]);
