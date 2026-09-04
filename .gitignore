@@ -6,3 +6,4 @@ __pycache__/
 output/
 *.mp4
 *.whl
+manual_inference_output/
