@@ -140,6 +140,105 @@ def appearance_sim(h1, h2):
                                  cv2.HISTCMP_CORREL))
 
 
+# ---------------------------------------------------------------------- #
+#  Richer appearance signature for occlusion re-identification.          #
+#  A single HS histogram is weak between similarly-coloured rubber       #
+#  ducks, so a reappearing duck often matches several slots almost       #
+#  equally and position becomes the (unreliable) tiebreaker. We add two  #
+#  cheap extra cues -- mean Lab colour and aspect ratio -- and combine   #
+#  them into one similarity score. Purely internal; no schema change.    #
+# ---------------------------------------------------------------------- #
+def appearance_signature(crop):
+    """Return a dict signature {hist, lab, ar} for a crop, or None."""
+    if crop is None or crop.size == 0:
+        return None
+    hist = color_hist(crop)
+    try:
+        lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB).reshape(-1, 3).mean(axis=0)
+    except Exception:
+        lab = None
+    h, w = crop.shape[:2]
+    ar = (w / h) if h > 0 else 0.0
+    return {"hist": hist, "lab": lab, "ar": float(ar)}
+
+
+def signature_sim(s1, s2):
+    """Blended appearance similarity in [0,1] from two signatures.
+    Weights: histogram 0.6, Lab colour 0.3, aspect ratio 0.1."""
+    if s1 is None or s2 is None:
+        return 0.0
+    # histogram correlation -> map [-1,1] to [0,1]
+    hs = appearance_sim(s1.get("hist"), s2.get("hist"))
+    hs = max(0.0, hs)
+    # Lab distance -> similarity (Lab spans ~0..255; 60 is a soft scale)
+    if s1.get("lab") is not None and s2.get("lab") is not None:
+        d = float(np.linalg.norm(s1["lab"] - s2["lab"]))
+        ls = max(0.0, 1.0 - d / 60.0)
+    else:
+        ls = 0.0
+    # aspect-ratio similarity
+    a1, a2 = s1.get("ar", 0.0), s2.get("ar", 0.0)
+    if a1 > 0 and a2 > 0:
+        rs = max(0.0, 1.0 - abs(a1 - a2) / max(a1, a2))
+    else:
+        rs = 0.0
+    return 0.6 * hs + 0.3 * ls + 0.1 * rs
+
+
+def _hungarian(cost):
+    """Optimal assignment minimizing total cost for a rectangular matrix.
+    Uses scipy if available, otherwise a self-contained O(n^3) solver so we
+    add NO hard dependency. Returns (row_idx, col_idx) like scipy."""
+    cost = np.asarray(cost, dtype=float)
+    if cost.size == 0:
+        return np.array([], dtype=int), np.array([], dtype=int)
+    try:
+        from scipy.optimize import linear_sum_assignment
+        return linear_sum_assignment(cost)
+    except Exception:
+        pass
+    # --- pure-numpy Hungarian (square-padded) ---
+    n_r, n_c = cost.shape
+    n = max(n_r, n_c)
+    big = cost.max() + 1.0 if cost.size else 1.0
+    C = np.full((n, n), big, dtype=float)
+    C[:n_r, :n_c] = cost
+    u = np.zeros(n + 1); v = np.zeros(n + 1)
+    p = np.zeros(n + 1, dtype=int); way = np.zeros(n + 1, dtype=int)
+    for i in range(1, n + 1):
+        p[0] = i; j0 = 0
+        minv = np.full(n + 1, np.inf); used = np.zeros(n + 1, dtype=bool)
+        while True:
+            used[j0] = True
+            i0 = p[j0]; delta = np.inf; j1 = -1
+            for j in range(1, n + 1):
+                if not used[j]:
+                    cur = C[i0 - 1, j - 1] - u[i0] - v[j]
+                    if cur < minv[j]:
+                        minv[j] = cur; way[j] = j0
+                    if minv[j] < delta:
+                        delta = minv[j]; j1 = j
+            for j in range(n + 1):
+                if used[j]:
+                    u[p[j]] += delta; v[j] -= delta
+                else:
+                    minv[j] -= delta
+            j0 = j1
+            if p[j0] == 0:
+                break
+        while True:
+            j1 = way[j0]; p[j0] = p[j1]; j0 = j1
+            if j0 == 0:
+                break
+    rows, cols = [], []
+    for j in range(1, n + 1):
+        i = p[j]
+        if i <= n_r and j <= n_c:
+            rows.append(i - 1); cols.append(j - 1)
+    order = np.argsort(rows)
+    return np.array(rows)[order], np.array(cols)[order]
+
+
 def position_sim(c1, c2, diag):
     return max(0.0, 1.0 - np.linalg.norm(c1 - c2) / diag)
 
@@ -243,9 +342,25 @@ class DuckAnalyzer:
         self.missing_patience = int(cfg.get("missing_patience", 5))
         self.rebind_pos_weight = float(cfg.get("rebind_pos_weight", 0.5))
         self.rebind_app_weight = float(cfg.get("rebind_app_weight", 0.5))
+        # When ducks are CLOSE together, position can't tell them apart, so IDs
+        # swap. In that case lean on appearance (colour) instead. This is the
+        # appearance weight used specifically for a crowded match; the normal
+        # weights above are used when the candidate slot is well separated.
+        # crowd_dist_frac: how close (as a fraction of the frame diagonal) two
+        # candidates must be to count as "crowded".
+        self.rebind_app_weight_crowded = float(
+            cfg.get("rebind_app_weight_crowded", 0.8))
+        self.crowd_dist_frac = float(cfg.get("crowd_dist_frac", 0.06))
+        self.debug = bool(cfg.get("debug", False))
         self.rebind_threshold = float(cfg.get("rebind_threshold", 0.2))
         self.reappear_patience = int(cfg.get("reappear_patience", 5))
         self.strict_count = bool(cfg.get("strict_count", True))
+        # A rebind must ALSO clear a minimum APPEARANCE similarity, not just the
+        # blended score. Without this a wrong-colour duck that merely drifts
+        # over a missing duck's position reclaims the slot on position alone
+        # (0.5*pos easily beats rebind_threshold), masking the loss and forcing
+        # a false NORMAL. Set 0 to disable. ~0.35 rejects clearly-different ducks.
+        self.rebind_min_app = float(cfg.get("rebind_min_app", 0.35))
 
         # -------- GPU / precision --------
         # use_half -> FP16 inference (faster on GPU; only applies when running
@@ -270,6 +385,17 @@ class DuckAnalyzer:
         self._mp_hands = None
         self.hand_hold_frames = int(cfg.get("hand_hold_frames", 5))
         self._hand_hold = 0
+
+        # -------- hand ROI (draw once, then fixed) --------
+        # If a ROI is set, the hand short-circuit fires ONLY when a detected
+        # hand overlaps this rectangle -- a hand elsewhere in the frame is
+        # ignored. The ROI is stored as [x, y, w, h] in a small JSON file
+        # (roi_path) so it persists across runs: draw it one time (see
+        # calibrate_roi / draw_roi.py) and every later run reuses it. With no
+        # ROI file present, behaviour is unchanged (whole frame counts).
+        self.roi_path = cfg.get("roi_path", "hand_roi.json")
+        self.roi = None  # (x, y, w, h) or None
+        self._load_roi()
 
         # other_toys persistence gate
         self.other_id_patience = int(cfg.get("other_id_patience", 8))
@@ -318,8 +444,10 @@ class DuckAnalyzer:
                     min_tracking_confidence=self.hand_track_conf,
                 )
             except ImportError:
-                print("[WARN] mediapipe is not installed -> hand detection disabled. (Install mediapipe with 'pip install mediapipe' to enable hand detection).")
-                self._mp_hands = None
+                raise ImportError(
+                    "hand_backend is 'mediapipe' but the mediapipe package is "
+                    "not installed. Run: pip install mediapipe  (or set "
+                    "hand_backend: yolo in config.yaml to use a YOLO model).")
         elif self.hand_backend == "yolo":
             if self.hand_model_path:
                 self.hand_model = YOLO(self.hand_model_path)
@@ -399,27 +527,114 @@ class DuckAnalyzer:
         self.expected = int(n)
 
     # ------------------------------------------------------------------ #
+    #  Hand ROI helpers                                                   #
+    # ------------------------------------------------------------------ #
+    def _load_roi(self):
+        """Load the fixed hand ROI from roi_path if it exists."""
+        try:
+            import json
+            if self.roi_path and os.path.exists(self.roi_path):
+                with open(self.roi_path, "r") as f:
+                    d = json.load(f)
+                r = d.get("roi", d)  # accept {"roi":[...]} or a bare [...]
+                if r and len(r) == 4:
+                    self.roi = tuple(int(v) for v in r)
+                    print(f"[ROI] loaded hand ROI {self.roi} from {self.roi_path}")
+        except Exception as e:
+            print(f"[ROI] [WARN] could not load ROI from {self.roi_path}: {e}")
+            self.roi = None
+
+    def set_roi(self, x, y, w, h, save=True):
+        """Set the ROI programmatically and (optionally) persist it."""
+        self.roi = (int(x), int(y), int(w), int(h))
+        if save and self.roi_path:
+            try:
+                import json
+                with open(self.roi_path, "w") as f:
+                    json.dump({"roi": list(self.roi)}, f)
+                print(f"[ROI] saved hand ROI {self.roi} to {self.roi_path}")
+            except Exception as e:
+                print(f"[ROI] [WARN] could not save ROI: {e}")
+
+    def calibrate_roi(self, frame, window="Draw hand ROI - drag, ENTER to accept"):
+        """Open an interactive window on `frame`, let the user drag ONE
+        rectangle, save it to roi_path, and set it. Blocking; call once at
+        setup. Returns the (x,y,w,h) chosen, or None if cancelled."""
+        try:
+            box = cv2.selectROI(window, frame, showCrosshair=True, fromCenter=False)
+            cv2.destroyWindow(window)
+        except Exception as e:
+            print(f"[ROI] [WARN] interactive selectROI failed: {e}")
+            return None
+        x, y, w, h = [int(v) for v in box]
+        if w <= 0 or h <= 0:
+            print("[ROI] selection cancelled / empty -> ROI unchanged.")
+            return None
+        self.set_roi(x, y, w, h, save=True)
+        return self.roi
+
+    @staticmethod
+    def _rects_overlap(a, b):
+        """True if rectangles a,b (each x,y,w,h) share any area."""
+        ax, ay, aw, ah = a; bx, by, bw, bh = b
+        return not (ax + aw <= bx or bx + bw <= ax or
+                    ay + ah <= by or by + bh <= ay)
+
+    # ------------------------------------------------------------------ #
     #  Hand detection                                                    #
     # ------------------------------------------------------------------ #
-    def _hand_present(self, frame):
+    def _hand_boxes(self, frame):
+        """Return a list of hand bounding boxes [(x,y,w,h), ...] for this
+        frame (empty if none). Works for both mediapipe and yolo backends."""
+        boxes = []
+        h, w = frame.shape[:2]
+
         if self._mp_hands is not None:
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             res = self._mp_hands.process(rgb)
-            return bool(res.multi_hand_landmarks)
+            if res.multi_hand_landmarks:
+                for hand_lms in res.multi_hand_landmarks:
+                    xs = [lm.x for lm in hand_lms.landmark]
+                    ys = [lm.y for lm in hand_lms.landmark]
+                    x1 = max(0, int(min(xs) * w)); y1 = max(0, int(min(ys) * h))
+                    x2 = min(w, int(max(xs) * w)); y2 = min(h, int(max(ys) * h))
+                    if x2 > x1 and y2 > y1:
+                        boxes.append((x1, y1, x2 - x1, y2 - y1))
+            return boxes
 
         if self.hand_model is not None:
             r = self.hand_model.predict(source=frame, conf=self.hand_conf,
                                         device=self._device_str,
                                         verbose=False)[0]
             if getattr(r, "boxes", None) is not None and len(r.boxes) > 0:
-                return True
-            kpts = getattr(r, "keypoints", None)
-            if kpts is not None and getattr(kpts, "data", None) is not None \
-                    and len(kpts.data) > 0:
-                return True
-            return False
+                for xyxy in r.boxes.xyxy.cpu().numpy():
+                    x1, y1, x2, y2 = [int(v) for v in xyxy]
+                    boxes.append((x1, y1, x2 - x1, y2 - y1))
+            else:
+                kpts = getattr(r, "keypoints", None)
+                if kpts is not None and getattr(kpts, "data", None) is not None \
+                        and len(kpts.data) > 0:
+                    for kp in kpts.data.cpu().numpy():
+                        pts = kp[kp[:, 2] > 0.1] if kp.shape[-1] >= 3 else kp
+                        if len(pts) == 0:
+                            continue
+                        x1 = max(0, int(pts[:, 0].min())); y1 = max(0, int(pts[:, 1].min()))
+                        x2 = min(w, int(pts[:, 0].max())); y2 = min(h, int(pts[:, 1].max()))
+                        if x2 > x1 and y2 > y1:
+                            boxes.append((x1, y1, x2 - x1, y2 - y1))
+            return boxes
 
-        return False
+        return boxes
+
+    def _hand_present(self, frame):
+        """True if a hand should short-circuit this frame. If a ROI is set, only
+        a hand OVERLAPPING the ROI counts; otherwise any detected hand counts."""
+        boxes = self._hand_boxes(frame)
+        if not boxes:
+            return False
+        if self.roi is None:
+            return True
+        return any(self._rects_overlap(b, self.roi) for b in boxes)
 
     def _emit_thumbnail(self, event, sid, species, crop):
         b64 = crop_to_base64(crop, self.jpeg_quality)
@@ -435,6 +650,24 @@ class DuckAnalyzer:
         self.display_info[did]["last_xyxy"] = xyxy_to_xywh(xyxy)
         self.display_info[did]["gone_frames"] = 0
         self.display_info[did]["present_now"] = True
+        # Maintain a rolling appearance template (EMA of the signature) so
+        # re-identification after occlusion matches a STABLE signature rather
+        # than a single possibly-blurred last frame. Improves wrong-id cases.
+        sig = appearance_signature(crop)
+        self.display_info[did]["last_sig"] = sig
+        prev = self.display_info[did].get("sig_ema")
+        if sig is not None:
+            if prev is None:
+                self.display_info[did]["sig_ema"] = sig
+            else:
+                a = 0.7  # weight on the existing template
+                ema = dict(prev)
+                if prev.get("hist") is not None and sig.get("hist") is not None:
+                    ema["hist"] = a * prev["hist"] + (1 - a) * sig["hist"]
+                if prev.get("lab") is not None and sig.get("lab") is not None:
+                    ema["lab"] = a * prev["lab"] + (1 - a) * sig["lab"]
+                ema["ar"] = a * prev.get("ar", sig["ar"]) + (1 - a) * sig["ar"]
+                self.display_info[did]["sig_ema"] = ema
 
     def _collect_tracked(self, r):
         out = []
@@ -473,8 +706,11 @@ class DuckAnalyzer:
         for did, (tid, xyxy) in enumerate(self._order_by_position(duck_items, h), start=1):
             self.tid_to_display[tid] = did
             crop = get_crop(frame, xyxy)
+            sig = appearance_signature(crop)
             self.display_info[did] = {"last_crop": crop,
                                       "last_hist": color_hist(crop),
+                                      "last_sig": sig,
+                                      "sig_ema": sig,
                                       "last_xyxy": xyxy_to_xywh(xyxy),
                                       "gone_frames": 0,
                                       "present": True}
@@ -516,12 +752,15 @@ class DuckAnalyzer:
 
         if hand_now or self._hand_hold > 0:
             annotated = frame.copy()
+            if self.roi is not None:
+                rx, ry, rw, rh = self.roi
+                cv2.rectangle(annotated, (rx, ry), (rx + rw, ry + rh), ORANGE, 2)
             draw_banner(annotated, "HAND DETECTED", ORANGE)
             return self._finish(
                 annotated, status="HAND", detected=0, fps=fps,
                 hand_detected=True,
                 missing_ids=[], added_ids=[], other_ids=[],
-                detections=[], thumbnails=[])
+                detections=[], thumbnails=[], reasons=[])
 
         # TRACK so ducks keep ids as they move. FP16 comes from the model
         # weights being half-ed at load, so no per-call half=/quantize= arg is
@@ -542,6 +781,12 @@ class DuckAnalyzer:
 
         # ---- warmup ----
         if not self.anchor_locked:
+            # FIX: seed the smoothing buffer DURING warmup too, so by the time
+            # we lock the anomaly decision already has a full window to vote on.
+            # Without this the buffer only starts filling after lock, forcing a
+            # spurious NORMAL for `anomaly_smoothing_frames` frames before the
+            # real too_many/too_few verdict can appear.
+            self.count_history.append(detected)
             score = -abs(detected - self.expected)
             if self.warmup_best is None or score > self.warmup_best[0] \
                or (score == self.warmup_best[0] and detected > self.warmup_best[1]):
@@ -565,6 +810,18 @@ class DuckAnalyzer:
                             "confirmed", did, "duck",
                             self.display_info[did]["last_crop"]))
 
+            # FIX (Issue 2): populate detections during WARMING so the frontend
+            # can render provisional boxes on its own canvas instead of only
+            # having them burned into annotated_frame. id=-1 + provisional flag.
+            warmup_detections = [
+                {"bbox": [int(v) for v in xyxy],
+                 "id": -1,
+                 "species": "duck",
+                 "confidence": round(float(duck_conf.get(tid, 0.0)), 4),
+                 "provisional": True}
+                for xyxy, tid in ducks
+            ]
+
             for xyxy, tid in ducks:
                 draw_box(annotated, xyxy, "duck ?", ORANGE)
             warm_status = "WARMING"
@@ -574,11 +831,15 @@ class DuckAnalyzer:
                     draw_box(annotated, xyxy, "other", RED)
             draw_banner(annotated, warm_status,
                         RED if warm_status == "ANOMALY" else ORANGE)
+            # If we just locked on this same frame, fall through so the locked
+            # pipeline (below) runs on the next frame; here we still return the
+            # warmup payload but with anchor_locked now reflecting reality.
             return self._finish(
                 annotated, status=warm_status, detected=detected, fps=fps,
                 hand_detected=False,
                 missing_ids=[], added_ids=[], other_ids=[],
-                detections=[], thumbnails=thumbnails)
+                detections=warmup_detections, thumbnails=thumbnails,
+                reasons=(["other_species_present"] if others else []))
 
         # ---- map tracker ids -> display ids ----
         present_display = {}
@@ -605,25 +866,105 @@ class DuckAnalyzer:
         unbound = []
         matched_this_frame = set()
 
+        # ---- GLOBAL rebind assignment (fixes wrong-id-after-occlusion) ----
+        # Instead of letting each pending duck greedily grab its own best free
+        # slot (order-dependent -> one duck steals a slot another duck matched
+        # far better), we score EVERY pending duck against EVERY free slot and
+        # solve one optimal assignment that maximizes total similarity. Score
+        # uses the richer signature (hist+Lab+aspect) EMA template + position.
+        free_slots = [d for d in range(1, self.num_anchor + 1) if d not in used_slots]
+        # precompute per-pending cues
+        pend_meta = []
         for xyxy, tid, crop in pending:
-            dc = center(xyxy); dh = color_hist(crop)
-            best_did, best_score = None, -1.0
-            for d in range(1, self.num_anchor + 1):
-                if d in used_slots:
-                    continue
+            pend_meta.append((xyxy, tid, crop, center(xyxy), appearance_signature(crop)))
+
+        sim_matrix = np.zeros((len(pend_meta), len(free_slots)), dtype=float)
+        app_matrix = np.zeros((len(pend_meta), len(free_slots)), dtype=float)
+
+        # Precompute each free slot's last-known center so we can measure how
+        # crowded the neighbourhood of a candidate match is.
+        slot_centers = {}
+        for d in free_slots:
+            lx = self.display_info[d].get("last_xyxy")
+            if lx:
+                slot_centers[d] = np.array([lx[0] + lx[2] / 2.0,
+                                            lx[1] + lx[3] / 2.0])
+        crowd_dist = self.crowd_dist_frac * self.diag
+
+        for pi, (xyxy, tid, crop, dc, dsig) in enumerate(pend_meta):
+            for sj, d in enumerate(free_slots):
                 info = self.display_info[d]
-                ap = appearance_sim(dh, info.get("last_hist"))
+                # appearance against the rolling template (fallback to last)
+                ap = signature_sim(dsig, info.get("sig_ema") or info.get("last_sig"))
+                app_matrix[pi, sj] = ap
                 lx = info.get("last_xyxy")
                 if lx:
                     lc = np.array([lx[0] + lx[2] / 2.0, lx[1] + lx[3] / 2.0])
                     ps = position_sim(dc, lc, self.diag)
                 else:
+                    lc = None
                     ps = 0.0
-                sc = self.rebind_app_weight * max(0.0, ap) + self.rebind_pos_weight * ps
-                if sc > best_score:
-                    best_score, best_did = sc, d
 
-            if best_did is None or best_score < self.rebind_threshold:
+                # crowded? -> another free slot sits within crowd_dist of THIS
+                # slot, so position alone can't disambiguate. Lean on appearance.
+                crowded = False
+                if lc is not None:
+                    for d2, c2 in slot_centers.items():
+                        if d2 != d and np.linalg.norm(lc - c2) < crowd_dist:
+                            crowded = True
+                            break
+                if crowded:
+                    aw = self.rebind_app_weight_crowded
+                    pw = 1.0 - aw
+                else:
+                    aw = self.rebind_app_weight
+                    pw = self.rebind_pos_weight
+                sim_matrix[pi, sj] = aw * ap + pw * ps
+
+        # solve: Hungarian minimizes cost, so cost = -similarity
+        assigned_slot = {}   # pending index -> slot did (best global match)
+        assigned_score = {}  # pending index -> that match's similarity
+        assigned_app = {}    # pending index -> that match's raw appearance sim
+        if len(pend_meta) and len(free_slots):
+            rows, cols = _hungarian(-sim_matrix)
+            for pi, sj in zip(rows, cols):
+                assigned_slot[int(pi)] = free_slots[int(sj)]
+                assigned_score[int(pi)] = float(sim_matrix[int(pi), int(sj)])
+                assigned_app[int(pi)] = float(app_matrix[int(pi), int(sj)])
+
+        for pi, (xyxy, tid, crop, dc, dsig) in enumerate(pend_meta):
+            best_did = assigned_slot.get(pi)
+            best_score = assigned_score.get(pi, -1.0)
+            best_app = assigned_app.get(pi, 0.0)
+            if self.debug:
+                _crowded = False
+                if best_did is not None and best_did in slot_centers:
+                    _lc = slot_centers[best_did]
+                    for _d2, _c2 in slot_centers.items():
+                        if _d2 != best_did and np.linalg.norm(_lc - _c2) < crowd_dist:
+                            _crowded = True
+                            break
+                print(f"[DBG f{self.frame_idx}] pending tid={tid} -> slot #{best_did} "
+                      f"score={best_score:.3f} app={best_app:.3f} crowded={_crowded} "
+                      f"missing_active={best_did in self.missing_active}")
+
+            # Two different situations need different strictness:
+            #  * Reclaiming a slot whose duck is in a MISSING episode -> be
+            #    strict: also require appearance agreement, so a different duck
+            #    drifting over the gap can't silently steal the slot and mask
+            #    the loss (that caused the false NORMAL).
+            #  * An ordinary free slot (its duck merely MOVED, not missing) ->
+            #    the blended score threshold alone is enough. Do NOT also demand
+            #    the appearance gate here, or a duck that changed pose/lighting
+            #    gets wrongly orphaned to id:-1 while its slot goes MISSING --
+            #    which shows up as a "duck" box with no id AND a false ANOMALY
+            #    even though every duck is present.
+            reject = (best_did is None or best_score < self.rebind_threshold)
+            if not reject and best_did in self.missing_active:
+                if best_app < self.rebind_min_app:
+                    reject = True
+
+            if reject:
                 if self.strict_count:
                     unbound.append((xyxy, duck_conf.get(tid, 0.0)))
                 else:
@@ -631,8 +972,11 @@ class DuckAnalyzer:
                     if self.prov_new[tid] >= self.new_id_patience:
                         did = self.next_display_id; self.next_display_id += 1
                         self.tid_to_display[tid] = did
+                        _sig = appearance_signature(crop)
                         self.display_info[did] = {"last_crop": crop,
                                                   "last_hist": color_hist(crop),
+                                                  "last_sig": _sig,
+                                                  "sig_ema": _sig,
                                                   "last_xyxy": xyxy_to_xywh(xyxy),
                                                   "gone_frames": 0, "present": True}
                         del self.prov_new[tid]
@@ -665,11 +1009,15 @@ class DuckAnalyzer:
                 del self.reclaim_candidates[did]
 
         # ---- shake-smoothed anomaly ----
+        # NOTE: the buffer is already seeded during warmup, so at lock it holds
+        # a full window. We no longer wait for buffer_ready before deciding --
+        # we vote on whatever is in the window (min a couple of frames) so a
+        # genuine count mismatch is flagged immediately after lock instead of
+        # showing a spurious NORMAL for `anomaly_smoothing_frames` frames.
         self.count_history.append(detected)
         smoothed = Counter(self.count_history).most_common(1)[0][0]
-        buffer_ready = len(self.count_history) >= self.count_history.maxlen
         reasons = []
-        if buffer_ready:
+        if len(self.count_history) >= min(3, self.count_history.maxlen):
             if smoothed < self.expected:
                 reasons.append("too_few_ducks")
             if smoothed > self.expected:
@@ -682,7 +1030,11 @@ class DuckAnalyzer:
                 thumbnails.append(self._emit_thumbnail(
                     "added", did, "duck", self.display_info[did]["last_crop"]))
 
-        # ---- missing: anchor id not present this frame (NO thumbnail) ----
+        # ---- missing: anchor id not present this frame ----
+        # FIX (Issue 3): report the id in missing_ids AS SOON AS it is absent
+        # (gone_frames >= 1), not only after missing_patience. missing_patience
+        # now only gates the missing_active episode / frozen box, so the id no
+        # longer vanishes from the payload during the patience window.
         missing_ids = []
         for did in range(1, self.num_anchor + 1):
             if did in present_display:
@@ -692,12 +1044,28 @@ class DuckAnalyzer:
             else:
                 self.display_info[did]["gone_frames"] = \
                     self.display_info[did].get("gone_frames", 0) + 1
+                # report immediately so the UI card never disappears
+                missing_ids.append(did)
                 if self.display_info[did]["gone_frames"] >= self.missing_patience:
                     if did not in self.missing_active:
                         self.missing_active.add(did)
                         self.display_info[did]["frozen_xyxy"] = \
                             self.display_info[did].get("last_xyxy")
-                    missing_ids.append(did)
+
+        # A KNOWN anchor duck being absent is itself an anomaly, regardless of
+        # what the shake-smoothed total count says. The count check above can
+        # miss this: if one duck vanishes but a spurious box (reflection, tray
+        # edge, mis-detection) keeps the TOTAL at `expected`, the count matches
+        # and status would wrongly read NORMAL. For a QC pipeline a missing
+        # duck must never be NORMAL, so drive the verdict off missing state too.
+        #
+        # We gate on missing_active (duck gone for >= missing_patience frames)
+        # rather than the raw missing_ids, so a duck that is only BRIEFLY hidden
+        # (behind a hand / another duck) and comes right back does not flash a
+        # false ANOMALY. The id is still reported in missing_ids immediately;
+        # only the anomaly VERDICT waits for the patience window.
+        if self.missing_active and "missing_duck" not in reasons:
+            reasons.append("missing_duck")
 
         # ---- other species (separate id space, thumbnail once) ----
         present_other = {}
@@ -780,39 +1148,59 @@ class DuckAnalyzer:
         for did, (xyxy, cf) in present_display.items():
             x1, y1, x2, y2 = [int(v) for v in xyxy]
             detections.append({"bbox": [x1, y1, x2, y2], "id": int(did),
-                               "species": "duck", "confidence": round(float(cf), 4)})
+                               "species": "duck", "confidence": round(float(cf), 4),
+                               "status": "present"})
             draw_box(annotated, xyxy, f"#{did} {int(cf * 100)}%", box_color)
 
         for xyxy, cf in unbound:
             x1, y1, x2, y2 = [int(v) for v in xyxy]
             detections.append({"bbox": [x1, y1, x2, y2], "id": -1,
-                               "species": "duck", "confidence": round(float(cf), 4)})
+                               "species": "duck", "confidence": round(float(cf), 4),
+                               "status": "unbound"})
             draw_box(annotated, xyxy, "duck", box_color)
 
         for oid, (xyxy, cf) in present_other.items():
             x1, y1, x2, y2 = [int(v) for v in xyxy]
             detections.append({"bbox": [x1, y1, x2, y2], "id": int(oid),
-                               "species": "other_toys", "confidence": round(float(cf), 4)})
+                               "species": "other_toys", "confidence": round(float(cf), 4),
+                               "status": "present"})
             draw_box(annotated, xyxy, f"other #{oid} {int(cf * 100)}%", box_color)
 
+        # FIX (Issue 1): include missing ducks in detections with their last
+        # known box + status="missing", so the frontend keeps the card in its
+        # correct ID position and can show the frozen crop, instead of the id
+        # only appearing as a bare number in missing_ids.
         for did in missing_ids:
             lx = self.display_info[did].get("frozen_xyxy") \
                 or self.display_info[did].get("last_xyxy")
             if lx:
                 x, y, w, hh = lx
-                draw_box(annotated, [x, y, x + w, y + hh],
-                         f"#{did} MISSING", box_color, dashed=True)
+                detections.append({"bbox": [int(x), int(y), int(x + w), int(y + hh)],
+                                   "id": int(did), "species": "duck",
+                                   "confidence": 0.0, "status": "missing"})
+                # only draw the frozen dashed box once the episode is confirmed
+                if did in self.missing_active:
+                    draw_box(annotated, [x, y, x + w, y + hh],
+                             f"#{did} MISSING", box_color, dashed=True)
 
         draw_banner(annotated, status, box_color)
 
+        if self.debug:
+            print(f"[DBG f{self.frame_idx}] status={status} detected={detected} "
+                  f"present={sorted(present_display.keys())} pending={len(pend_meta)} "
+                  f"unbound={len(unbound)} missing={missing_ids} reasons={reasons}")
         return self._finish(
             annotated, status=status, detected=detected, fps=fps,
             hand_detected=False,
             missing_ids=missing_ids, added_ids=added_ids_this_frame,
-            other_ids=other_ids, detections=detections, thumbnails=thumbnails)
+            other_ids=other_ids, detections=detections, thumbnails=thumbnails,
+            reasons=reasons)
 
     def _finish(self, annotated, status, detected, fps, hand_detected,
-                missing_ids, added_ids, other_ids, detections, thumbnails):
+                missing_ids, added_ids, other_ids, detections, thumbnails,
+                reasons=None):
+        if reasons is None:
+            reasons = []
         if self.save_local and self.annotated_dir:
             cv2.imwrite(os.path.join(self.annotated_dir,
                         f"frame_{self.frame_idx:05d}.jpg"), annotated)
@@ -820,6 +1208,8 @@ class DuckAnalyzer:
             "frame": self.frame_idx,
             "fps": fps,
             "status": status,
+            "anchor_locked": self.anchor_locked,   # FIX (Issue 4): expose state
+            "reasons": reasons,                    # FIX (Issue 4): expose reasons
             "hand_detected": hand_detected,
             "detected_duck_count": detected,
             "expected_duck_count": self.expected,
@@ -828,6 +1218,7 @@ class DuckAnalyzer:
             "added_count": len(added_ids),
             "added_ids": added_ids,
             "other_count": len(other_ids),
+            "detected_other_toy_count": len(other_ids),  # compatibility alias
             "other_ids": other_ids,
             "detections": detections,
             "thumbnails": thumbnails,

@@ -307,20 +307,20 @@ export default function App() {
   const hasActiveStream = (isVideoSource && hasActiveVideo) || (isCameraSource && isCameraDeviceActive && cameraStartingState === 'ready');
   // Camera streaming and AI inference are independent. A live camera feed
   // must not be labeled inactive merely because inference is paused.
-  const isStandby = !hasActiveStream || (isCameraSource ? !isStreaming : !isRunning);
+  const isStandby = !hasActiveStream && ducks.length === 0;
 
   // Active ducks currently on the stream
   const activeDucks = useMemo(() => {
-    if (!hasActiveStream) return [];
+    if (!hasActiveStream && ducks.length === 0) return [];
     return ducks;
   }, [hasActiveStream, ducks]);
 
   const backendStats = useInferenceStore(state => state.stats);
   const backendStatus = backendStats.status;
 
-  // Compute Anomaly Status in Real Time (Only when active stream exists and inference is running)
+  // Compute Anomaly Status in Real Time (Preserves state when stopped until CLEAR is clicked)
   const anomalyStatus: AnomalyStatus = useMemo(() => {
-    if (!hasActiveStream) {
+    if (!hasActiveStream && ducks.length === 0) {
       return {
         isAnomaly: false,
         type: 'NONE',
@@ -348,20 +348,7 @@ export default function App() {
       };
     }
 
-    if (!isRunning) {
-      return {
-        isAnomaly: false,
-        type: 'NONE',
-        message: 'PAUSED',
-        subMessage: 'Inference pipeline stopped. Model evaluation suspended.',
-        detectedCount: backendStats.detected_duck_count,
-        expectedCount: expectedDucks,
-        difference: 0,
-        foreignSpecies: [],
-      };
-    }
-
-    const detectedCount = backendStats.detected_duck_count;
+    const detectedCount = backendStats.detected_duck_count > 0 ? backendStats.detected_duck_count : ducks.length;
     const foreignCount = backendStats.detected_other_toy_count;
     const expectedFromMl = backendStats.expected_duck_count > 0 ? backendStats.expected_duck_count : expectedDucks;
     const difference = detectedCount - expectedFromMl;
@@ -697,8 +684,12 @@ export default function App() {
     setCustomVideoName(undefined);
     setSourceType('uploaded-video');
     setIsRunning(false);
+    setDucks([]);
+    setFramesProcessed(0);
+    setFps(0);
+    useInferenceStore.getState().resetStats();
     showToast('info', 'Video cleared.');
-    addLog('Reset video canvas to empty upload state.', 'info');
+    addLog('Reset video canvas and cleared all detections.', 'info');
   };
 
   // SAFEGUARD: Handle switching source between offline (video) and online (camera)
@@ -921,7 +912,6 @@ export default function App() {
       addLog('Inference paused â€¢ Model evaluation temporarily suspended.', 'info');
       if (sourceType === 'oak-camera' || sourceType === 'webcam') {
         try { await cameraService.stopLiveInference(); } catch (e) { }
-        setDucks([]);
       }
       if (videoSessionId) {
         fetch(`${getApiBaseUrl()}/video/stop/${videoSessionId}`, { method: 'POST' })
@@ -940,28 +930,24 @@ export default function App() {
     }
   };
 
-  // Explicit Stop Inference (Resets/stops inference and makes ready for new inference)
+  // Explicit Stop Inference (Pauses inference and preserves state/cards on screen)
   const handleStopInference = () => {
     playWaterDropSound();
     setCameraStartingState('ready');
     setIsRunning(false);
-    setFramesProcessed(0);
-    setFps(0);
-    useInferenceStore.getState().resetStats();
     
-    // Kill the backend ML process if it's a video session
+    // Stop the backend ML process if it's a video session
     if (videoSessionId) {
       fetch(`${getApiBaseUrl()}/video/stop/${videoSessionId}`, { method: 'POST' })
         .catch(err => console.error("Failed to stop backend inference", err));
     }
-    setDucks([]);
 
     if (sourceType === 'oak-camera' || sourceType === 'webcam') {
       cameraService.stopLiveInference().catch(() => {});
     }
     
-    showToast('info', 'Inference stopped. Pipeline paused.');
-    addLog('Inference stopped â€¢ Pipeline suspended.', 'info');
+    showToast('info', 'Inference paused. Last state retained.');
+    addLog('Inference stopped • Detections and side cards preserved.', 'info');
   };
 
   // Explicit Resume/Start Inference

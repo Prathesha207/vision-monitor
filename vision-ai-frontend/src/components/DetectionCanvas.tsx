@@ -832,7 +832,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
             />
 
             {/* Inference Bounding Box Overlays (Mapped 1:1 on top of the real video pixels when active) */}
-            {feedMode === 'inference' && isRunning && (hasActiveVideo || isCameraSource) && (
+            {feedMode === 'inference' && (hasActiveVideo || isCameraSource) && (
               <div className="absolute inset-0 w-full h-full pointer-events-none z-20">
                 {ducks
                   .filter((duck) => {
@@ -966,8 +966,8 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
       {((hasActiveVideo && (!isRunning || isFirstFrameLoaded)) || (isCameraSource && cameraStartingState === 'ready')) && (
         <div className="absolute top-2 sm:top-3 right-2 sm:right-3 flex items-center gap-1 sm:gap-1.5 pointer-events-auto z-30 ml-auto shrink-0">
           
-          {/* Real-Time Status & Mode Controls only shown when inference is running */}
-          {isRunning && (
+          {/* Real-Time Status & Mode Controls shown when active */}
+          {(isRunning || hasActiveVideo) && (
             <>
               {/* Status Badge */}
               <div
@@ -1143,7 +1143,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
       {/* ========================================================================= */}
       {/* 7. BOTTOM FLOATING DETECTION HUD (WHEN VIDEO OR CAMERA STREAM IS ACTIVE)  */}
       {/* ========================================================================= */}
-      {showHUD && isRunning && ((hasActiveVideo && isFirstFrameLoaded) || (isCameraSource && cameraStartingState === 'ready')) && (
+      {showHUD && (isRunning || hasActiveVideo) && ((hasActiveVideo && isFirstFrameLoaded) || (isCameraSource && cameraStartingState === 'ready')) && (
         <div className="absolute bottom-3 left-1/2 transform -translate-x-1/2 z-30 pointer-events-auto animate-in fade-in slide-in-from-bottom-2 duration-300 max-w-[calc(100%-24px)]">
           <div className="flex items-center gap-3 sm:gap-5 px-3.5 sm:px-5 py-2 rounded-xl bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--border-color)] shadow-lg text-[var(--text-primary)]">
             
