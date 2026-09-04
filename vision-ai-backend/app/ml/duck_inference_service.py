@@ -218,7 +218,8 @@ def run_inference(frame, session_id: str, expected_duck_count: int = 18,
         "video_height": frame.shape[0],
     }
 
-    return stats, annotated_frame
+    # Return raw frame (un-annotated) to frontend so frontend renders bounding boxes interactively
+    return stats, frame
 
 
 def update_expected_ducks(session_id: str, count: int) -> None:

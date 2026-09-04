@@ -22,6 +22,7 @@ import {
 import { playWaterDropSound, playDuckQuackSound } from '../utils/audio';
 import { getApiBaseUrl, API_BASE_URL } from '../lib/api';
 import { useRecording } from './hooks/useRecording';
+import { useInferenceStore } from '../store/inferenceStore';
 
 interface DetectionCanvasProps {
   ducks: DuckEntity[];
@@ -94,7 +95,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   const [showHUD, setShowHUD] = useState(true);
   const [showConfidence] = useState(true);
   const [showTrails] = useState(false);
-  const [showAllBoxes, setShowAllBoxes] = useState<boolean>(true);
+  const [showAllBoxes, setShowAllBoxes] = useState<boolean>(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [videoAspect, setVideoAspect] = useState<number | null>(null);
@@ -602,58 +603,41 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
               Choose a video from your computer to start AI inspection.
             </p>
 
-            {/* Desktop Action Button */}
-            <div className="mb-4 sm:mb-6 shrink-0">
-              <button
-                type="button"
-                disabled={!isBackendConnected || isSelectingVideo}
-                onClick={handleSelectVideoAndStart}
-                className={`flex items-center gap-2.5 px-6 sm:px-8 py-3 rounded-2xl font-bold text-sm sm:text-base shadow-md transition-all active:scale-95 ${
-                  !isBackendConnected
-                    ? 'bg-[var(--bg-card)] text-[var(--text-muted)] border border-[var(--border-color)] cursor-not-allowed opacity-70'
-                    : isSelectingVideo
-                    ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] cursor-wait opacity-80'
-                    : 'bg-[var(--btn-primary-bg)] hover:bg-[var(--btn-primary-hover)] text-[var(--btn-primary-text)] cursor-pointer hover:shadow-lg hover:shadow-[var(--accent-pond)]/20'
-                }`}
-              >
-                {isSelectingVideo ? (
-                  <>
-                    <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
-                    <span>Selecting Video...</span>
-                  </>
-                ) : !isBackendConnected ? (
-                  <>
-                    <span className="w-2 h-2 rounded-full bg-rose-500" />
-                    <span>Backend Offline</span>
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
-                    <span> Start Inference</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* Supported Formats */}
-            <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2.5 shrink-0">
-              <span className="px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[10px] sm:text-xs font-mono font-medium text-[var(--text-secondary)]">
-                MP4
-              </span>
-              <span className="px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[10px] sm:text-xs font-mono font-medium text-[var(--text-secondary)]">
-                WebM
-              </span>
-              <span className="px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[10px] sm:text-xs font-mono font-medium text-[var(--text-secondary)]">
-                MOV
-              </span>
-              <span className="px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[10px] sm:text-xs font-mono font-medium text-[var(--text-secondary)]">
-                MKV
-              </span>
-            </div>
-
-            {/* Upload Progress Bar */}
-            {uploadProgress !== null && (
-              <div className="w-full max-w-sm mt-4 sm:mt-6 shrink-0">
+            {/* Desktop Action Button / Upload Progress */}
+            {uploadProgress === null ? (
+              <div className="mb-4 sm:mb-6 shrink-0">
+                <button
+                  type="button"
+                  disabled={!isBackendConnected || isSelectingVideo}
+                  onClick={handleSelectVideoAndStart}
+                  className={`flex items-center gap-2.5 px-6 sm:px-8 py-3 rounded-2xl font-bold text-sm sm:text-base shadow-md transition-all active:scale-95 ${
+                    !isBackendConnected
+                      ? 'bg-[var(--bg-card)] text-[var(--text-muted)] border border-[var(--border-color)] cursor-not-allowed opacity-70'
+                      : isSelectingVideo
+                      ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] cursor-wait opacity-80'
+                      : 'bg-[var(--btn-primary-bg)] hover:bg-[var(--btn-primary-hover)] text-[var(--btn-primary-text)] cursor-pointer hover:shadow-lg hover:shadow-[var(--accent-pond)]/20'
+                  }`}
+                >
+                  {isSelectingVideo ? (
+                    <>
+                      <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
+                      <span>Selecting Video...</span>
+                    </>
+                  ) : !isBackendConnected ? (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-rose-500" />
+                      <span>Backend Offline</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
+                      <span> Start Inference</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : (
+              <div className="w-full max-w-sm mb-5 sm:mb-6 shrink-0">
                 <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] mb-1.5 font-medium">
                   <span className="flex items-center gap-1.5">
                     <Loader2 className="w-4 h-4 animate-spin text-[var(--accent-pond)]" />
@@ -671,6 +655,22 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                 </div>
               </div>
             )}
+
+            {/* Supported Formats */}
+            <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2.5 shrink-0">
+              <span className="px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[10px] sm:text-xs font-mono font-medium text-[var(--text-secondary)]">
+                MP4
+              </span>
+              <span className="px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[10px] sm:text-xs font-mono font-medium text-[var(--text-secondary)]">
+                WebM
+              </span>
+              <span className="px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[10px] sm:text-xs font-mono font-medium text-[var(--text-secondary)]">
+                MOV
+              </span>
+              <span className="px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[10px] sm:text-xs font-mono font-medium text-[var(--text-secondary)]">
+                MKV
+              </span>
+            </div>
           </div>
         </div>
       )}
@@ -836,6 +836,14 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
               <div className="absolute inset-0 w-full h-full pointer-events-none z-20">
                 {ducks
                   .filter((duck) => {
+                    const backendStats = useInferenceStore.getState().stats;
+                    const isHandPresent = 
+                      backendStats?.status === 'HAND' || 
+                      backendStats?.hand_detected === true || 
+                      anomalyStatus?.type === 'HAND' || 
+                      anomalyStatus?.message?.includes('HAND');
+                    if (isHandPresent) return false;
+
                     const shouldShowAll = showAllBoxes;
                     const isVisible = shouldShowAll || duck.isAnomaly || duck.id === selectedDuckId;
                     return isVisible && Number.isFinite(duck.x) && Number.isFinite(duck.y) && Number.isFinite(duck.width) && Number.isFinite(duck.height) && duck.width > 0 && duck.height > 0;

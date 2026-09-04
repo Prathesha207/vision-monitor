@@ -480,7 +480,9 @@ export default function App() {
               const vw = data.video_width || 1920;
               const vh = data.video_height || 1080;
               const incomingDucks = mapDetectionsToDucks(data, vw, vh);
-              if (data.status !== "HAND" && !data.hand_detected) {
+              if (data.status === "HAND" || data.hand_detected) {
+                setDucks([]);
+              } else {
                 setDucks(incomingDucks);
               }
             }
@@ -542,9 +544,11 @@ export default function App() {
           const vh = data.video_height || 720;
           const incomingDucks = mapDetectionsToDucks(data, vw, vh);
 
-          // Render exactly what the ML model sends â€” 1:1 mapping
+          // Render exactly what the ML model sends — 1:1 mapping
           console.log('frame', data.frames_processed, 'detections:', incomingDucks.length);
-          if (data.status !== "HAND" && !data.hand_detected) {
+          if (data.status === "HAND" || data.hand_detected) {
+            setDucks([]);
+          } else {
             setDucks(incomingDucks);
           }
         } else if (data.status === 'error') {

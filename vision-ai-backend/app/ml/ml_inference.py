@@ -557,8 +557,8 @@ class VideoInferenceService:
                             annotated_frame.copy()
                         )
                     
-                    # Stream the annotated frame (with drawn boxes and tags) for the live MJPEG stream
-                    success, buffer = cv2.imencode('.jpg', annotated_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
+                    # Stream the raw frame (un-annotated) to the frontend so frontend renders boxes cleanly
+                    success, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
                     if success:
                         frame_bytes = buffer.tobytes()
                         session["last_frame_bytes"] = frame_bytes
