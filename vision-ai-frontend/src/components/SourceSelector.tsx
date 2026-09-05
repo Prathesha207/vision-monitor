@@ -25,6 +25,7 @@ interface SourceSelectorProps {
   hasActiveVideo?: boolean;
   onClearCustomVideo?: () => void;
   isRunning?: boolean;
+  isStarting?: boolean;
   onToggleRunning?: () => void;
   onStopInference?: () => void;
   onResumeInference?: () => void;
@@ -47,6 +48,7 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
   hasActiveVideo = false,
   onClearCustomVideo: _onClearCustomVideo,
   isRunning = false,
+  isStarting = false,
   onToggleRunning,
   onStopInference,
   onResumeInference,
@@ -68,8 +70,8 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
 
   const isVideoMode = sourceType === 'sample-pond' || sourceType === 'uploaded-video';
   const isCameraMode = sourceType === 'oak-camera' || sourceType === 'webcam';
-  // Only show stream controls if video is loaded or camera hardware is online
-  const hasMediaToPlay = (isCameraMode && isCameraConnected) || (isVideoMode && (hasActiveVideo || Boolean(customVideoName)));
+  // Always show controls in video mode; in camera mode show if hardware is online
+  const hasMediaToPlay = (isCameraMode && isCameraConnected) || isVideoMode;
   const isBackendStream = Boolean(customVideoUrl && customVideoUrl.includes('/video/stream/'));
 
   return (
@@ -136,6 +138,15 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                 >
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   <span>{cameraStartingState === 'waking_camera' ? 'WAKING CAMERA...' : 'WARMING UP...'}</span>
+                </button>
+              ) : isStarting ? (
+                /* When Starting inference: provide busy state */
+                <button
+                  disabled
+                  className="h-8 sm:h-9 flex items-center gap-1.5 px-3.5 sm:px-4 rounded-xl bg-emerald-600/80 text-white font-bold text-[11px] sm:text-xs shadow-xs cursor-wait opacity-90 transition-all shrink-0"
+                >
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>STARTING...</span>
                 </button>
               ) : isCameraMode && !isStreaming ? (
                 <button

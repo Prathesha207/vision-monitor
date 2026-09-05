@@ -98,6 +98,8 @@ def _get_or_create_session(session_id: str, expected_duck_count: int,
                         model_path = cand
                         break
             cfg["model_path"] = model_path
+            cfg["save_local"] = False
+            cfg["annotated_dir"] = None
             
             # Temporary session config path with resolved model_path
             session_cfg_dir = os.path.join(os.path.dirname(_CONFIG_PATH), "sessions")

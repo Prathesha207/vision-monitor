@@ -12,9 +12,9 @@ hand_hold_frames: 2
 # when a hand overlaps this box. Delete the file to revert to whole-frame.
 roi_path: "models/hand_roi.json"
 # --- local saving (for YOUR reference/debugging) ---
-save_local: true
+save_local: false
 thumbnail_dir: "C:/Users/EmageVision/Documents/duck_classification/thumbnails"
-annotated_dir: "C:/Users/EmageVision/Documents/duck_classification/annotated_images"
+annotated_dir: null
 
 # expected scene (expected_duck_count supplied by frontend per request)
 expected_duck_count: null
@@ -25,7 +25,7 @@ other_class_id: 1
 conf: 0.15
 device: 0
 use_half: true       # FP16 on GPU (~2x faster). Set false to disable.
-gpu_benchmark: true  # one-time TFLOP/s print at startup (optional; set false later)
+gpu_benchmark: false  # disable startup benchmark for fast init
 debug: false
 # anchor
 warmup_frames: 10
@@ -45,7 +45,7 @@ row_tolerance_frac: 0.06
 anomaly_smoothing_frames: 15
 
 # tracking (for MOVING ducks)
-tracker: "botsort.yaml"
+tracker: "bytetrack.yaml"
 # frames a duck must be gone before a missing_alert thumbnail fires (once per episode)
 missing_patience: 20
 strict_count: true

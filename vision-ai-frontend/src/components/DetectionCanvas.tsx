@@ -48,6 +48,7 @@ interface DetectionCanvasProps {
   isCameraConnected?: boolean;
   initialUploadFile?: File;
   isBackendConnected?: boolean;
+  onRegisterTriggerUpload?: (trigger: () => void) => void;
 }
 
 export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
@@ -79,6 +80,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   isCameraConnected = false,
   initialUploadFile,
   isBackendConnected = true,
+  onRegisterTriggerUpload,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -113,6 +115,12 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   const { containerSize, fittedRect } = useContainerFit(containerRef, canvasRef, videoAspect, videoDimensions, isCameraSource);
   const { isDragOver, uploadProgress, isSelectingVideo, handleFileInputChange, handleSelectVideoAndStart, handleDragOver, handleDragLeave, handleDrop } = useVideoUpload(fileInputRef, expectedDucks, onCustomVideoUploaded, recordedFile, clearRecording, initialUploadFile);
   const { handleCanvasClick } = useRippleEffect(canvasRef, ducks, selectedDuckId, onSelectDuck);
+
+  useEffect(() => {
+    if (onRegisterTriggerUpload) {
+      onRegisterTriggerUpload(handleSelectVideoAndStart);
+    }
+  }, [handleSelectVideoAndStart, onRegisterTriggerUpload]);
 
   // Cache buster for stream URL
   useEffect(() => {

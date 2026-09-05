@@ -371,8 +371,8 @@ class VideoInferenceService:
                 model_path = self._resolve_model_path(session_cfg.get("model_path"), ml_dir, base_dir)
                 session_cfg["model_path"] = model_path
 
-                # Always save raw frames and anomaly frames for complete desktop archive
-                save_raw_frames = True
+                # Only save anomaly frames for desktop archive (avoid disk I/O bottleneck)
+                save_raw_frames = False
                 frames_dir = os.path.join(session_dir, "raw_frames")
                 anomaly_frames_dir = os.path.join(session_dir, "anomaly_frames")
                 os.makedirs(frames_dir, exist_ok=True)
@@ -550,7 +550,7 @@ class VideoInferenceService:
                         other_count > 0 or
                         (anchor_locked and result.get("detected_duck_count", 0) != result.get("expected_duck_count", 0))
                     )
-                    if save_raw_frames and is_anomaly_frame:
+                    if is_anomaly_frame:
                         self._io_executor.submit(
                             cv2.imwrite, 
                             os.path.join(anomaly_frames_dir, f"anomaly_frame_{frame_idx:05d}.jpg"), 

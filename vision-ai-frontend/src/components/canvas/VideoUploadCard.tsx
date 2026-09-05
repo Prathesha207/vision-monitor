@@ -20,7 +20,8 @@ export const VideoUploadCard: React.FC<VideoUploadCardProps> = ({
       style={{ backgroundColor: 'var(--bg-card)' }}
     >
       <div 
-        className="w-full h-full rounded-[14px] border-2 border-dashed border-[var(--border-color)] flex flex-col items-center justify-center text-center p-3 sm:p-6 lg:p-8 pointer-events-auto overflow-y-auto hidden-scrollbar"
+        onClick={onSelectVideoAndStart}
+        className="w-full h-full rounded-[14px] border-2 border-dashed border-[var(--border-color)] hover:border-[var(--accent-pond)] flex flex-col items-center justify-center text-center p-3 sm:p-6 lg:p-8 pointer-events-auto overflow-y-auto hidden-scrollbar cursor-pointer transition-colors"
         style={{ backgroundColor: 'var(--bg-card)' }}
       >
         <div className="text-[var(--accent-pond)] mb-2 sm:mb-3 shrink-0">
@@ -30,43 +31,18 @@ export const VideoUploadCard: React.FC<VideoUploadCardProps> = ({
         <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-[var(--text-primary)] mb-1 sm:mb-2 shrink-0">
           Select Video for Inference
         </h3>
-        <p className="text-xs sm:text-sm lg:text-base text-[var(--text-secondary)] max-w-md mb-4 sm:mb-6 shrink-0">
-          Choose a video from your computer to start AI inspection.
+        <p className="text-xs sm:text-sm lg:text-base text-[var(--text-secondary)] max-w-md mb-6 sm:mb-8 shrink-0">
+          Click <span className="font-bold text-[var(--text-primary)]">Start Inference</span> above or click anywhere here to choose a video file.
         </p>
 
-        {uploadProgress === null ? (
-          <div className="mb-4 sm:mb-6 shrink-0">
-            <button
-              type="button"
-              disabled={!isBackendConnected || isSelectingVideo}
-              onClick={onSelectVideoAndStart}
-              className={`flex items-center gap-2.5 px-6 sm:px-8 py-3 rounded-2xl font-bold text-sm sm:text-base shadow-md transition-all active:scale-95 ${
-                !isBackendConnected
-                  ? 'bg-[var(--bg-card)] text-[var(--text-muted)] border border-[var(--border-color)] cursor-not-allowed opacity-70'
-                  : isSelectingVideo
-                  ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] cursor-wait opacity-80'
-                  : 'bg-[var(--btn-primary-bg)] hover:bg-[var(--btn-primary-hover)] text-[var(--btn-primary-text)] cursor-pointer hover:shadow-lg hover:shadow-[var(--accent-pond)]/20'
-              }`}
-            >
-              {isSelectingVideo ? (
-                <>
-                  <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
-                  <span>Uploading Video...</span>
-                </>
-              ) : !isBackendConnected ? (
-                <>
-                  <span className="w-2 h-2 rounded-full bg-rose-500" />
-                  <span>Backend Offline</span>
-                </>
-              ) : (
-                <>
-                  <UploadCloud className="w-4 h-4 sm:w-5 sm:h-5" />
-                  <span> Select Video</span>
-                </>
-              )}
-            </button>
+        {isSelectingVideo && uploadProgress === null && (
+          <div className="flex items-center gap-2 mb-6 text-sm text-[var(--accent-pond)] font-medium">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span>Selecting video...</span>
           </div>
-        ) : (
+        )}
+
+        {uploadProgress !== null && (
           <div className="w-full max-w-sm mb-5 sm:mb-6 shrink-0">
             <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] mb-1.5 font-medium">
               <span className="flex items-center gap-1.5">

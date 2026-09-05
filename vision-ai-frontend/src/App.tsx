@@ -210,6 +210,15 @@ export default function App() {
     setSourceType(targetType);
     setPendingSourceSwitch(null);
 
+    // Reset all inference state on switch
+    setDucks([]);
+    useInferenceStore.getState().resetStats();
+    resetBBoxCache();
+    setFramesProcessed(0);
+    setFps(0);
+    setUptimeSeconds(0);
+    setIsRunning(false);
+
     if (isTargetCamera) {
       setIsRunning(false);
       camera.setCameraStartingState('waking_camera');
@@ -237,10 +246,8 @@ export default function App() {
       } catch (e) { }
 
       if (video.customVideoUrl) {
-        inference.setIsRunning(false);
         showToast('info', 'Switched to Video mode • Select a video and press Start Inference');
       } else {
-        inference.setIsRunning(false);
         showToast('info', 'Switched to Video mode');
       }
       addLog(`Stream source switched to: ${targetType.toUpperCase()}`, 'info');
@@ -299,8 +306,16 @@ export default function App() {
     }
   };
 
+  const uploadTriggerRef = React.useRef<(() => void) | null>(null);
+
   // Wrap toggle/stop/resume to pass startVideoInference
   const handleToggleRunning = async () => {
+    if (sourceType === 'uploaded-video' || sourceType === 'sample-pond') {
+      if (!video.videoSessionId && !video.customVideoUrl) {
+        uploadTriggerRef.current?.();
+        return;
+      }
+    }
     await inference.handleToggleRunning(video.startVideoInference);
   };
   const handleStopInference = async () => {
@@ -308,6 +323,15 @@ export default function App() {
     await inference.handleStopInference();
   };
   const handleResumeInference = () => {
+    if (sourceType === 'uploaded-video' || sourceType === 'sample-pond') {
+      if (!video.videoSessionId && !video.customVideoUrl) {
+        uploadTriggerRef.current?.();
+        return;
+      }
+      playWaterDropSound();
+      void video.startVideoInference();
+      return;
+    }
     inference.handleResumeInference(video.startVideoInference);
   };
 
@@ -385,7 +409,8 @@ export default function App() {
           sourceType={sourceType}
           onSourceChange={(st) => { setSourceType(st); addLog(`Stream source switched to: ${st.toUpperCase()}`, 'info'); }}
           onRequestSwitchMode={handleRequestSwitchMode}
-          isRunning={inference.isRunning}
+          isRunning={isRunning}
+          isStarting={isStarting}
           onToggleRunning={handleToggleRunning}
           onStopInference={handleStopInference}
           onResumeInference={handleResumeInference}
@@ -446,6 +471,7 @@ export default function App() {
               isCameraConnected={camera.effectiveCameraConfig.connected}
               initialUploadFile={video.initialUploadFile}
               isBackendConnected={isBackendConnected}
+              onRegisterTriggerUpload={(fn) => { uploadTriggerRef.current = fn; }}
             />
           </main>
 

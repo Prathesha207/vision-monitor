@@ -80,10 +80,7 @@ export function useVideoPipeline({
       showToast('success', `Inference started for "${name}"`);
       addLog(`Inference started: "${name}"`, 'success');
     } else if (sessionId) {
-      // Just load the video and wait for user to click START INFERENCE
-      setIsRunning(false);
-      showToast('success', `Video "${name}" uploaded. Press Start Inference.`);
-      addLog(`Video uploaded: "${name}". Ready to start inference.`, 'info');
+      void startVideoInference(sessionId);
     } else {
       setIsRunning(false);
       addLog(`Video loaded: "${name}"`, 'info');
@@ -110,11 +107,12 @@ export function useVideoPipeline({
     addLog('Reset video canvas and cleared all detections.', 'info');
   };
 
-  const startVideoInference = async () => { 
+  const startVideoInference = async (customSessionId?: string) => { 
     setDucks([]); 
     useInferenceStore.getState().resetStats(); 
     resetBBoxCache();
-    if (!videoSessionId) {
+    const sid = customSessionId || videoSessionId;
+    if (!sid) {
       showToast('error', 'Upload a video before starting inference.');
       return;
     }
@@ -128,13 +126,13 @@ export function useVideoPipeline({
     try {
       // Sync the expected count to the backend RIGHT BEFORE starting inference!
       // This guarantees the backend always warms up with the number currently shown on screen.
-      await fetch(`${getApiBaseUrl()}/video/update_expected/${videoSessionId}`, {
+      await fetch(`${getApiBaseUrl()}/video/update_expected/${sid}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ count: expectedDucks })
       }).catch(err => console.error("Failed to sync expected ducks before start", err));
 
-      const response = await fetch(`${getApiBaseUrl()}/video/start/${videoSessionId}`, { method: 'POST' });
+      const response = await fetch(`${getApiBaseUrl()}/video/start/${sid}`, { method: 'POST' });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
         throw new Error(body.message || 'Unable to start inference');
