@@ -163,21 +163,21 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
         )}
       </div>
 
-      <div className={`flex items-center justify-between px-1 py-0.5 gap-0.5 border-t shrink-0 font-bold ${barColorClasses}`}>
-        <div className="inline-flex items-center gap-1 min-w-0">
-          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+      <div className={`flex items-center justify-between px-1 py-0.5 gap-1 border-t shrink-0 font-bold ${barColorClasses}`}>
+        <div className="flex items-center gap-1 min-w-0 flex-nowrap whitespace-nowrap overflow-hidden">
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 flex-none self-center ${
             isMissing ? 'bg-amber-500 animate-pulse'
               : isNew ? 'bg-cyan-400 animate-pulse'
               : isAlert ? 'bg-[var(--status-anomaly-text)] shadow-xs animate-pulse ring-1 ring-[var(--status-anomaly-text)]/60'
               : isCountMismatch ? 'bg-rose-500 shadow-xs ring-1 ring-rose-400/50'
               : 'bg-[var(--status-normal-text)]'
           }`} />
-          <span className={`${textSize} truncate leading-tight font-mono font-bold`}>
+          <span className={`${textSize} truncate font-mono font-bold leading-none select-none tracking-tight self-center`}>
             #{duck.id.padStart(2, '0')}
           </span>
         </div>
         {(showBadge || isMissing || isAlert || isNew) && (
-          <span className={`text-[6.5px] px-1 py-0.2 rounded font-black shrink-0 uppercase leading-tight ${
+          <span className={`text-[6.5px] px-1 py-0.2 rounded font-black shrink-0 uppercase leading-none self-center ${
             isMissing
               ? 'bg-amber-500 text-white shadow-xs'
               : isNew
