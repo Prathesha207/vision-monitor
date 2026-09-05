@@ -95,43 +95,7 @@ def _ensure_tables():
 _ensure_tables()
 
 
-# ---------------------------------------------------
-#  BOOTSTRAP: Alembic auto-migration
-# ---------------------------------------------------
-def _run_migrations():
-    alembic_ini = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
-    alembic_ini = os.path.normpath(alembic_ini)
 
-    if not os.path.exists(alembic_ini):
-        pass
-        Base.metadata.create_all(bind=engine)
-        return
-
-    try:
-        pass
-        result = subprocess.run(
-            ["alembic", "upgrade", "head"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        )
-        if result.stdout:
-            pass
-        if result.stderr:
-            pass
-
-        if result.returncode == 0:
-            pass
-        else:
-            pass
-            Base.metadata.create_all(bind=engine)
-
-    except FileNotFoundError:
-        pass
-        Base.metadata.create_all(bind=engine)
-    except Exception as e:
-        pass
-        Base.metadata.create_all(bind=engine)
 
 
 # ---------------------------------------------------
