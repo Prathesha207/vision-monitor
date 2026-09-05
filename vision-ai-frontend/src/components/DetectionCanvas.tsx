@@ -153,19 +153,34 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   useEffect(() => {
     if (isRunning) {
       setIsFirstFrameLoaded(false);
+      // Safety timeout: ensure loading overlay never gets stuck if img.onLoad does not fire
+      const timer = setTimeout(() => {
+        setIsFirstFrameLoaded(true);
+      }, 800);
+      return () => clearTimeout(timer);
     }
   }, [isRunning]);
 
-  // Video autoplay behavior
+  // Once backend starts processing frames or ducks arrive, mark first frame loaded immediately
+  useEffect(() => {
+    if ((backendStats?.frames_processed && backendStats.frames_processed > 0) || ducks.length > 0) {
+      setIsFirstFrameLoaded(true);
+    }
+    if (backendStats?.video_width && backendStats?.video_height) {
+      setVideoAspect(backendStats.video_width / backendStats.video_height);
+    }
+  }, [backendStats?.frames_processed, backendStats?.video_width, backendStats?.video_height, ducks.length]);
+
+  // Video autoplay behavior for local preview
   useEffect(() => {
     if (!videoRef.current) return;
-    if (hasActiveVideo && (feedMode === 'raw' || !videoSessionId)) {
+    if (hasActiveVideo && !videoSessionId) {
       videoRef.current.muted = true;
       videoRef.current.play().catch(() => {});
     } else {
       videoRef.current.pause();
     }
-  }, [hasActiveVideo, customVideoUrl, feedMode, videoSessionId]);
+  }, [hasActiveVideo, customVideoUrl, videoSessionId]);
 
   return (
     <div
@@ -208,11 +223,34 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
       {/* 2 & 3. VIDEO & CAMERA VIEWPORT WITH TRUE ASPECT RATIO */}
       {(hasActiveVideo || (isCameraSource && isCameraConnected)) && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-black" onClick={(e) => handleCanvasClick(e, containerRef)}>
-          {/* RAW VIDEO LAYER */}
-          {hasActiveVideo && (feedMode === 'raw' || !videoSessionId) && (
+          {/* STREAM VIEWPORT: If backend session is active (video or camera), render via <img> to support MJPEG streaming */}
+          {(videoSessionId || isCameraSource) ? (
+            <img
+              ref={cameraImgRef}
+              src={
+                isCameraSource 
+                  ? (isStreaming ? `${getApiBaseUrl()}/oak/inference/stream/live?t=${streamCacheBuster}` : undefined) 
+                  : effectiveVideoUrl
+              }
+              className="absolute z-0 pointer-events-none object-contain rounded bg-black"
+              style={fittedRect}
+              alt="Stream"
+              onLoad={(e) => {
+                const tgt = e.target as HTMLImageElement;
+                if (tgt.naturalWidth && tgt.naturalHeight) {
+                  setVideoAspect(tgt.naturalWidth / tgt.naturalHeight);
+                }
+                setIsFirstFrameLoaded(true);
+              }}
+              onError={(e) => {
+                if (isCameraSource && onCameraDeviceChange) onCameraDeviceChange(false);
+              }}
+            />
+          ) : hasActiveVideo ? (
+            /* Local MP4 video preview before backend session starts */
             <video
               ref={videoRef}
-              src={effectiveVideoUrl}
+              src={customVideoUrl}
               className="absolute z-0 pointer-events-none rounded bg-black"
               style={fittedRect}
               loop
@@ -226,44 +264,23 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                 setIsFirstFrameLoaded(true);
               }}
             />
-          )}
-
-          {/* INFERENCE IMAGE LAYER */}
-          {((hasActiveVideo && feedMode === 'inference' && videoSessionId) || (isCameraSource && isCameraConnected)) && (
-            <img
-              ref={cameraImgRef}
-              src={
-                isCameraSource 
-                  ? (isStreaming ? `${getApiBaseUrl()}/oak/inference/stream/live?t=${streamCacheBuster}` : undefined) 
-                  : (feedMode === 'inference' ? effectiveVideoUrl : undefined)
-              }
-              className="absolute z-0 pointer-events-none object-contain rounded bg-black"
-              style={fittedRect}
-              alt="AI Stream"
-              onLoad={(e) => {
-                const tgt = e.target as HTMLImageElement;
-                if (tgt.naturalWidth && tgt.naturalHeight) {
-                  setVideoAspect(tgt.naturalWidth / tgt.naturalHeight);
-                }
-                setIsFirstFrameLoaded(true);
-              }}
-              onError={(e) => {
-                if (isCameraSource && onCameraDeviceChange) onCameraDeviceChange(false);
-              }}
-            />
-          )}
+          ) : null}
 
           <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-10 rounded" style={fittedRect} />
 
-          <BoundingBoxOverlay
-            ducks={ducks}
-            selectedDuckId={selectedDuckId}
-            onSelectDuck={onSelectDuck}
-            showAllBoxes={showAllBoxes}
-            isHandPresent={isHandPresent}
-          />
+          {/* AI Bounding Boxes: Only shown in INFERENCE mode */}
+          {feedMode === 'inference' && (
+            <BoundingBoxOverlay
+              ducks={ducks}
+              selectedDuckId={selectedDuckId}
+              onSelectDuck={onSelectDuck}
+              showAllBoxes={showAllBoxes}
+              isHandPresent={isHandPresent}
+            />
+          )}
 
-          {isHandPresent && (
+          {/* Hand detected warning border: Only shown in INFERENCE mode */}
+          {feedMode === 'inference' && isHandPresent && (
             <div className="absolute inset-0 z-30 pointer-events-none border-4 border-amber-500/80 rounded" />
           )}
         </div>

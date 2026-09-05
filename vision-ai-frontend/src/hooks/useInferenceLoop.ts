@@ -140,6 +140,16 @@ export function useInferenceLoop({
           if (data.status !== "HAND" && !data.hand_detected) {
             setDucks(incomingDucks);
           }
+
+          if (data.status === 'completed') {
+            setIsRunning(false);
+            showToast('success', 'Video inference completed.');
+            addLog('Video inference processing completed.', 'success');
+            return;
+          } else if (data.status === 'stopped') {
+            setIsRunning(false);
+            return;
+          }
         } else if (data.status === 'error') {
           console.error('[VisionAI] Inference error:', data.reasons);
           setIsRunning(false);
@@ -148,7 +158,7 @@ export function useInferenceLoop({
           return;
         }
         
-        const pollInterval = Math.max(30, Math.min(100, Math.floor(1000 / (data?.fps || 25))));
+        const pollInterval = Math.max(120, Math.min(250, Math.floor(1000 / (data?.fps || 15))));
         if (isMounted) {
           timeoutId = setTimeout(pollBackend, pollInterval);
         }
@@ -156,8 +166,8 @@ export function useInferenceLoop({
         
       } catch(err) {
       } finally {
-        if (isMounted && !timeoutId) {
-          timeoutId = setTimeout(pollBackend, 50);
+        if (isMounted && !timeoutId && isRunning) {
+          timeoutId = setTimeout(pollBackend, 200);
         }
       }
     };
