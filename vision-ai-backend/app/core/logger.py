@@ -145,4 +145,4 @@ def setup_logger(name: str = "vision-ai") -> logging.Logger:
 
     # Ensure the requested logger propagates to root / file handler
     logger.propagate = True
-    return logger
+    return logger
