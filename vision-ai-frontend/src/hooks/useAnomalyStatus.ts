@@ -46,6 +46,22 @@ export function useAnomalyStatus({
       };
     }
 
+    // When inference is not running and no detections exist yet: Standby/Ready (difference is 0, not -18!)
+    if (!isRunning && framesProcessed === 0 && ducks.length === 0) {
+      return {
+        isAnomaly: false,
+        type: 'NONE',
+        message: isCameraSource ? 'READY' : 'STANDBY',
+        subMessage: isCameraSource
+          ? 'Camera connected • Click Start Stream or Start Inference'
+          : 'Video loaded • Click Start Inference to begin analysis',
+        detectedCount: 0,
+        expectedCount: expectedDucks,
+        difference: 0,
+        foreignSpecies: [],
+      };
+    }
+
     if (isRunning && (isStarting || backendStatus === 'WARMING' || framesProcessed === 0)) {
       return {
         isAnomaly: false,

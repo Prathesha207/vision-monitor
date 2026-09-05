@@ -49,6 +49,8 @@ interface DetectionCanvasProps {
   initialUploadFile?: File;
   isBackendConnected?: boolean;
   onRegisterTriggerUpload?: (trigger: () => void) => void;
+  lastCameraFrame?: string;
+  hasInferenceActivity?: boolean;
 }
 
 export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
@@ -81,6 +83,8 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   initialUploadFile,
   isBackendConnected = true,
   onRegisterTriggerUpload,
+  lastCameraFrame,
+  hasInferenceActivity,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -229,7 +233,9 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
               ref={cameraImgRef}
               src={
                 isCameraSource 
-                  ? (isStreaming ? `${getApiBaseUrl()}/oak/inference/stream/live?t=${streamCacheBuster}` : undefined) 
+                  ? (isStreaming 
+                      ? `${getApiBaseUrl()}/oak/inference/stream/live?t=${streamCacheBuster}` 
+                      : (lastCameraFrame || (isCameraConnected ? `${getApiBaseUrl()}/oak/snapshot?t=${streamCacheBuster}` : undefined))) 
                   : effectiveVideoUrl
               }
               className="absolute z-0 pointer-events-none object-contain rounded bg-black"
@@ -328,7 +334,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
         isFirstFrameLoaded={isFirstFrameLoaded}
       />
 
-      {showHUD && (!isWaitingForVideo || isCameraSource) && (
+      {showHUD && (hasInferenceActivity ?? (isRunning || isStarting || ducks.length > 0 || ((backendStats?.frames_processed ?? 0) > 0))) && (
         <StatusBar
           anomalyStatus={anomalyStatus}
           fps={fps}
