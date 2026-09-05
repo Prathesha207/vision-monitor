@@ -341,14 +341,20 @@ export default function App() {
   // ─── 13. Keyboard Shortcuts (using refs to avoid stale closures) ──
   const handleToggleRunningRef = React.useRef(handleToggleRunning);
   const handleTakeSnapshotRef = React.useRef(handleTakeSnapshot);
+  const isCameraSourceRef = React.useRef(isCameraSource);
   useEffect(() => { handleToggleRunningRef.current = handleToggleRunning; });
   useEffect(() => { handleTakeSnapshotRef.current = handleTakeSnapshot; });
+  useEffect(() => { isCameraSourceRef.current = isCameraSource; });
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.code === 'Space') { e.preventDefault(); handleToggleRunningRef.current(); }
-      else if (e.code === 'KeyI') { setFeedMode(m => m === 'raw' ? 'inference' : 'raw'); }
+      else if (e.code === 'KeyI') {
+        if (isCameraSourceRef.current) {
+          setFeedMode(m => m === 'raw' ? 'inference' : 'raw');
+        }
+      }
       else if (e.code === 'KeyS') { handleTakeSnapshotRef.current(); }
     };
     window.addEventListener('keydown', handleKeyDown);

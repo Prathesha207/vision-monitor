@@ -94,38 +94,40 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             )}
           </div>
 
-          {/* Feed toggle pill: RAW vs INFERENCE */}
-          <div className="flex items-center h-7 sm:h-8 p-0.5 rounded-xl bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--border-color)] shadow-xs shrink-0">
-            <button
-              onClick={() => {
-                playWaterDropSound();
-                onFeedModeChange('raw');
-              }}
-              className={`h-6 sm:h-7 px-2 sm:px-3 rounded-lg text-[10px] sm:text-xs font-bold tracking-wide flex items-center justify-center cursor-pointer ${
-                feedMode === 'raw'
-                  ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs scale-100'
-                  : 'text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
-              }`}
-            >
-              RAW
-            </button>
-            <button
-              onClick={() => {
-                playWaterDropSound();
-                onFeedModeChange('inference');
-              }}
-              className={`h-6 sm:h-7 px-2 sm:px-3 rounded-lg text-[10px] sm:text-xs font-bold tracking-wide flex items-center justify-center cursor-pointer ${
-                feedMode === 'inference'
-                  ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs scale-100'
-                  : 'text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
-              }`}
-            >
-              INFERENCE
-            </button>
-          </div>
+          {/* Feed toggle pill: RAW vs INFERENCE - Only shown for OAK camera, NOT for video upload */}
+          {isCameraSource && (
+            <div className="flex items-center h-7 sm:h-8 p-0.5 rounded-xl bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--border-color)] shadow-xs shrink-0">
+              <button
+                onClick={() => {
+                  playWaterDropSound();
+                  onFeedModeChange('raw');
+                }}
+                className={`h-6 sm:h-7 px-2 sm:px-3 rounded-lg text-[10px] sm:text-xs font-bold tracking-wide flex items-center justify-center cursor-pointer ${
+                  feedMode === 'raw'
+                    ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs scale-100'
+                    : 'text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
+                }`}
+              >
+                RAW
+              </button>
+              <button
+                onClick={() => {
+                  playWaterDropSound();
+                  onFeedModeChange('inference');
+                }}
+                className={`h-6 sm:h-7 px-2 sm:px-3 rounded-lg text-[10px] sm:text-xs font-bold tracking-wide flex items-center justify-center cursor-pointer ${
+                  feedMode === 'inference'
+                    ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs scale-100'
+                    : 'text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
+                }`}
+              >
+                INFERENCE
+              </button>
+            </div>
+          )}
 
           {/* Bounding Box Mode Toggle: Anomalies Only (Default) vs All Boxes */}
-          {feedMode === 'inference' && (
+          {(feedMode === 'inference' || !isCameraSource) && (
             <button
               onClick={() => {
                 playWaterDropSound();

@@ -268,8 +268,8 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
 
           <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-10 rounded" style={fittedRect} />
 
-          {/* AI Bounding Boxes: Only shown in INFERENCE mode */}
-          {feedMode === 'inference' && (
+          {/* AI Bounding Boxes: Shown in INFERENCE mode or always for video upload */}
+          {(feedMode === 'inference' || !isCameraSource) && (
             <BoundingBoxOverlay
               ducks={ducks}
               selectedDuckId={selectedDuckId}
@@ -280,8 +280,8 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
             />
           )}
 
-          {/* Hand detected warning border: Only shown in INFERENCE mode */}
-          {feedMode === 'inference' && isHandPresent && (
+          {/* Hand detected warning border: Shown in INFERENCE mode or always for video upload */}
+          {(feedMode === 'inference' || !isCameraSource) && isHandPresent && (
             <div className="absolute inset-0 z-30 pointer-events-none border-4 border-amber-500/80 rounded" />
           )}
         </div>
