@@ -9,6 +9,7 @@ interface BoundingBoxOverlayProps {
   onSelectDuck: (id: string | null) => void;
   showAllBoxes: boolean;
   isHandPresent: boolean;
+  isFrameAnomaly?: boolean;
 }
 
 export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
@@ -16,7 +17,8 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
   selectedDuckId,
   onSelectDuck,
   showAllBoxes,
-  isHandPresent
+  isHandPresent,
+  isFrameAnomaly = false,
 }) => {
   if (isHandPresent) return null;
 
@@ -28,13 +30,13 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
         .filter((duck) => {
           if (duck.species === 'Hand' || duck.handDetected) return false;
           const isMissing = duck.statusEvent === 'missing';
-          const isVisible = showAllBoxes || duck.provisional || duck.isAnomaly || isMissing || duck.id === selectedDuckId;
+          const isVisible = showAllBoxes || duck.provisional || duck.isAnomaly || isMissing || isFrameAnomaly || duck.id === selectedDuckId;
           return isVisible && Number.isFinite(duck.x) && Number.isFinite(duck.y) && Number.isFinite(duck.width) && Number.isFinite(duck.height) && duck.width > 0 && duck.height > 0;
         })
         .map((duck, idx) => {
           const isProvisional = duck.provisional;
           const isMissing = duck.statusEvent === 'missing';
-          const isAnomaly = !isProvisional && (duck.isAnomaly || isMissing);
+          const isAnomaly = !isProvisional && (duck.isAnomaly || isMissing || isFrameAnomaly);
           
           let borderColor = 'border-emerald-400/80 bg-emerald-500/5';
           let bracketColor = 'border-emerald-300';

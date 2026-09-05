@@ -276,6 +276,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
               onSelectDuck={onSelectDuck}
               showAllBoxes={showAllBoxes}
               isHandPresent={isHandPresent}
+              isFrameAnomaly={isSceneAnomaly}
             />
           )}
 
