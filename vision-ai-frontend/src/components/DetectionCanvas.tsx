@@ -114,7 +114,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   const { isFullscreen, toggleFullscreen } = useFullscreen(containerRef);
   const { containerSize, fittedRect } = useContainerFit(containerRef, canvasRef, videoAspect, videoDimensions, isCameraSource);
   const { isDragOver, uploadProgress, isSelectingVideo, handleFileInputChange, handleSelectVideoAndStart, handleDragOver, handleDragLeave, handleDrop } = useVideoUpload(fileInputRef, expectedDucks, onCustomVideoUploaded, recordedFile, clearRecording, initialUploadFile);
-  const { handleCanvasClick } = useRippleEffect(canvasRef, ducks, selectedDuckId, onSelectDuck);
+  const { handleCanvasClick } = useRippleEffect(canvasRef, ducks, selectedDuckId, onSelectDuck, showAllBoxes, isSceneAnomaly);
 
   useEffect(() => {
     if (onRegisterTriggerUpload) {

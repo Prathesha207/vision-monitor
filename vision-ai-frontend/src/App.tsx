@@ -218,6 +218,7 @@ export default function App() {
     setFps(0);
     setUptimeSeconds(0);
     setIsRunning(false);
+    setSelectedDuckId(null);
 
     if (isTargetCamera) {
       setIsRunning(false);
@@ -290,6 +291,7 @@ export default function App() {
   // ─── 12. Misc Handlers ────────────────────────────────────────────
   const handleRestart = () => {
     playWaterDropSound();
+    setSelectedDuckId(null);
     addLog('Pipeline reset triggered. Reconnecting to camera stream...', 'info');
     inference.setFramesProcessed(0);
     inference.setUptimeSeconds(0);
@@ -320,6 +322,7 @@ export default function App() {
   };
   const handleStopInference = async () => {
     camera.setCameraStartingState('ready');
+    setSelectedDuckId(null);
     await inference.handleStopInference();
   };
   const handleResumeInference = () => {

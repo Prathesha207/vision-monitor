@@ -30,13 +30,17 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
         .filter((duck) => {
           if (duck.species === 'Hand' || duck.handDetected) return false;
           const isMissing = duck.statusEvent === 'missing';
-          const isVisible = showAllBoxes || duck.provisional || duck.isAnomaly || isMissing || isFrameAnomaly || duck.id === selectedDuckId;
+          const isAnomalyDuck = duck.provisional || duck.isAnomaly || isMissing || isFrameAnomaly;
+          // In "Anomalies Only" mode, ONLY anomaly ducks are shown.
+          // Normal ducks must NEVER leak through in "Anomalies Only" mode.
+          const isVisible = showAllBoxes || isAnomalyDuck;
           return isVisible && Number.isFinite(duck.x) && Number.isFinite(duck.y) && Number.isFinite(duck.width) && Number.isFinite(duck.height) && duck.width > 0 && duck.height > 0;
         })
         .map((duck, idx) => {
           const isProvisional = duck.provisional;
           const isMissing = duck.statusEvent === 'missing';
           const isAnomaly = !isProvisional && (duck.isAnomaly || isMissing || isFrameAnomaly);
+          const isSelected = duck.id === selectedDuckId;
           
           let borderColor = 'border-emerald-400/80 bg-emerald-500/5';
           let bracketColor = 'border-emerald-300';
@@ -58,6 +62,10 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
             bracketColor = 'border-rose-400';
             tagStyle = 'bg-rose-950/90 text-rose-200 border border-rose-500/80 font-bold shadow-xs';
             confColor = 'text-rose-300 font-bold';
+          }
+
+          if (isSelected) {
+            borderColor += ' ring-2 ring-white shadow-md';
           }
 
           return (

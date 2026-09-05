@@ -6,7 +6,9 @@ export const useRippleEffect = (
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
   ducks: DuckEntity[],
   selectedDuckId: string | null,
-  onSelectDuck: (id: string | null) => void
+  onSelectDuck: (id: string | null) => void,
+  showAllBoxes: boolean = false,
+  isSceneAnomaly: boolean = false
 ) => {
   const ripplesRef = useRef<{ x: number; y: number; radius: number; opacity: number }[]>([]);
   const ducksRef = useRef<DuckEntity[]>(ducks);
@@ -29,32 +31,25 @@ export const useRippleEffect = (
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const updatedRipples: { x: number; y: number; radius: number; opacity: number }[] = [];
       
-      for (let i = 0; i < ripplesRef.current.length; i++) {
-        const r = ripplesRef.current[i];
-        const newRadius = r.radius + 0.9;
-        const newOpacity = r.opacity - 0.015;
-        if (newOpacity > 0) {
-          updatedRipples.push({
-            x: r.x,
-            y: r.y,
-            radius: newRadius,
-            opacity: newOpacity,
-          });
-
-          ctx.save();
+      ripplesRef.current.forEach((ripple) => {
+        ripple.radius += 2.5;
+        ripple.opacity -= 0.025;
+        
+        if (ripple.opacity > 0) {
           ctx.beginPath();
-          ctx.arc(r.x, r.y, newRadius, 0, Math.PI * 2);
-          ctx.strokeStyle = `rgba(186, 230, 253, ${newOpacity * 0.6})`;
+          ctx.arc(ripple.x, ripple.y, ripple.radius, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(56, 189, 248, ${ripple.opacity})`;
           ctx.lineWidth = 2;
           ctx.stroke();
-          ctx.restore();
+          updatedRipples.push(ripple);
         }
-      }
+      });
+      
       ripplesRef.current = updatedRipples;
       animationFrameId = requestAnimationFrame(render);
     };
     
-    render();
+    animationFrameId = requestAnimationFrame(render);
   };
 
   useEffect(() => {
@@ -64,9 +59,10 @@ export const useRippleEffect = (
     };
   }, []);
 
-  const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>, containerRef: React.RefObject<HTMLDivElement | null>) => {
-    if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
+  const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
 
@@ -91,8 +87,11 @@ export const useRippleEffect = (
 
     playWaterDropSound();
 
+    // Only hit-test ducks that are currently visible to the user on the screen.
+    // Clicking on the video canvas should NEVER secretly select an invisible normal duck!
     const clickedDuck = ducks.find(
       (d) =>
+        (showAllBoxes || d.provisional || d.isAnomaly || d.statusEvent === 'missing' || isSceneAnomaly) &&
         xPercent >= d.x &&
         xPercent <= d.x + d.width &&
         yPercent >= d.y &&
