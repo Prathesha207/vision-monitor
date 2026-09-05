@@ -2,6 +2,7 @@ import React, { useState, useMemo, memo, useCallback } from 'react';
 import { Sparkles, EyeOff } from 'lucide-react';
 import { DuckEntity, AnomalyStatus } from '../types';
 import { playWaterDropSound, playDuckQuackSound } from '../utils/audio';
+import { useInferenceStore } from '../store/inferenceStore';
 
 interface DetectionCropCanvasProps {
   duck: DuckEntity;
@@ -38,6 +39,7 @@ interface DuckGalleryCardProps {
   textSize: string;
   showBadge: boolean;
   showConfidence: boolean;
+  isCountMismatch?: boolean;
   onSelect: (id: string) => void;
   onToggleMissing?: (id: string) => void;
 }
@@ -48,6 +50,7 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
   textSize,
   showBadge,
   showConfidence,
+  isCountMismatch = false,
   onSelect,
   onToggleMissing,
 }) => {
@@ -88,6 +91,10 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
     borderClasses = isSelected
       ? 'border-2 border-amber-400 ring-2 ring-amber-400/40 bg-amber-500/10'
       : 'border-2 border-amber-400/60 bg-amber-500/10 hover:border-amber-400';
+  } else if (isCountMismatch) {
+    borderClasses = isSelected
+      ? 'border-2 border-rose-500 ring-2 ring-rose-500/40 bg-rose-500/10'
+      : 'border-2 border-rose-500/60 dark:border-rose-500/50 bg-rose-500/10 hover:border-rose-500 hover:shadow-xs';
   } else if (isSelected) {
     borderClasses = 'border-2 border-[var(--accent-pond)] ring-2 ring-[var(--accent-pond-subtle)] bg-[var(--bg-card)]';
   }
@@ -98,6 +105,7 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
     : isNew ? 'NEW'
     : isAlert ? 'ALERT'
     : isProvisional ? 'WARM'
+    : isCountMismatch ? 'DIFF'
     : 'OK';
 
   const barColorClasses = isMissing
@@ -108,6 +116,8 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
     ? 'bg-rose-500/25 dark:bg-rose-950/60 border-rose-500/50 text-rose-900 dark:text-rose-200'
     : isProvisional
     ? 'bg-amber-500/20 dark:bg-amber-950/50 border-amber-500/40 text-amber-800 dark:text-amber-300'
+    : isCountMismatch
+    ? 'bg-rose-500/20 dark:bg-rose-950/60 border-rose-500/40 text-rose-700 dark:text-rose-300'
     : 'bg-[var(--status-normal-bg)] border-[var(--status-normal-border)] text-[var(--status-normal-text)]';
 
   return (
@@ -115,7 +125,7 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
       onClick={handleClick}
       className={`flex flex-col h-full w-full rounded-md overflow-hidden shadow-2xs group cursor-pointer transition-colors min-h-0 select-none relative ${borderClasses}`}
       title={`#${duck.id} ${duck.species} (${(duck.confidence * 100).toFixed(0)}%) - ${
-        isMissing ? 'MISSING' : isNew ? 'NEW DETECTION' : isAlert ? 'ANOMALY ALERT' : 'NORMAL'
+        isMissing ? 'MISSING' : isNew ? 'NEW DETECTION' : isAlert ? 'ANOMALY ALERT' : isCountMismatch ? 'COUNT MISMATCH' : 'NORMAL'
       }`}
     >
       <div className="relative w-full flex-1 min-h-0 overflow-hidden bg-stone-950 flex items-center justify-center">
@@ -159,6 +169,7 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
             isMissing ? 'bg-amber-500 animate-pulse'
               : isNew ? 'bg-cyan-400 animate-pulse'
               : isAlert ? 'bg-[var(--status-anomaly-text)] shadow-xs animate-pulse ring-1 ring-[var(--status-anomaly-text)]/60'
+              : isCountMismatch ? 'bg-rose-500 shadow-xs ring-1 ring-rose-400/50'
               : 'bg-[var(--status-normal-text)]'
           }`} />
           <span className={`${textSize} truncate leading-tight font-mono font-bold`}>
@@ -173,6 +184,8 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
               ? 'bg-cyan-500 text-white shadow-xs'
               : isAlert
               ? 'bg-rose-600 text-white shadow-xs'
+              : isCountMismatch
+              ? 'bg-rose-500/25 text-rose-700 dark:text-rose-300 border border-rose-500/30'
               : 'text-[var(--status-normal-text)]'
           }`}>
             {badgeLabel}
@@ -191,7 +204,8 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
   prev.isSelected === next.isSelected &&
   prev.textSize === next.textSize &&
   prev.showBadge === next.showBadge &&
-  prev.showConfidence === next.showConfidence
+  prev.showConfidence === next.showConfidence &&
+  prev.isCountMismatch === next.isCountMismatch
 ));
 
 DuckGalleryCard.displayName = 'DuckGalleryCard';
@@ -214,8 +228,39 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
   selectedDuckId,
   onSelectDuck,
   onToggleMissingDuck,
+  anomalyStatus,
+  expectedCount,
 }) => {
   const [filter, setFilter] = useState<'all' | 'missed' | 'alert'>('all');
+  const mlStats = useInferenceStore((state) => state.stats);
+
+  const isCountMismatch = useMemo(() => {
+    // 1. Direct from anomalyStatus if available
+    if (anomalyStatus?.isAnomaly) {
+      if (
+        anomalyStatus.type === 'OVER_COUNT' ||
+        anomalyStatus.type === 'UNDER_COUNT' ||
+        (anomalyStatus.difference !== undefined && anomalyStatus.difference !== 0)
+      ) {
+        return true;
+      }
+    }
+    // 2. From mlStats if backend status is ANOMALY
+    if (mlStats?.status === 'ANOMALY') {
+      const exp = expectedCount ?? mlStats.expected_duck_count;
+      const det = mlStats.detected_duck_count;
+      if (exp > 0 && det !== exp) {
+        return true;
+      }
+      if (Array.isArray(mlStats.reasons) && mlStats.reasons.some((r: string) => typeof r === 'string' && r.toLowerCase().includes('count'))) {
+        return true;
+      }
+      if (!mlStats.detected_other_toy_count || mlStats.detected_other_toy_count === 0) {
+        return true;
+      }
+    }
+    return false;
+  }, [anomalyStatus, mlStats, expectedCount]);
 
   // Priority rank for sorting: other species (foreign/unknown) pinned at top,
   // everything else (including missing) stays in stable numeric ID order.
@@ -358,6 +403,7 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
                 textSize={textSize}
                 showBadge={showBadge}
                 showConfidence={count <= 12}
+                isCountMismatch={isCountMismatch}
                 onSelect={handleSelect}
                 onToggleMissing={onToggleMissingDuck}
               />

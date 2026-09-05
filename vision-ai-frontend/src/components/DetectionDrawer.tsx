@@ -279,7 +279,11 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
                   {anomalyDucks.length} Alert{anomalyDucks.length !== 1 ? 's' : ''}
                 </span>
               )}
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--border-color)]">
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${
+                anomalyStatus.isAnomaly && (anomalyStatus.difference !== 0 || anomalyStatus.type === 'OVER_COUNT' || anomalyStatus.type === 'UNDER_COUNT')
+                  ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
+                  : 'bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border-[var(--border-color)]'
+              }`}>
                 {ducks.length} Total
               </span>
             </div>
@@ -292,6 +296,8 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
               ducks={ducks}
               selectedDuckId={selectedDuckId}
               onSelectDuck={onSelectDuck}
+              anomalyStatus={anomalyStatus}
+              expectedCount={anomalyStatus.expectedCount}
             />
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center py-4 px-4 text-center text-[var(--text-secondary)] bg-[var(--bg-card-subtle)] rounded-xl border border-[var(--border-color)]">
