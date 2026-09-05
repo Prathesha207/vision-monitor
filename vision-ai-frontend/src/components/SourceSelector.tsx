@@ -5,6 +5,7 @@ import {
   Camera, 
   Play, 
   Square,
+  RotateCcw,
   Loader2
 } from 'lucide-react';
 import { playWaterDropSound } from '../utils/audio';
@@ -211,17 +212,17 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                 </button>
               )}
 
-              {/* CLEAR button only visible for uploaded video */}
+              {/* CLEAR / RESET button - distinct slate styling and RotateCcw icon */}
               {isVideoMode && (
                 <button
                   onClick={() => {
                     playWaterDropSound();
                     if (_onClearCustomVideo) _onClearCustomVideo();
                   }}
-                  title="Clear uploaded video"
-                  className="h-8 sm:h-9 flex items-center gap-1 px-2 sm:px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white border border-rose-500/50 text-[11px] sm:text-xs font-semibold active:scale-95 cursor-pointer transition-all shrink-0"
+                  title={isBackendStream ? 'Reset inference session' : 'Clear uploaded video'}
+                  className="h-8 sm:h-9 flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-100 hover:text-white border border-slate-600/80 text-[11px] sm:text-xs font-semibold shadow-xs active:scale-95 cursor-pointer transition-all shrink-0"
                 >
-                  <Square className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-current text-white" />
+                  <RotateCcw className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                   <span className="hidden sm:inline">{isBackendStream ? 'RESET' : 'CLEAR'}</span>
                 </button>
               )}

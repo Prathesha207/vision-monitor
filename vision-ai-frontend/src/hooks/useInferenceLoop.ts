@@ -47,10 +47,8 @@ export function useInferenceLoop({
   uptimeSeconds: number;
   setUptimeSeconds: (val: number) => void;
 }) {
-  // Effect: FPS reset when idle
-  useEffect(() => {
-    if (!isRunning) setFps(0);
-  }, [isRunning]);
+  // FPS is preserved on stop so users can review the achieved performance.
+  // It is only reset upon explicit session reset / clearing video or starting a new run.
 
   // Effect: Core dual-transport loop - WebSocket for camera, polling for video
   useEffect(() => {
@@ -207,6 +205,9 @@ export function useInferenceLoop({
         if (res.ok) {
           const data = await res.json();
           useInferenceStore.getState().setStats(data);
+          if (typeof data.fps === 'number' && data.fps > 0) {
+            setFps(data.fps);
+          }
           const vw = data.video_width || DEFAULT_VIDEO_WIDTH;
           const vh = data.video_height || DEFAULT_VIDEO_HEIGHT;
           const incomingDucks = mapDetectionsToDucks(data, vw, vh);

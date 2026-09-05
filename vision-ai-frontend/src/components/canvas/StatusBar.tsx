@@ -1,6 +1,7 @@
 import React from 'react';
-import { AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Bird, CheckCircle2, ShieldAlert, Hand } from 'lucide-react';
 import type { AnomalyStatus, DuckEntity } from '../../types';
+import { useInferenceStore } from '../../store/inferenceStore';
 
 interface StatusBarProps {
   anomalyStatus: AnomalyStatus;
@@ -13,7 +14,11 @@ interface StatusBarProps {
 export const StatusBar: React.FC<StatusBarProps> = ({
   anomalyStatus,
   fps,
+  backendStatus,
 }) => {
+  const storeFps = useInferenceStore((state) => state.stats?.fps || 0);
+  const displayFps = fps > 0 ? fps : (storeFps > 0 ? storeFps : 0);
+
   return (
     <div className="absolute bottom-3 left-1/2 transform -translate-x-1/2 z-30 pointer-events-auto animate-in fade-in slide-in-from-bottom-2 duration-300 max-w-[calc(100%-24px)]">
       <div className="flex items-center gap-3 sm:gap-5 px-3.5 sm:px-5 py-2 rounded-xl bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--border-color)] shadow-lg text-[var(--text-primary)]">
@@ -23,8 +28,8 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           <span className="text-[9.5px] text-[var(--text-secondary)] uppercase tracking-wider font-semibold">
             Expected
           </span>
-          <div className="flex items-center gap-1 mt-0.5">
-            <span className="text-sm">🦆</span>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <Bird className="w-4 h-4 text-[var(--accent-pond)] shrink-0" />
             <span className="text-base sm:text-lg font-black text-[var(--text-primary)]">
               {anomalyStatus.expectedCount}
             </span>
@@ -38,8 +43,8 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           <span className="text-[9.5px] text-[var(--text-secondary)] uppercase tracking-wider font-semibold">
             Ducks
           </span>
-          <div className="flex items-center gap-1 mt-0.5">
-            <span className="text-sm">🦆</span>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <Bird className="w-4 h-4 text-[var(--accent-pond)] shrink-0" />
             <span className="text-base sm:text-lg font-black text-[var(--text-primary)]">
               {anomalyStatus.detectedCount}
             </span>
@@ -54,8 +59,8 @@ export const StatusBar: React.FC<StatusBarProps> = ({
               <span className="text-[9.5px] text-rose-400 uppercase tracking-wider font-semibold">
                 Non-Duck
               </span>
-              <div className="flex items-center gap-1 mt-0.5">
-                <span className="text-sm">⚠️</span>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
                 <span className="text-base sm:text-lg font-black text-rose-400">
                   {anomalyStatus.foreignCount}
                 </span>
@@ -93,25 +98,25 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           <span className="text-[9.5px] text-[var(--text-secondary)] uppercase tracking-wider font-semibold">
             Status
           </span>
-          <div className="flex items-center gap-1 mt-0.5">
+          <div className="flex items-center gap-1.5 mt-0.5">
             {anomalyStatus.message === 'WARMING' ? (
-              <div className="flex items-center gap-1 text-amber-500 font-bold text-xs sm:text-sm animate-pulse">
-                <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+              <div className="flex items-center gap-1.5 text-amber-500 font-bold text-xs sm:text-sm animate-pulse">
+                <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.6)]" />
                 <span>WARMING</span>
               </div>
             ) : anomalyStatus.message === 'HAND DETECTED' ? (
-              <div className="flex items-center gap-1 text-amber-500 font-bold text-xs sm:text-sm animate-pulse">
-                <AlertTriangle className="w-3.5 h-3.5 fill-current opacity-80" />
+              <div className="flex items-center gap-1.5 text-amber-500 font-bold text-xs sm:text-sm animate-pulse">
+                <Hand className="w-3.5 h-3.5 shrink-0" />
                 <span>HAND</span>
               </div>
             ) : anomalyStatus.isAnomaly ? (
-              <div className="flex items-center gap-1 text-[var(--status-anomaly-text)] font-bold text-xs sm:text-sm animate-pulse">
-                <AlertTriangle className="w-3.5 h-3.5 fill-current opacity-80" />
+              <div className="flex items-center gap-1.5 text-[var(--status-anomaly-text)] font-bold text-xs sm:text-sm animate-pulse">
+                <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
                 <span>ANOMALY</span>
               </div>
             ) : (
-              <div className="flex items-center gap-1 text-[var(--status-normal-text)] font-bold text-xs sm:text-sm">
-                <CheckCircle2 className="w-3.5 h-3.5 fill-current opacity-80" />
+              <div className="flex items-center gap-1.5 text-[var(--status-normal-text)] font-bold text-xs sm:text-sm">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                 <span>NORMAL</span>
               </div>
             )}
@@ -126,7 +131,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
             FPS
           </span>
           <span className="text-base sm:text-lg font-mono font-bold text-[var(--text-primary)] mt-0.5">
-            {fps.toFixed(1)}
+            {displayFps.toFixed(1)}
           </span>
         </div>
       </div>

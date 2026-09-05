@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, ShieldAlert, Layers, Minimize2, Expand, Image as ImageIcon, Eye, EyeOff } from 'lucide-react';
+import { Hand, ShieldAlert, Layers, Minimize2, Expand, Image as ImageIcon, Eye, EyeOff } from 'lucide-react';
 import type { AnomalyStatus } from '../../types';
 import { playWaterDropSound } from '../../utils/audio';
 
@@ -67,12 +67,12 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
               </>
             ) : anomalyStatus.message === 'HAND DETECTED' ? (
               <>
-                <AlertTriangle className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                <Hand className="w-3.5 h-3.5 text-amber-300 shrink-0" />
                 <span className="font-black text-amber-200">HAND PRESENT</span>
               </>
             ) : anomalyStatus.isAnomaly ? (
               <>
-                <AlertTriangle className="w-3.5 h-3.5 fill-current text-white shrink-0" />
+                <ShieldAlert className="w-3.5 h-3.5 text-white shrink-0" />
                 <span className="font-black text-white">ANOMALY</span>
                 {anomalyStatus.difference !== 0 && (
                   <span className="font-mono text-[9.5px] bg-black/30 px-1 py-0.5 rounded text-rose-100">
