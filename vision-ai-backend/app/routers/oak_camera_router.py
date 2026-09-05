@@ -204,6 +204,15 @@ async def update_expected(session_id: str, payload: ExpectedCountUpdate):
     return {"message": "Expected duck count updated."}
 
 
+@router.get("/inference/status/{session_id}")
+async def get_camera_inference_status(session_id: str):
+    from app.ml.duck_inference_service import get_session_status
+    status = get_session_status(session_id)
+    if not status:
+        return {"status": "idle", "session_id": session_id}
+    return status
+
+
 @router.websocket("/inference/ws/{session_id}")
 async def inference_ws(websocket: WebSocket, session_id: str):
     """WebSocket that streams inference results to the UI.

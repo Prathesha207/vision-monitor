@@ -602,8 +602,11 @@ class VideoInferenceService:
                         "missing_ids": missing_ids,
                         "added_ids": added_ids,
                         "other_ids": other_ids,
+                        "missing_count": len(missing_ids),
+                        "added_count": len(added_ids),
                         "reasons": reasons,
                         "detections": result.get("detections", []),
+                        "is_anomaly_frame": is_anomaly_frame,
                         "video_width": width,
                         "video_height": height,
                     })

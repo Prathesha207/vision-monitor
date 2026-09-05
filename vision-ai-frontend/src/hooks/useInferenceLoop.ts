@@ -73,6 +73,10 @@ export function useInferenceLoop({
               setFramesProcessed(data.frames_processed || 0);
               setUptimeSeconds(Math.floor((data.frames_processed || 0) / (data.metrics?.fps || data.fps || 30)));
               
+              if (data.video_width && data.video_height) {
+                setVideoDimensions({ width: data.video_width, height: data.video_height });
+              }
+
               const vw = data.video_width || DEFAULT_VIDEO_WIDTH;
               const vh = data.video_height || DEFAULT_VIDEO_HEIGHT;
               const incomingDucks = mapDetectionsToDucks(data, vw, vh);

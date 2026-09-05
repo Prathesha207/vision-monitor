@@ -82,25 +82,53 @@ def _get_or_create_session(session_id: str, expected_duck_count: int,
             with open(_CONFIG_PATH, "r") as f:
                 cfg = yaml.safe_load(f) or {}
 
-            # Resolve absolute model path
-            model_path = cfg.get("model_path", "app/ml/models/best.pt")
-            if not os.path.isabs(model_path):
-                ml_dir = os.path.dirname(os.path.abspath(__file__))
-                candidates = [
-                    os.path.join(ml_dir, "models", "best.pt"),
-                    os.path.abspath(model_path)
-                ]
-                if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-                    candidates.insert(0, os.path.join(sys._MEIPASS, "app", "ml", "models", "best.pt"))
-                    candidates.insert(1, os.path.join(sys._MEIPASS, "models", "best.pt"))
-                for cand in candidates:
-                    if os.path.exists(cand):
-                        model_path = cand
-                        break
-            cfg["model_path"] = model_path
+            # Resolve model_path portably across ANY PC
+            ml_dir = os.path.dirname(os.path.abspath(__file__))
+            base_dir = os.path.dirname(ml_dir)
+            candidates = [
+                os.path.join(ml_dir, "models", "best.pt"),
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "best.pt"),
+                os.path.join(base_dir, "ml", "models", "best.pt"),
+            ]
+            if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+                candidates.insert(0, os.path.join(sys._MEIPASS, "app", "ml", "models", "best.pt"))
+                candidates.insert(1, os.path.join(sys._MEIPASS, "models", "best.pt"))
+
+            configured_path = cfg.get("model_path")
+            if configured_path:
+                if os.path.isabs(configured_path):
+                    candidates.append(configured_path)
+                else:
+                    candidates.append(os.path.join(ml_dir, configured_path))
+                candidates.append(os.path.abspath(configured_path))
+
+            resolved_model = None
+            for cand in candidates:
+                if cand and os.path.exists(cand):
+                    resolved_model = cand
+                    break
+
+            if not resolved_model:
+                checked = "\n  ".join(candidates)
+                raise FileNotFoundError(
+                    "Could not find best.pt on this machine. Checked:\n  " + checked +
+                    f"\n\nPlace the model weights at {os.path.join(ml_dir, 'models', 'best.pt')}"
+                )
+
+            cfg["model_path"] = resolved_model
             cfg["save_local"] = False
             cfg["annotated_dir"] = None
-            
+
+            # Dynamic hardware detection: use GPU if CUDA is available, else fallback cleanly to CPU
+            try:
+                import torch
+                if torch.cuda.is_available() and torch.cuda.device_count() > 0:
+                    cfg["device"] = 0
+                else:
+                    cfg["device"] = "cpu"
+            except Exception:
+                cfg["device"] = "cpu"
+
             # Temporary session config path with resolved model_path
             session_cfg_dir = os.path.join(os.path.dirname(_CONFIG_PATH), "sessions")
             os.makedirs(session_cfg_dir, exist_ok=True)
@@ -180,17 +208,32 @@ def run_inference(frame, session_id: str, expected_duck_count: int = 18,
         return {"session_id": session_id, "status": "error",
                 "reasons": [str(e)], "frames_processed": session["frames_processed"]}, frame
 
-    # ── Read the CORRECT keys from DuckAnalyzer._finish() ──
-    # _finish() returns: detected_duck_count, other_count, missing_ids,
-    # added_ids, other_ids, hand_detected, thumbnails, fps, detections, status.
-    # It does NOT return "detected_other_toy_count", "anchor_locked", or "reasons".
+    if isinstance(result, dict) and result.get("annotated_frame") is not None:
+        annotated_frame = result["annotated_frame"]
+
+    # ── Read the fields DuckAnalyzer._finish() returns ──
     detected_ducks = result.get("detected_duck_count", 0)
-    detected_others = result.get("other_count", 0)          # was wrong: "detected_other_toy_count"
-    anchor_locked = getattr(analyzer, "anchor_locked", False)  # attribute on analyzer, not in result
+    detected_others = result.get("other_count", 0)
+    anchor_locked = bool(result.get("anchor_locked", getattr(analyzer, "anchor_locked", False)))
     missing_ids = result.get("missing_ids", [])
     added_ids = result.get("added_ids", [])
     other_ids = result.get("other_ids", [])
     hand_detected = result.get("hand_detected", False)
+
+    reasons = list(result.get("reasons", []))
+    if not reasons:
+        if hand_detected:
+            reasons.append("hand_in_frame")
+        if missing_ids:
+            reasons.append("missing_ducks")
+        if detected_others > 0:
+            reasons.append("other_species_present")
+        if anchor_locked:
+            expected_now = session.get("expected_duck_count", 0)
+            if detected_ducks < expected_now:
+                reasons.append("too_few_ducks")
+            elif detected_ducks > expected_now:
+                reasons.append("too_many_ducks")
 
     is_anomaly = (
         result.get("status") == "ANOMALY"
@@ -216,9 +259,10 @@ def run_inference(frame, session_id: str, expected_duck_count: int = 18,
         "original_filename": session.get("original_filename"),
         "status": result.get("status", "processing"),
         "frames_processed": session["frames_processed"],
-        "fps": result.get("fps", 0),
+        "fps": round(result.get("fps", 0), 1),
         "detected_duck_count": detected_ducks,
         "expected_duck_count": session["expected_duck_count"],
+        "other_count": detected_others,
         "detected_other_toy_count": detected_others,
         "anchor_locked": anchor_locked,
         "hand_detected": hand_detected,
@@ -227,6 +271,7 @@ def run_inference(frame, session_id: str, expected_duck_count: int = 18,
         "other_ids": other_ids,
         "missing_count": result.get("missing_count", 0),
         "added_count": result.get("added_count", 0),
+        "reasons": reasons,
         "detections": result.get("detections", []),
         "thumbnails": session["thumbnails"],
         "is_anomaly_frame": is_anomaly,
@@ -234,7 +279,15 @@ def run_inference(frame, session_id: str, expected_duck_count: int = 18,
         "video_height": frame.shape[0],
     }
 
+    session["last_stats"] = stats
     return stats, annotated_frame
+
+
+def get_session_status(session_id: str) -> Optional[Dict[str, Any]]:
+    session = _sessions.get(session_id)
+    if not session:
+        return None
+    return session.get("last_stats")
 
 
 def update_expected_ducks(session_id: str, count: int) -> None:
