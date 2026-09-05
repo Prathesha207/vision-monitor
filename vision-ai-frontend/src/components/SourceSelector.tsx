@@ -212,8 +212,8 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                 </button>
               )}
 
-              {/* CLEAR / RESET button - distinct slate styling and RotateCcw icon */}
-              {isVideoMode && (
+              {/* CLEAR / RESET button - only visible once inference has started or active video exists */}
+              {isVideoMode && (isRunning || hasActiveVideo) && (
                 <button
                   onClick={() => {
                     playWaterDropSound();

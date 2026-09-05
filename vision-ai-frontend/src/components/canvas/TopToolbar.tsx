@@ -44,6 +44,9 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   anomalyStatus,
   isStreaming,
 }) => {
+  const isMediaActive = isRunning || hasActiveVideo || (isCameraSource && isStreaming);
+  if (!isMediaActive) return null;
+
   return (
     <div className="absolute top-2 sm:top-3 right-2 sm:right-3 flex items-center gap-1 sm:gap-1.5 pointer-events-auto z-30 ml-auto shrink-0">
       
