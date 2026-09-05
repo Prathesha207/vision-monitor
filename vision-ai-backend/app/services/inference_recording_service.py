@@ -48,6 +48,8 @@ import av
 import cv2
 import numpy as np
 
+from app.core.app_paths import get_desktop_dir
+
 logger = logging.getLogger("inference-recorder")
 
 
@@ -196,8 +198,7 @@ class InferenceRecorder:
         else:
             base_name = now.strftime("session_%Y-%m-%d_%H-%M-%S-%f_PENDING") + f"_{_sid_safe}{_ext}"
 
-        base_path = os.path.join("storage", "recordings")
-        base_path = os.path.normpath(base_path)
+        base_path = str(get_desktop_dir() / "recordings")
 
         self._root      = os.path.join(base_path, date_folder)
         self._base_name = base_name

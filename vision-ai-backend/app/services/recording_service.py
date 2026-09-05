@@ -21,6 +21,7 @@ import threading
 import time
 import logging
 from datetime import datetime
+from app.core.app_paths import get_desktop_dir
 
 logger = logging.getLogger("recording-service")
 
@@ -40,12 +41,8 @@ class RecordingSession:
     ):
         now = datetime.now()
         if not root_path:
-            desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-            if os.path.exists(desktop):
-                root_path = os.path.join(desktop, "recordings")
-            else:
-                # Headless Linux fallback: save into project storage/recordings
-                root_path = os.path.join(os.getcwd(), "storage", "recordings")
+            desktop = get_desktop_dir()
+            root_path = str(desktop / "recordings")
         folder = os.path.join(root_path, now.strftime("%Y-%m-%d"))
         os.makedirs(folder, exist_ok=True)
 
@@ -188,11 +185,8 @@ class RecordingSession:
 
 
 def _get_default_recording_path() -> str:
-    desktop = os.path.join(os.path.expanduser("~"), "Desktop")
-    if os.path.exists(desktop):
-        return os.path.join(desktop, "recordings")
-    backend_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    return os.path.join(backend_root, "storage", "recordings")
+    desktop = get_desktop_dir()
+    return str(desktop / "recordings")
 
 
 def _resolve_recording_path(root_path: str = None) -> str:

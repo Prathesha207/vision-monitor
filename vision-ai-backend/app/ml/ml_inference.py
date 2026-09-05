@@ -649,7 +649,7 @@ class VideoInferenceService:
                 if claimed_inference_lock:
                     app_state.exit_inference("video")
 
-                # ── Archive permanent copy to Desktop/inference_results ──
+                # ── Archive permanent copy exclusively to Desktop/inference_results ──
                 try:
                     from datetime import datetime
                     import shutil
@@ -657,16 +657,16 @@ class VideoInferenceService:
 
                     desktop = get_desktop_dir()
                     today_str = datetime.now().strftime("%Y-%m-%d")
-                    if desktop:
-                        archive_dir = os.path.join(str(desktop), "inference_results", today_str, session_id)
-                    else:
-                        base_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                        archive_dir = os.path.join(base_root, "storage", "inference_results", today_str, session_id)
-
+                    archive_dir = os.path.join(str(desktop), "inference_results", today_str, session_id)
                     os.makedirs(archive_dir, exist_ok=True)
 
+                    # Move annotated video directly to Desktop so no multi-GB duplicate stays in session_dir
                     if os.path.exists(output_path):
-                        shutil.copy2(output_path, archive_dir)
+                        dest_video = os.path.join(archive_dir, video_filename)
+                        shutil.move(output_path, dest_video)
+                        session["stats"]["output_file"] = dest_video
+                        logger.info(f"[ARCHIVE] Moved annotated video to Desktop: {dest_video}")
+
                     if os.path.exists(results_json_path):
                         shutil.copy2(results_json_path, archive_dir)
                     if os.path.exists(thumbnail_dir) and os.listdir(thumbnail_dir):
@@ -686,9 +686,9 @@ class VideoInferenceService:
                         shutil.copytree(anomaly_frames_dir, dest_anom)
 
                     session["stats"]["archived_results_dir"] = archive_dir
-                    logger.info(f"[ARCHIVE] Successfully copied finalized inference results to: {archive_dir}")
+                    logger.info(f"[ARCHIVE] Successfully finalized inference results in: {archive_dir}")
                 except Exception as arch_err:
-                    logger.warning(f"[ARCHIVE] Could not copy inference results to Desktop archive: {arch_err}")
+                    logger.warning(f"[ARCHIVE] Could not finalize inference results to Desktop: {arch_err}")
 
                 # Never close the replacement stream or schedule expiry for a
                 # newer run of this same session.
@@ -716,9 +716,12 @@ class VideoInferenceService:
         async def expire_session():
             await asyncio.sleep(900)
             temp_path = session.get("temp_file")
+            # Only remove temporary upload files located inside ml/output/ (never desktop recordings or user videos)
             if temp_path and os.path.exists(temp_path):
+                ml_output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "output"))
                 try:
-                    os.unlink(temp_path)
+                    if os.path.commonpath([os.path.abspath(temp_path), ml_output_dir]) == ml_output_dir:
+                        os.unlink(temp_path)
                 except Exception:
                     pass
             if session_id in self.sessions:
