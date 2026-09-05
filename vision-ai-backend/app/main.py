@@ -142,13 +142,21 @@ async def api_logging_middleware(request: Request, call_next):
     method = request.method
     path = request.url.path
 
+    # Routine high-frequency polling paths to mute when OK (< 400)
+    is_routine_poll = (
+        path in ("/health", "/oak/health")
+        or path.startswith("/video/status/")
+        or path.startswith("/oak/inference/status/")
+        or path.startswith("/video/last_frame/")
+    )
+
     try:
         response = await call_next(request)
         duration_ms = round((time.time() - start_time) * 1000, 1)
 
-        # Mute polling noise for /health when 200 OK so logs don't drown in health checks
-        if path == "/health" and response.status_code < 400:
-            pass
+        # Mute routine polling noise so logs stay clean and focused
+        if is_routine_poll and response.status_code < 400:
+            return response
         elif response.status_code >= 500:
             logger.error(f"[API ERROR] {method} {path} -> {response.status_code} ({duration_ms}ms)")
         elif response.status_code >= 400:

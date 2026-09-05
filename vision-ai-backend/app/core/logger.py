@@ -59,9 +59,8 @@ def get_current_log_path() -> Optional[str]:
 
 def setup_logger(name: str = "vision-ai") -> logging.Logger:
     """
-    Initialize and return a logger connected to the unified rotating session log file.
-    Also wires up uvicorn, fastapi, and all application loggers so that ALL API calls,
-    errors, and crashes are faithfully saved to disk.
+    Initialize and return a logger connected to the single unified rotating log file: logs/vision_ai.log.
+    Guarantees every log line is written EXACTLY ONCE without duplicates or third-party HTTP spam.
     """
     global _shared_file_handler, _shared_formatter, _current_log_file_path
 
@@ -72,18 +71,12 @@ def setup_logger(name: str = "vision-ai") -> logging.Logger:
     root_logger.setLevel(logging.INFO)
 
     if _shared_file_handler is None:
-        # Determine logs directory relative to backend root
+        # Single log file directly in logs/
         backend_root = Path(__file__).resolve().parent.parent.parent
         base_log_dir = backend_root / "logs"
+        base_log_dir.mkdir(parents=True, exist_ok=True)
 
-        now = datetime.now()
-        date_folder = now.strftime("%Y-%m-%d")
-        hour_folder = now.strftime("%H")
-
-        full_dir = base_log_dir / date_folder / hour_folder
-        full_dir.mkdir(parents=True, exist_ok=True)
-
-        log_file = full_dir / now.strftime("session_%Y-%m-%d_%H-%M-%S.log")
+        log_file = base_log_dir / "vision_ai.log"
         _current_log_file_path = str(log_file)
 
         _shared_file_handler = RotatingFileHandler(
@@ -98,11 +91,12 @@ def setup_logger(name: str = "vision-ai") -> logging.Logger:
         )
         _shared_file_handler.setFormatter(_shared_formatter)
 
-        # Attach file handler to root logger
+        # Attach file handler ONLY to root logger.
+        # Child loggers bubble to root by default, ensuring each line is written EXACTLY ONCE.
         root_logger.addHandler(_shared_file_handler)
 
-        # Attach console StreamHandler if not present
-        if not any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers):
+        # Attach console StreamHandler to root if not present
+        if not any(isinstance(h, logging.StreamHandler) for h in root_logger.handlers if not isinstance(h, RotatingFileHandler)):
             stream_handler = logging.StreamHandler(sys.stdout)
             stream_handler.setFormatter(_shared_formatter)
             root_logger.addHandler(stream_handler)
@@ -110,39 +104,23 @@ def setup_logger(name: str = "vision-ai") -> logging.Logger:
         # Install system & thread crash hooks
         _install_crash_hooks()
 
-        # Wire up uvicorn loggers so access logs and server errors are captured in the file
-        for uvicorn_name in ["uvicorn", "uvicorn.error", "uvicorn.access", "fastapi"]:
-            u_logger = logging.getLogger(uvicorn_name)
-            u_logger.setLevel(logging.INFO)
-            u_logger.propagate = True
-            if _shared_file_handler not in u_logger.handlers:
-                u_logger.addHandler(_shared_file_handler)
+        # Suppress unwanted internal third-party HTTP/network request spam
+        for noisy_lib in ["httpx", "httpcore", "multipart", "urllib3"]:
+            logging.getLogger(noisy_lib).setLevel(logging.WARNING)
 
-        # Pre-wire known application loggers
-        known_loggers = [
-            "vision-ai",
-            "video-router",
-            "ml-inference",
-            "camera-service",
-            "camera-api",
-            "recording-api",
-            "recording-service",
-            "oak-camera",
-            "oak-camera-router",
-            "inference-recorder",
-            "debug-router"
-        ]
-        for log_name in known_loggers:
-            app_l = logging.getLogger(log_name)
-            app_l.setLevel(logging.INFO)
-            app_l.propagate = True
+        # Prevent duplicate handlers on uvicorn
+        for uvicorn_name in ["uvicorn", "uvicorn.error", "uvicorn.access"]:
+            u_logger = logging.getLogger(uvicorn_name)
+            u_logger.propagate = True
+            u_logger.handlers.clear()
+
+        # Suppress uvicorn.access since api_logging_middleware already logs clean [API] lines
+        logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
         init_logger = logging.getLogger("vision-ai")
         init_logger.info(
-            f"[LOGGER INIT] Centralized log file created: {_current_log_file_path} "
-            f"(max {_MAX_BYTES//1024//1024}MB, {_BACKUP_COUNT} backups)"
+            f"=== Vision AI Log Started === (Log: {_current_log_file_path}, max {_MAX_BYTES//1024//1024}MB, {_BACKUP_COUNT} backups)"
         )
 
-    # Ensure the requested logger propagates to root / file handler
     logger.propagate = True
     return logger
