@@ -141,13 +141,10 @@ export function useInferenceLoop({
             setDucks(incomingDucks);
           }
 
-          if (data.status === 'completed') {
+          if (data.status === 'completed' || (data.progress >= 100 && data.status !== 'WARMING' && (data.frames_processed || 0) > 0)) {
             setIsRunning(false);
             showToast('success', 'Video inference completed.');
             addLog('Video inference processing completed.', 'success');
-            return;
-          } else if (data.status === 'stopped') {
-            setIsRunning(false);
             return;
           }
         } else if (data.status === 'error') {
@@ -183,6 +180,7 @@ export function useInferenceLoop({
   const handleToggleRunning = async (startVideoInference: () => Promise<void>) => {
     playWaterDropSound();
     if (isRunning) {
+      setIsRunning(false);
       showToast('info', 'Inference paused. Click Resume or Start.');
       addLog('Inference paused • Model evaluation temporarily suspended.', 'info');
       if (sourceType === 'oak-camera' || sourceType === 'webcam') {
@@ -251,12 +249,12 @@ export function useInferenceLoop({
     useInferenceStore.getState().resetStats();
     resetBBoxCache();
     setIsStarting(true);
-    setIsRunning(true);
     if (sourceType === 'oak-camera' || sourceType === 'webcam') {
       cameraService.startLiveInference('live')
         .then((result: any) => {
           setIsStarting(false);
           if (result?.status === 'error') throw new Error(result.message || 'Inference start failed');
+          setIsRunning(true);
           showToast('success', 'Inference started');
           addLog('AI inference started on the live camera stream.', 'success');
         })
@@ -266,12 +264,6 @@ export function useInferenceLoop({
           showToast('error', error instanceof Error ? error.message : 'Unable to start inference');
         });
     }
-    if (videoSessionId) {
-      fetch(`${getApiBaseUrl()}/video/start/${videoSessionId}`, { method: 'POST' })
-        .catch(err => console.error("Failed to start backend inference", err));
-    }
-    showToast('success', 'Inference started');
-    addLog('Inference active on video stream.', 'success');
   };
 
   return {

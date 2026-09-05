@@ -122,7 +122,6 @@ export function useVideoPipeline({
     useInferenceStore.getState().resetStats();
     resetBBoxCache();
     setIsStarting(true);
-    setIsRunning(true);
     try {
       // Sync the expected count to the backend RIGHT BEFORE starting inference!
       // This guarantees the backend always warms up with the number currently shown on screen.
@@ -137,6 +136,7 @@ export function useVideoPipeline({
         const body = await response.json().catch(() => ({}));
         throw new Error(body.message || 'Unable to start inference');
       }
+      setIsRunning(true);
       showToast('success', 'Inference started');
       addLog('Inference active on uploaded video.', 'success');
     } catch (error) {
