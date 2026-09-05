@@ -95,11 +95,9 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEnt
 
       // Warming up / provisional detections are NEVER anomalies or errors!
       const backendIsAnomaly = typeof d.isAnomaly === 'boolean' ? d.isAnomaly : undefined;
-      const isFrameAnomaly = !isWarmingUp && (data.status === 'ANOMALY' || (data.anchor_locked && data.expected_duck_count > 0 && data.detected_duck_count !== data.expected_duck_count));
       const isAnomaly = backendIsAnomaly ?? (
         isOther || isHand ||
         (!isProvisional && (
-          isFrameAnomaly ||
           isMissingDetection ||
           addedIds.includes(displayId) ||
           addedIds.includes(Number(displayId)) ||

@@ -55,7 +55,7 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
   const isMissing = !isProvisional && duck.statusEvent === 'missing';
   const isNew = !isProvisional && duck.statusEvent === 'added';
   const isOther = !isProvisional && (duck.statusEvent === 'other_present' || (duck.species !== 'Duck' && duck.species !== 'Hand'));
-  const isAlert = !isProvisional && (isOther || (duck.isAnomaly && !isMissing && !isNew));
+  const isAlert = !isProvisional && isOther;
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
