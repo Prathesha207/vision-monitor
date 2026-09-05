@@ -13,6 +13,10 @@ from app.utils.exceptions import AppException
 from app.models.camera_model import Camera
 from app.models.recording_model import Recording
 from app.utils.resource_path import resource_path
+import time
+from app.core.logger import setup_logger
+
+logger = setup_logger("vision-ai")
 
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
@@ -44,30 +48,6 @@ def _ensure_env_file():
 _ensure_env_file()
 
 
-# ─────────────────────────────────────────
-# BOOTSTRAP: storage folders
-# ─────────────────────────────────────────
-def _ensure_storage_dirs():
-    dirs = [
-        "storage",
-        "storage/uploads",
-        "storage/recordings",
-        "storage/processed",
-        "storage/raw",
-    ]
-
-    for d in dirs:
-
-        path = Path(resource_path(d))
-
-        if not path.exists():
-            path.mkdir(parents=True, exist_ok=True)
-            pass
-        else:
-            pass
-
-
-_ensure_storage_dirs()
 # ─────────────────────────────────────────
 # BOOTSTRAP: DB tables (create_all — no Alembic needed)
 # ─────────────────────────────────────────
@@ -168,6 +148,9 @@ app = FastAPI(
 # ---------------------------------------------------
 @app.exception_handler(AppException)
 async def app_exception_handler(request: Request, exc: AppException):
+    logger.warning(
+        f"[APP EXCEPTION] {request.method} {request.url.path} -> {exc.status_code}: {exc.message}"
+    )
     return JSONResponse(
         status_code=exc.status_code,
         content={"status": False, "message": exc.message, "data": None}
@@ -176,10 +159,43 @@ async def app_exception_handler(request: Request, exc: AppException):
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(
+        f"[CRASH 500] Unhandled exception in {request.method} {request.url.path}: {exc}",
+        exc_info=True
+    )
     return JSONResponse(
         status_code=500,
         content={"status": False, "message": "Internal Server Error", "data": None}
     )
+
+
+# ---------------------------------------------------
+#  API REQUEST & CRASH LOGGING MIDDLEWARE
+# ---------------------------------------------------
+@app.middleware("http")
+async def api_logging_middleware(request: Request, call_next):
+    start_time = time.time()
+    method = request.method
+    path = request.url.path
+
+    try:
+        response = await call_next(request)
+        duration_ms = round((time.time() - start_time) * 1000, 1)
+
+        # Mute polling noise for /health when 200 OK so logs don't drown in health checks
+        if path == "/health" and response.status_code < 400:
+            pass
+        elif response.status_code >= 500:
+            logger.error(f"[API ERROR] {method} {path} -> {response.status_code} ({duration_ms}ms)")
+        elif response.status_code >= 400:
+            logger.warning(f"[API WARN] {method} {path} -> {response.status_code} ({duration_ms}ms)")
+        else:
+            logger.info(f"[API] {method} {path} -> {response.status_code} ({duration_ms}ms)")
+        return response
+    except Exception as e:
+        duration_ms = round((time.time() - start_time) * 1000, 1)
+        logger.error(f"[API CRASH] {method} {path} failed after {duration_ms}ms: {e}", exc_info=True)
+        raise e
 
 
 # ---------------------------------------------------
@@ -206,18 +222,15 @@ app.add_middleware(
 
 
 # ---------------------------------------------------
-#  STATIC FILES
+#  STATIC FILES (if storage directory exists)
 # ---------------------------------------------------
-# app.mount("/storage", StaticFiles(directory="storage"), name="storage")
 storage_dir = resource_path("storage")
-
-pass
-
-app.mount(
-    "/storage",
-    StaticFiles(directory=storage_dir),
-    name="storage"
-)
+if os.path.exists(storage_dir):
+    app.mount(
+        "/storage",
+        StaticFiles(directory=storage_dir),
+        name="storage"
+    )
 
 # ---------------------------------------------------
 #  ROOT HEALTH CHECK
@@ -238,7 +251,7 @@ def get_health():
 # ---------------------------------------------------
 app.include_router(router)
 
-from app.ml.debug.debug_routes import router as debug_router
+from app.routers.debug_router import router as debug_router
 app.include_router(debug_router)
 
 # ---------------------------------------------------
