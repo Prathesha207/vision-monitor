@@ -300,7 +300,6 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
         }}
         isFullscreen={isFullscreen}
         onToggleFullscreen={toggleFullscreen}
-        onChangeVideo={() => fileInputRef.current?.click()}
         showHUD={showHUD}
         onToggleHUD={() => { playWaterDropSound(); setShowHUD(!showHUD); }}
         backendStatus={backendStats?.status}

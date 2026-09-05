@@ -1,5 +1,5 @@
 import React from 'react';
-import { Hand, ShieldAlert, Layers, Minimize2, Expand, Image as ImageIcon, Eye, EyeOff } from 'lucide-react';
+import { Hand, ShieldAlert, Layers, Minimize2, Expand, Eye, EyeOff } from 'lucide-react';
 import type { AnomalyStatus } from '../../types';
 import { playWaterDropSound } from '../../utils/audio';
 
@@ -14,7 +14,6 @@ interface TopToolbarProps {
   onToggleRecording: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
-  onChangeVideo: () => void;
   showHUD: boolean;
   onToggleHUD: () => void;
   backendStatus?: string;
@@ -36,7 +35,6 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   onToggleRecording,
   isFullscreen,
   onToggleFullscreen,
-  onChangeVideo,
   showHUD,
   onToggleHUD,
   isCameraSource,
@@ -192,18 +190,6 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           <Expand className="w-3.5 h-3.5" />
         )}
       </button>
-
-      {/* Change Video / Media source button */}
-      {isVideoSource && hasActiveVideo && (
-        <button
-          onClick={onChangeVideo}
-          aria-label="Upload different video"
-          title="Upload different video file"
-          className="w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center rounded-xl bg-[var(--btn-secondary-bg)] backdrop-blur-md border border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] active:scale-95 shrink-0 shadow-xs cursor-pointer"
-        >
-          <ImageIcon className="w-3.5 h-3.5" />
-        </button>
-      )}
 
       {/* Quick HUD Visibility Toggle */}
       <button
