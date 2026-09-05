@@ -15,8 +15,14 @@ export const VideoUploadCard: React.FC<VideoUploadCardProps> = ({
   onSelectVideoAndStart,
 }) => {
   return (
-    <div className="absolute inset-0 w-full h-full p-2.5 sm:p-3.5 z-20 pointer-events-none flex flex-col items-center justify-center">
-      <div className="w-full h-full rounded-[14px] border-2 border-dashed border-[var(--border-color)] flex flex-col items-center justify-center text-center p-3 sm:p-6 lg:p-8 pointer-events-auto overflow-y-auto hidden-scrollbar">
+    <div 
+      className="absolute inset-0 w-full h-full p-2.5 sm:p-3.5 z-20 pointer-events-none flex flex-col items-center justify-center rounded-3xl"
+      style={{ backgroundColor: 'var(--bg-card)' }}
+    >
+      <div 
+        className="w-full h-full rounded-[14px] border-2 border-dashed border-[var(--border-color)] flex flex-col items-center justify-center text-center p-3 sm:p-6 lg:p-8 pointer-events-auto overflow-y-auto hidden-scrollbar"
+        style={{ backgroundColor: 'var(--bg-card)' }}
+      >
         <div className="text-[var(--accent-pond)] mb-2 sm:mb-3 shrink-0">
           <UploadCloud className="w-10 h-10 sm:w-12 sm:h-12 lg:w-14 lg:h-14 stroke-[1.75]" />
         </div>

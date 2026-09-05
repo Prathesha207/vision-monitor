@@ -197,66 +197,69 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
         />
       )}
 
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-black" onClick={(e) => handleCanvasClick(e, containerRef)}>
-        {/* RAW VIDEO LAYER */}
-        {hasActiveVideo && (feedMode === 'raw' || !videoSessionId) && (
-          <video
-            ref={videoRef}
-            src={effectiveVideoUrl}
-            className="absolute z-0 pointer-events-none rounded bg-black"
-            style={fittedRect}
-            loop
-            muted
-            playsInline
-            onLoadedMetadata={(e) => {
-              const tgt = e.target as HTMLVideoElement;
-              if (tgt.videoWidth && tgt.videoHeight) {
-                setVideoAspect(tgt.videoWidth / tgt.videoHeight);
+      {/* 2 & 3. VIDEO & CAMERA VIEWPORT WITH TRUE ASPECT RATIO */}
+      {(hasActiveVideo || (isCameraSource && isCameraConnected)) && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-black" onClick={(e) => handleCanvasClick(e, containerRef)}>
+          {/* RAW VIDEO LAYER */}
+          {hasActiveVideo && (feedMode === 'raw' || !videoSessionId) && (
+            <video
+              ref={videoRef}
+              src={effectiveVideoUrl}
+              className="absolute z-0 pointer-events-none rounded bg-black"
+              style={fittedRect}
+              loop
+              muted
+              playsInline
+              onLoadedMetadata={(e) => {
+                const tgt = e.target as HTMLVideoElement;
+                if (tgt.videoWidth && tgt.videoHeight) {
+                  setVideoAspect(tgt.videoWidth / tgt.videoHeight);
+                }
+                setIsFirstFrameLoaded(true);
+              }}
+            />
+          )}
+
+          {/* INFERENCE IMAGE LAYER */}
+          {((hasActiveVideo && feedMode === 'inference' && videoSessionId) || (isCameraSource && isCameraConnected)) && (
+            <img
+              ref={cameraImgRef}
+              src={
+                isCameraSource 
+                  ? (isStreaming ? `${getApiBaseUrl()}/oak/inference/stream/live?t=${streamCacheBuster}` : undefined) 
+                  : (feedMode === 'inference' ? effectiveVideoUrl : undefined)
               }
-              setIsFirstFrameLoaded(true);
-            }}
+              className="absolute z-0 pointer-events-none object-contain rounded bg-black"
+              style={fittedRect}
+              alt="AI Stream"
+              onLoad={(e) => {
+                const tgt = e.target as HTMLImageElement;
+                if (tgt.naturalWidth && tgt.naturalHeight) {
+                  setVideoAspect(tgt.naturalWidth / tgt.naturalHeight);
+                }
+                setIsFirstFrameLoaded(true);
+              }}
+              onError={(e) => {
+                if (isCameraSource && onCameraDeviceChange) onCameraDeviceChange(false);
+              }}
+            />
+          )}
+
+          <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-10 rounded" style={fittedRect} />
+
+          <BoundingBoxOverlay
+            ducks={ducks}
+            selectedDuckId={selectedDuckId}
+            onSelectDuck={onSelectDuck}
+            showAllBoxes={showAllBoxes}
+            isHandPresent={isHandPresent}
           />
-        )}
 
-        {/* INFERENCE IMAGE LAYER */}
-        {((hasActiveVideo && feedMode === 'inference' && videoSessionId) || (isCameraSource && isCameraConnected)) && (
-          <img
-            ref={cameraImgRef}
-            src={
-              isCameraSource 
-                ? (isStreaming ? `${getApiBaseUrl()}/oak/inference/stream/live?t=${streamCacheBuster}` : undefined) 
-                : (feedMode === 'inference' ? effectiveVideoUrl : undefined)
-            }
-            className="absolute z-0 pointer-events-none object-contain rounded bg-black"
-            style={fittedRect}
-            alt="AI Stream"
-            onLoad={(e) => {
-              const tgt = e.target as HTMLImageElement;
-              if (tgt.naturalWidth && tgt.naturalHeight) {
-                setVideoAspect(tgt.naturalWidth / tgt.naturalHeight);
-              }
-              setIsFirstFrameLoaded(true);
-            }}
-            onError={(e) => {
-              if (isCameraSource && onCameraDeviceChange) onCameraDeviceChange(false);
-            }}
-          />
-        )}
-
-        <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-10 rounded" style={fittedRect} />
-
-        <BoundingBoxOverlay
-          ducks={ducks}
-          selectedDuckId={selectedDuckId}
-          onSelectDuck={onSelectDuck}
-          showAllBoxes={showAllBoxes}
-          isHandPresent={isHandPresent}
-        />
-
-        {isHandPresent && (
-          <div className="absolute inset-0 z-30 pointer-events-none border-4 border-amber-500/80 rounded" />
-        )}
-      </div>
+          {isHandPresent && (
+            <div className="absolute inset-0 z-30 pointer-events-none border-4 border-amber-500/80 rounded" />
+          )}
+        </div>
+      )}
 
       <LoadingOverlay
         isStarting={isStarting}
