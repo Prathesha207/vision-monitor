@@ -28,18 +28,26 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
             <Loader2 className="w-7 h-7 sm:w-8 sm:h-8 animate-spin" />
           </div>
           <h3 className="text-base sm:text-lg font-bold text-white mb-1">
-            {isCameraSource && cameraStartingState === 'waking_camera'
-              ? 'Waking up OAK Camera Stream...'
-              : isCameraSource && cameraStartingState === 'waiting_frame'
-              ? 'Receiving First Live Frame (1080p)...'
-              : 'Starting Inference...'}
+            Starting Inference...
+          </h3>
+          <p className="text-xs text-emerald-300/80 max-w-md">
+            Please wait while we connect to the video stream and initialize the AI model.
+          </p>
+        </div>
+      )}
+      
+      {!isStarting && isCameraSource && cameraStartingState !== 'ready' && (
+        <div className="absolute inset-0 z-25 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-300">
+          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-emerald-950/80 border border-emerald-700/60 flex items-center justify-center mb-4 text-emerald-400">
+            <Loader2 className="w-7 h-7 sm:w-8 sm:h-8 animate-spin" />
+          </div>
+          <h3 className="text-base sm:text-lg font-bold text-white mb-1">
+            {cameraStartingState === 'waking_camera' && 'Waking up OAK Camera Stream...'}
+            {cameraStartingState === 'waiting_frame' && 'Receiving First Live Frame (1080p)...'}
           </h3>
           <p className="text-xs text-emerald-300/80 max-w-md font-mono">
-            {isCameraSource && cameraStartingState === 'waking_camera'
-              ? 'Executing POST /oak/start -> Initializing sensor pipeline'
-              : isCameraSource && cameraStartingState === 'waiting_frame'
-              ? 'Executing waitForFirstFrame() -> Connecting YOLOv8 inference buffer'
-              : 'Please wait while we connect to the stream and initialize the AI model.'}
+            {cameraStartingState === 'waking_camera' && 'Executing POST /oak/start -> Initializing sensor pipeline'}
+            {cameraStartingState === 'waiting_frame' && 'Executing waitForFirstFrame() -> Connecting YOLOv8 inference buffer'}
           </p>
         </div>
       )}

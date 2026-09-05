@@ -83,27 +83,6 @@ export default function App() {
   const [uptimeSeconds, setUptimeSeconds] = useState<number>(0);
   const [expectedDucks, setExpectedDucks] = useState<number>(18);
   const [ducks, setDucks] = useState<import('./types').DuckEntity[]>([]);
-  const [lastCameraFrame, setLastCameraFrame] = useState<string | undefined>();
-
-  // Snapshot cache to preserve complete run state across source toggling
-  interface SourceStateSnapshot {
-    ducks: import('./types').DuckEntity[];
-    stats: import('./store/inferenceStore').InferenceStats;
-    framesProcessed: number;
-    fps: number;
-    uptimeSeconds: number;
-    selectedDuckId: string | null;
-    videoDimensions: { width: number; height: number } | null;
-    lastCameraFrame?: string;
-  }
-
-  const sourceStateCache = React.useRef<{
-    video: SourceStateSnapshot | null;
-    camera: SourceStateSnapshot | null;
-  }>({
-    video: null,
-    camera: null,
-  });
 
   // ─── 6. Derived Source States ──────────────────────────────────────
   const backendStats = useInferenceStore(state => state.stats);
@@ -206,7 +185,6 @@ export default function App() {
     setFramesProcessed,
     uptimeSeconds,
     setUptimeSeconds,
-    setLastCameraFrame,
   });
 
   // Recalculate derived values that depend on inference state
@@ -228,70 +206,48 @@ export default function App() {
 
   // ─── 10. Mode Switching ────────────────────────────────────────────
   const executeSwitchMode = async (targetType: StreamSourceType) => {
-    const isCurrentCamera = sourceType === 'oak-camera' || sourceType === 'webcam';
     const isTargetCamera = targetType === 'oak-camera' || targetType === 'webcam';
-    const currentKey = isCurrentCamera ? 'camera' : 'video';
-    const targetKey = isTargetCamera ? 'camera' : 'video';
-
-    // 1. Snapshot current source state before switching away
-    sourceStateCache.current[currentKey] = {
-      ducks,
-      stats: useInferenceStore.getState().stats,
-      framesProcessed,
-      fps,
-      uptimeSeconds,
-      selectedDuckId,
-      videoDimensions: video.videoDimensions,
-      lastCameraFrame: isCurrentCamera ? lastCameraFrame : undefined,
-    };
-
-    // 2. Stop running stream/inference on previous source
-    if (isRunning) {
-      setIsRunning(false);
-      if (isCurrentCamera) {
-        cameraService.stopLiveInference().catch(() => {});
-        cameraService.stopStream().catch(() => {});
-        camera.setIsStreaming(false);
-      } else if (video.videoSessionId) {
-        fetch(`${getApiBaseUrl()}/video/stop/${video.videoSessionId}`, { method: 'POST' }).catch(() => {});
-      }
-    }
-
-    // 3. Switch source
     setSourceType(targetType);
     setPendingSourceSwitch(null);
+
+    // Reset all inference state on switch
+    setDucks([]);
+    useInferenceStore.getState().resetStats();
+    resetBBoxCache();
+    setFramesProcessed(0);
+    setFps(0);
+    setUptimeSeconds(0);
+    setIsRunning(false);
     setSelectedDuckId(null);
 
-    // 4. Restore target source state if previously cached
-    const cached = sourceStateCache.current[targetKey];
-    if (cached && (cached.ducks.length > 0 || cached.framesProcessed > 0)) {
-      setDucks(cached.ducks);
-      useInferenceStore.getState().replaceStats(cached.stats);
-      setFramesProcessed(cached.framesProcessed);
-      setFps(cached.fps);
-      setUptimeSeconds(cached.uptimeSeconds);
-      setSelectedDuckId(cached.selectedDuckId);
-      if (cached.videoDimensions) video.setVideoDimensions(cached.videoDimensions);
-      if (cached.lastCameraFrame && isTargetCamera) setLastCameraFrame(cached.lastCameraFrame);
-    } else {
-      // Clean slate for new un-run source
-      setDucks([]);
-      useInferenceStore.getState().resetStats();
-      resetBBoxCache();
-      setFramesProcessed(0);
-      setFps(0);
-      setUptimeSeconds(0);
-      setSelectedDuckId(null);
-    }
-
     if (isTargetCamera) {
-      camera.setCameraStartingState('ready');
-      addLog(`Stream source switched to: ${targetType.toUpperCase()}`, 'info');
-      showToast('info', 'Switched to OAK Camera mode');
+      setIsRunning(false);
+      camera.setCameraStartingState('waking_camera');
+      addLog('Step 1/3: Starting OAK Camera device (POST /oak/start)...', 'info');
+
+      try {
+        const startRes = await cameraService.start();
+        if (startRes.status === 'error') throw new Error(startRes.message);
+        camera.setIsCameraDeviceActive(true);
+        camera.setCameraStartingState('ready');
+        addLog('Camera connected. Click Start Stream to begin frame capture.', 'success');
+        showToast('success', 'OAK Camera connected');
+      } catch (err) {
+        showToast('error', 'Failed to start camera device');
+        addLog('Error: Failed to connect to OAK stream.', 'error');
+        camera.setCameraStartingState('ready');
+      }
     } else {
       camera.setCameraStartingState('ready');
+      try {
+        await cameraService.stopStream();
+        camera.setIsStreaming(false);
+        try { await fetch(getApiBaseUrl() + '/oak/inference/stop', { method: 'POST' }); } catch(e){ }
+        try { await fetch(getApiBaseUrl() + '/oak/stop', { method: 'POST' }); } catch(e){ }
+      } catch (e) { }
+
       if (video.customVideoUrl) {
-        showToast('info', 'Switched to Video mode • Press Start Inference to evaluate');
+        showToast('info', 'Switched to Video mode • Select a video and press Start Inference');
       } else {
         showToast('info', 'Switched to Video mode');
       }
@@ -353,19 +309,6 @@ export default function App() {
   };
 
   const uploadTriggerRef = React.useRef<(() => void) | null>(null);
-
-  const handleClearCustomVideo = () => {
-    sourceStateCache.current.video = null;
-    video.handleClearVideo();
-  };
-
-  const hasInferenceActivity = Boolean(
-    isRunning ||
-    isStarting ||
-    ducks.length > 0 ||
-    framesProcessed > 0 ||
-    ((backendStats?.frames_processed ?? 0) > 0)
-  );
 
   // Wrap toggle/stop/resume to pass startVideoInference
   const handleToggleRunning = async () => {
@@ -506,7 +449,7 @@ export default function App() {
           customVideoUrl={video.customVideoUrl}
           videoSessionId={video.videoSessionId}
           hasActiveVideo={Boolean(video.customVideoUrl || video.customVideoName)}
-          onClearCustomVideo={handleClearCustomVideo}
+          onClearCustomVideo={video.handleClearVideo}
           isCameraConnected={camera.effectiveCameraConfig.connected}
           cameraStartingState={camera.cameraStartingState}
         />
@@ -538,24 +481,20 @@ export default function App() {
               initialUploadFile={video.initialUploadFile}
               isBackendConnected={isBackendConnected}
               onRegisterTriggerUpload={(fn) => { uploadTriggerRef.current = fn; }}
-              lastCameraFrame={lastCameraFrame}
-              hasInferenceActivity={hasInferenceActivity}
             />
           </main>
 
-          {hasInferenceActivity && (
-            <DetectionDrawer
-              isOpen={drawerOpen}
-              onToggle={() => setDrawerOpen(!drawerOpen)}
-              anomalyStatus={anomalyFinal.anomalyStatus}
-              ducks={anomalyFinal.activeDucks}
-              metrics={metrics}
-              selectedDuckId={selectedDuckId}
-              onSelectDuck={setSelectedDuckId}
-              isStandby={isStandby}
-              logs={logs}
-            />
-          )}
+          <DetectionDrawer
+            isOpen={drawerOpen}
+            onToggle={() => setDrawerOpen(!drawerOpen)}
+            anomalyStatus={anomalyFinal.anomalyStatus}
+            ducks={anomalyFinal.activeDucks}
+            metrics={metrics}
+            selectedDuckId={selectedDuckId}
+            onSelectDuck={setSelectedDuckId}
+            isStandby={isStandby}
+            logs={logs}
+          />
         </div>
       </div>
 

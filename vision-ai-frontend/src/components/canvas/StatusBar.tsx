@@ -114,11 +114,6 @@ export const StatusBar: React.FC<StatusBarProps> = ({
                 <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
                 <span>ANOMALY</span>
               </div>
-            ) : anomalyStatus.message === 'STANDBY' || anomalyStatus.message === 'READY' || anomalyStatus.message === 'NO CAMERA' ? (
-              <div className="flex items-center gap-1.5 text-[var(--text-secondary)] font-bold text-xs sm:text-sm">
-                <span className="w-2 h-2 rounded-full bg-[var(--accent-pond)] shrink-0" />
-                <span>{anomalyStatus.message}</span>
-              </div>
             ) : (
               <div className="flex items-center gap-1.5 text-[var(--status-normal-text)] font-bold text-xs sm:text-sm">
                 <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />

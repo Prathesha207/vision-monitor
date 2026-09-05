@@ -13,7 +13,7 @@ export function useCameraStatus(
     connected: false,
   });
   const [isCameraDeviceActive, setIsCameraDeviceActive] = useState<boolean>(false);
-  const [cameraStartingState, setCameraStartingState] = useState<'idle' | 'waking_camera' | 'waiting_frame' | 'ready'>('ready');
+  const [cameraStartingState, setCameraStartingState] = useState<'idle' | 'waking_camera' | 'waiting_frame' | 'ready'>('idle');
   const [cameraConnected, setCameraConnected] = useState<boolean | null>(null);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
 
