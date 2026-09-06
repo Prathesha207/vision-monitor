@@ -531,6 +531,7 @@ export default function App() {
               isBackendConnected={isBackendConnected}
               onRegisterTriggerUpload={(fn) => { uploadTriggerRef.current = fn; }}
               lastCameraFrame={lastCameraFrame}
+              onRetryConnection={camera.startCameraStream}
             />
           </main>
 

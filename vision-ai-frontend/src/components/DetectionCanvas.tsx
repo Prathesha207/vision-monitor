@@ -4,6 +4,7 @@ import { getApiBaseUrl } from '../lib/api';
 import { useInferenceStore } from '../store/inferenceStore';
 import { useRecording } from './hooks/useRecording';
 import { playWaterDropSound } from '../utils/audio';
+import { cameraService } from './service/cameraService';
 
 // Extracted Canvas Components
 import { BoundingBoxOverlay } from './canvas/BoundingBoxOverlay';
@@ -50,6 +51,7 @@ interface DetectionCanvasProps {
   isBackendConnected?: boolean;
   onRegisterTriggerUpload?: (trigger: () => void) => void;
   lastCameraFrame?: string;
+  onRetryConnection?: () => void;
 }
 
 export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
@@ -83,6 +85,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   isBackendConnected = true,
   onRegisterTriggerUpload,
   lastCameraFrame,
+  onRetryConnection,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -220,7 +223,15 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
       {isCameraSource && !isCameraConnected && (
         <CameraOfflineCard
           onSwitchToVideo={() => onRequestSwitchMode?.('uploaded-video')}
-          onRetryConnection={() => window.location.reload()}
+          onRetryConnection={onRetryConnection || (async () => {
+            try {
+              await cameraService.start();
+              await cameraService.startStream();
+            } catch (e) {
+              console.error('Retry connection failed:', e);
+              window.location.reload();
+            }
+          })}
           onCanvasClick={handleCanvasClick}
         />
       )}
