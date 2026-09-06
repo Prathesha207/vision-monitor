@@ -112,6 +112,21 @@ async def upload_video(file: UploadFile = File(...), expected_ducks: int = Form(
         session["browser_video_path"] = browser_video_path
         session["status"] = "ready"
         session["stats"]["status"] = "ready"
+
+        # Pre-extract frame 0 for immediate canvas preview before inference starts
+        try:
+            import cv2
+            cap = cv2.VideoCapture(effective_inference_path)
+            ret, frame0 = cap.read()
+            if ret and frame0 is not None:
+                _, buf = cv2.imencode(".jpg", frame0, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                session["last_frame_bytes"] = buf.tobytes()
+                session["stats"]["video_width"] = int(frame0.shape[1])
+                session["stats"]["video_height"] = int(frame0.shape[0])
+                logger.info(f"[UPLOAD] Extracted frame 0 preview ({frame0.shape[1]}x{frame0.shape[0]})")
+            cap.release()
+        except Exception as e:
+            logger.warning(f"Could not pre-extract first frame from {effective_inference_path}: {e}")
     
     return {"session_id": session_id, "status": "ready"}
 
@@ -204,6 +219,23 @@ async def get_last_frame(session_id: str):
                 except Exception:
                     pass
     if not frame_bytes:
+        video_path = session.get("inference_video_path") or session.get("browser_video_path")
+        if video_path and os.path.exists(video_path):
+            try:
+                import cv2
+                cap = cv2.VideoCapture(video_path)
+                ret, frame0 = cap.read()
+                if ret and frame0 is not None:
+                    _, buf = cv2.imencode(".jpg", frame0, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                    frame_bytes = buf.tobytes()
+                    session["last_frame_bytes"] = frame_bytes
+                    session["stats"]["video_width"] = int(frame0.shape[1])
+                    session["stats"]["video_height"] = int(frame0.shape[0])
+                cap.release()
+            except Exception as e:
+                logger.warning(f"Failed to extract frame from video: {e}")
+
+    if not frame_bytes:
         return JSONResponse(status_code=404, content={"message": "No frame available."})
     return Response(
         content=frame_bytes,
@@ -252,6 +284,18 @@ async def start_path_inference(data: StartPathInferenceRequest, background_tasks
         session["inference_video_path"] = video_path
         session["status"] = "ready"
         session["stats"]["status"] = "ready"
+        try:
+            import cv2
+            cap = cv2.VideoCapture(video_path)
+            ret, frame0 = cap.read()
+            if ret and frame0 is not None:
+                _, buf = cv2.imencode(".jpg", frame0, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                session["last_frame_bytes"] = buf.tobytes()
+                session["stats"]["video_width"] = int(frame0.shape[1])
+                session["stats"]["video_height"] = int(frame0.shape[0])
+            cap.release()
+        except Exception as e:
+            logger.warning(f"Could not pre-extract first frame from {video_path}: {e}")
 
     return {"session_id": session_id, "status": "ready", "video_name": filename}
 

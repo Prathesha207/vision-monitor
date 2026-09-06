@@ -11,7 +11,7 @@ if [[ ! -x "$BACKEND_DIR/.venv/bin/python" ]]; then
 fi
 
 # Fast pre-flight check (<0.05s): installs requirements and wheel silently if anything is missing
-if ! "$BACKEND_DIR/.venv/bin/python" -c "import fastapi, uvicorn, cv2, torch, yaml" 2>/dev/null; then
+if ! "$BACKEND_DIR/.venv/bin/python" -c "import fastapi, uvicorn, cv2, torch, yaml, lap" 2>/dev/null; then
   echo "Configuring backend environment (one-time silent setup)..."
   "$BACKEND_DIR/.venv/bin/python" -m pip install --quiet -r "$BACKEND_DIR/requirements.txt"
 fi
@@ -85,7 +85,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 cd "$BACKEND_DIR"
-.venv/bin/python -m uvicorn app.main:app --reload --port "$PORT" &
+.venv/bin/python -m uvicorn app.main:app --reload --reload-dir app --reload-exclude ".venv*" --reload-exclude "data*" --reload-exclude "recordings*" --port "$PORT" &
 BACKEND_PID=$!
 
 cd "$FRONTEND_DIR"

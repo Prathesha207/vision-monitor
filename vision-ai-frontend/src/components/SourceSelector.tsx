@@ -25,6 +25,8 @@ interface SourceSelectorProps {
   videoSessionId?: string | null;
   hasActiveVideo?: boolean;
   onClearCustomVideo?: () => void;
+  onResetVideo?: () => void;
+  onResetCamera?: () => void;
   isRunning?: boolean;
   isStarting?: boolean;
   onToggleRunning?: () => void;
@@ -48,6 +50,8 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
   customVideoUrl,
   hasActiveVideo = false,
   onClearCustomVideo: _onClearCustomVideo,
+  onResetVideo,
+  onResetCamera,
   isRunning = false,
   isStarting = false,
   onToggleRunning,
@@ -212,19 +216,47 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                 </button>
               )}
 
-              {/* CLEAR / RESET button - only visible once inference has started or active video exists */}
-              {isVideoMode && (isRunning || hasActiveVideo) && (
+              {/* RESET button for Camera mode: resets inference stats & detections without switching source */}
+              {isCameraMode && (
                 <button
                   onClick={() => {
                     playWaterDropSound();
-                    if (_onClearCustomVideo) _onClearCustomVideo();
+                    onResetCamera?.();
                   }}
-                  title={isBackendStream ? 'Reset inference session' : 'Clear uploaded video'}
+                  title="Reset camera inference state & detections"
                   className="h-8 sm:h-9 flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-100 hover:text-white border border-slate-600/80 text-[11px] sm:text-xs font-semibold shadow-xs active:scale-95 cursor-pointer transition-all shrink-0"
                 >
                   <RotateCcw className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                  <span className="hidden sm:inline">{isBackendStream ? 'RESET' : 'CLEAR'}</span>
+                  <span className="hidden sm:inline">RESET</span>
                 </button>
+              )}
+
+              {/* Video Mode buttons: RESET (back to frame 0) and CLEAR (upload another video) */}
+              {isVideoMode && hasActiveVideo && (
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => {
+                      playWaterDropSound();
+                      onResetVideo?.();
+                    }}
+                    title="Reset inference to beginning of video"
+                    className="h-8 sm:h-9 flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-100 hover:text-white border border-slate-600/80 text-[11px] sm:text-xs font-semibold shadow-xs active:scale-95 cursor-pointer transition-all shrink-0"
+                  >
+                    <RotateCcw className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                    <span className="hidden sm:inline">RESET</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      playWaterDropSound();
+                      _onClearCustomVideo?.();
+                    }}
+                    title="Clear video and upload a different file"
+                    className="h-8 sm:h-9 flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-[11px] sm:text-xs font-semibold shadow-xs active:scale-95 cursor-pointer transition-all shrink-0"
+                  >
+                    <span className="hidden sm:inline">CLEAR</span>
+                  </button>
+                </div>
               )}
             </div>
           )}

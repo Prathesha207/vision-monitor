@@ -43,22 +43,27 @@ export function useAnomalyStatus({
         expectedCount: expectedDucks,
         difference: 0,
         foreignSpecies: [],
+        foreignCount: 0,
       };
     }
 
-    // When inference is not running and no detections exist yet: Standby/Ready (difference is 0, not -18!)
-    if (!isRunning && framesProcessed === 0 && ducks.length === 0) {
+    // When inference is not running: Standby / Ready / Live Stream (never flag count mismatch or false anomaly)
+    if (!isRunning) {
+      const duckCount = ducks.filter((d) => d.species === 'Duck' && d.statusEvent !== 'missing').length;
       return {
         isAnomaly: false,
         type: 'NONE',
-        message: isCameraSource ? 'READY' : 'STANDBY',
+        message: isCameraSource
+          ? (hasActiveStream ? 'LIVE STREAM' : 'READY')
+          : (hasActiveStream ? (duckCount > 0 ? 'READY' : 'VIDEO READY') : 'STANDBY'),
         subMessage: isCameraSource
-          ? 'Camera connected • Click Start Stream or Start Inference'
-          : 'Video loaded • Click Start Inference to begin analysis',
-        detectedCount: 0,
+          ? (hasActiveStream ? 'Live camera feed active • Click Start Inference' : 'Camera ready • Click Start Stream or Start Inference')
+          : (hasActiveStream ? 'Video loaded • Click Start Inference to begin analysis' : 'Waiting for video stream...'),
+        detectedCount: duckCount,
         expectedCount: expectedDucks,
         difference: 0,
         foreignSpecies: [],
+        foreignCount: 0,
       };
     }
 
@@ -72,6 +77,7 @@ export function useAnomalyStatus({
         expectedCount: expectedDucks,
         difference: 0,
         foreignSpecies: [],
+        foreignCount: 0,
       };
     }
 

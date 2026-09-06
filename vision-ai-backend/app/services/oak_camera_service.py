@@ -114,33 +114,40 @@ class OakCameraService:
     # ==================== Device ====================
 
     async def connect(self, ip: str) -> bool:
-        try:
-            logger.info(f"[DEVICE] Connecting to {ip}")
-            device_info = self._resolve_device_info(ip)
-            logger.info(f"[DEVICE] Resolved connection target: {device_info}")
-            loop = asyncio.get_running_loop()
-            self.device = await loop.run_in_executor(None, dai.Device, device_info)
-            self.device.setLogLevel(dai.LogLevel.WARN)
-            self.device.setLogOutputLevel(dai.LogLevel.WARN)
-            self.is_connected = True
-            logger.info(f"[DEVICE] Connected to {ip}")
-            realtime_log_service.add_log(
-                "camera",
-                "CAMERA",
-                f"Camera connected ({ip})",
-                "success"
-            )
-            return True
-        except Exception as e:
-            logger.error(f"[DEVICE] Connection failed: {e}")
-            realtime_log_service.add_log(
-                "camera",
-                "CAMERA",
-                f"DEVICE Connection failed ({ip})",
-                "error"
-            )
-            self.is_connected = False
-            return False
+        loop = asyncio.get_running_loop()
+        for attempt in range(2):
+            try:
+                logger.info(f"[DEVICE] Connecting to {ip} (attempt {attempt + 1}/2)")
+                device_info = self._resolve_device_info(ip)
+                logger.info(f"[DEVICE] Resolved connection target: {device_info}")
+                self.device = await loop.run_in_executor(None, dai.Device, device_info)
+                self.device.setLogLevel(dai.LogLevel.WARN)
+                self.device.setLogOutputLevel(dai.LogLevel.WARN)
+                self.is_connected = True
+                logger.info(f"[DEVICE] Connected to {ip}")
+                realtime_log_service.add_log(
+                    "camera",
+                    "CAMERA",
+                    f"Camera connected ({ip})",
+                    "success"
+                )
+                return True
+            except Exception as e:
+                err_str = str(e)
+                if attempt == 0 and ("already used" in err_str.lower() or "in use" in err_str.lower()):
+                    logger.warning(f"[DEVICE] Device is reported in use, waiting 1.5s to retry: {e}")
+                    await asyncio.sleep(1.5)
+                    continue
+                logger.error(f"[DEVICE] Connection failed: {e}")
+                realtime_log_service.add_log(
+                    "camera",
+                    "CAMERA",
+                    f"DEVICE Connection failed ({ip}): {e}",
+                    "error"
+                )
+                self.is_connected = False
+                return False
+        return False
 
     @staticmethod
     def _resolve_device_info(identifier: str):

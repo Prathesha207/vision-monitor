@@ -288,6 +288,9 @@ export default function App() {
       camera.setCameraStartingState('ready');
       addLog(`Stream source switched to: ${targetType.toUpperCase()}`, 'info');
       showToast('info', 'Switched to OAK Camera mode');
+      if (!camera.isStreaming) {
+        camera.startCameraStream().catch(() => {});
+      }
     } else {
       camera.setCameraStartingState('ready');
       if (video.customVideoUrl) {
@@ -357,6 +360,45 @@ export default function App() {
   const handleClearCustomVideo = () => {
     sourceStateCache.current.video = null;
     video.handleClearVideo();
+    showToast('info', 'Video cleared. Select or upload a new video.');
+  };
+
+  const handleResetCamera = async () => {
+    playWaterDropSound();
+    setSelectedDuckId(null);
+    setIsRunning(false);
+    setDucks([]);
+    useInferenceStore.getState().resetStats();
+    resetBBoxCache();
+    inference.setFramesProcessed(0);
+    inference.setFps(0);
+    inference.setUptimeSeconds(0);
+    sourceStateCache.current.camera = null;
+    try {
+      await cameraService.stopLiveInference();
+    } catch {}
+    showToast('info', 'Camera inference and counters reset');
+    addLog('Camera session reset • Detections cleared, stream ready.', 'info');
+  };
+
+  const handleResetVideo = async () => {
+    playWaterDropSound();
+    setSelectedDuckId(null);
+    setIsRunning(false);
+    setDucks([]);
+    useInferenceStore.getState().resetStats();
+    resetBBoxCache();
+    inference.setFramesProcessed(0);
+    inference.setFps(0);
+    inference.setUptimeSeconds(0);
+    sourceStateCache.current.video = null;
+    if (video.videoSessionId) {
+      try {
+        await fetch(`${getApiBaseUrl()}/video/stop/${video.videoSessionId}`, { method: 'POST' });
+      } catch {}
+    }
+    showToast('info', 'Video playback reset to beginning');
+    addLog('Video playback reset to frame 0 • Ready for inference.', 'info');
   };
 
   // Wrap toggle/stop/resume to pass startVideoInference
@@ -498,7 +540,9 @@ export default function App() {
           customVideoUrl={video.customVideoUrl}
           videoSessionId={video.videoSessionId}
           hasActiveVideo={Boolean(video.customVideoUrl || video.customVideoName)}
-          onClearCustomVideo={video.handleClearVideo}
+          onClearCustomVideo={handleClearCustomVideo}
+          onResetVideo={handleResetVideo}
+          onResetCamera={handleResetCamera}
           isCameraConnected={camera.effectiveCameraConfig.connected}
           cameraStartingState={camera.cameraStartingState}
         />

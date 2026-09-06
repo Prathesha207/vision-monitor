@@ -69,12 +69,16 @@ export function useCameraStatus(
             setCameraConfig((prev) => (prev.connected !== isOnline ? { ...prev, connected: isOnline } : prev));
             setIsCameraDeviceActive(isOnline);
             setCameraConnected(isOnline);
+            if (data.streaming || data.running) {
+              setIsStreaming(true);
+            }
           }
         } else {
           if (isMounted) {
             setCameraConfig((prev) => (prev.connected ? { ...prev, connected: false } : prev));
             setIsCameraDeviceActive(false);
             setCameraConnected(false);
+            setIsStreaming(false);
           }
         }
       } catch {
@@ -82,6 +86,7 @@ export function useCameraStatus(
           setCameraConfig((prev) => (prev.connected ? { ...prev, connected: false } : prev));
           setIsCameraDeviceActive(false);
           setCameraConnected(false);
+          setIsStreaming(false);
         }
       }
     }

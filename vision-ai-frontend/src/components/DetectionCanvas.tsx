@@ -134,7 +134,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   useEffect(() => {
     setStreamCacheBuster(Date.now());
     if (isRunning) setShowAllBoxes(false);
-  }, [isRunning]);
+  }, [isRunning, videoSessionId]);
 
   useEffect(() => {
     if (backendStats?.status === 'stopped' && !isRunning) {
