@@ -1,11 +1,29 @@
 #!/usr/bin/env bash
 # Build Linux desktop artifacts from a native Ubuntu/Debian machine.
-# Run this script from vision-ai-backend after cloning BOTH sibling folders:
-#   vision-ai-backend/ and vision-ai-frontend/
+# Run this script from vision-ai-backend or repo root:
 set -euo pipefail
 
-BACKEND_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FRONTEND_DIR="$(cd "$BACKEND_DIR/../vision-ai-frontend" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+if [[ -f "$SCRIPT_DIR/run.py" ]]; then
+  BACKEND_DIR="$SCRIPT_DIR"
+elif [[ -f "$PWD/vision-ai-backend/run.py" ]]; then
+  BACKEND_DIR="$(cd "$PWD/vision-ai-backend" && pwd -P)"
+elif [[ -f "$PWD/run.py" ]]; then
+  BACKEND_DIR="$PWD"
+else
+  echo "Error: Cannot locate vision-ai-backend directory containing run.py."
+  exit 1
+fi
+
+if [[ -d "$BACKEND_DIR/../vision-ai-frontend" ]]; then
+  FRONTEND_DIR="$(cd "$BACKEND_DIR/../vision-ai-frontend" && pwd -P)"
+elif [[ -d "$PWD/vision-ai-frontend" ]]; then
+  FRONTEND_DIR="$(cd "$PWD/vision-ai-frontend" && pwd -P)"
+else
+  echo "Error: Cannot locate vision-ai-frontend directory."
+  exit 1
+fi
+
 VENV_DIR="$BACKEND_DIR/.venv-linux-build"
 MACHINE_ARCH="$(uname -m)"
 
@@ -42,16 +60,20 @@ if [[ "${USE_CUDA:-0}" == "1" || ( "${USE_CUDA:-auto}" == "auto" && -n "$(comman
 else
   echo "Building with CPU-compatible PyTorch. Set USE_CUDA=1 to force CUDA."
 fi
+
 DUCK_ANALYZER_WHEEL="$(find "$BACKEND_DIR/app/ml" -maxdepth 1 -name 'duck_analyzer-*.whl' -print | sort -r | head -n 1)"
 [[ -n "$DUCK_ANALYZER_WHEEL" ]] || { echo "The bundled duck_analyzer wheel is missing."; exit 1; }
 python -m pip install "$DUCK_ANALYZER_WHEEL"
 
 cd "$BACKEND_DIR"
-rm -rf build dist
-pyinstaller --noconfirm --clean --onedir --name backend run.py \
-  --add-data "app/ml/models:app/ml/models" \
-  --add-data "app/ml/config.yaml:app/ml" \
-  --add-data "alembic:alembic" \
+rm -rf "$BACKEND_DIR/build" "$BACKEND_DIR/dist"
+pyinstaller --noconfirm --clean --onedir --name backend "$BACKEND_DIR/run.py" \
+  --distpath "$BACKEND_DIR/dist" \
+  --workpath "$BACKEND_DIR/build" \
+  --specpath "$BACKEND_DIR" \
+  --add-data "$BACKEND_DIR/app/ml/models:app/ml/models" \
+  --add-data "$BACKEND_DIR/app/ml/config.yaml:app/ml" \
+  --add-data "$BACKEND_DIR/alembic:alembic" \
   --collect-all app \
   --collect-all fastapi \
   --collect-all starlette \

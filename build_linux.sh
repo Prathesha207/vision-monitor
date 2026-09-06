@@ -2,21 +2,21 @@
 # One-click installer and builder for Vision AI on Linux
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$ROOT_DIR"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+if [[ ! -f "$ROOT_DIR/vision-ai-backend/run.py" && -f "$PWD/vision-ai-backend/run.py" ]]; then
+  ROOT_DIR="$PWD"
+fi
 
 echo "========================================================"
 echo "  🚀 Vision AI - One-Step Linux Setup & App Builder     "
 echo "========================================================"
 
-# Sudo is NOT needed. Everything builds in user space (virtualenv + npm).
-
-
-# 3. Make inner scripts executable
+# Make inner scripts executable
 chmod +x "$ROOT_DIR/vision-ai-backend/build_linux_desktop.sh"
 chmod +x "$ROOT_DIR/vision-ai-backend/setup_linux.sh"
 
-# 4. Build desktop application with CUDA auto-detection
+# Run build script inside vision-ai-backend
+cd "$ROOT_DIR/vision-ai-backend"
 echo "Starting desktop application build..."
 USE_CUDA="${USE_CUDA:-auto}" "$ROOT_DIR/vision-ai-backend/build_linux_desktop.sh"
 
