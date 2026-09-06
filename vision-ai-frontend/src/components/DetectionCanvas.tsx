@@ -244,6 +244,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
             {(videoSessionId || isCameraSource) ? (
               <img
                 ref={cameraImgRef}
+                crossOrigin="anonymous"
                 src={
                   isCameraSource
                     ? (isStreaming

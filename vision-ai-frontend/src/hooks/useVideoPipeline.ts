@@ -79,11 +79,10 @@ export function useVideoPipeline({
       setIsRunning(true);
       showToast('success', `Inference started for "${name}"`);
       addLog(`Inference started: "${name}"`, 'success');
-    } else if (sessionId) {
-      void startVideoInference(sessionId);
     } else {
       setIsRunning(false);
-      addLog(`Video loaded: "${name}"`, 'info');
+      showToast('success', `Video ready. Click "Start Inference" to evaluate.`);
+      addLog(`Video loaded: "${name}". Ready for inference.`, 'info');
     }
   };
 

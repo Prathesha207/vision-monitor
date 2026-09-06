@@ -43,26 +43,15 @@ export const useVideoUpload = (
           setTimeout(async () => {
             setUploadProgress(null);
             if (onVideoUploaded) {
+              const rawVideoUrl = `${getApiBaseUrl()}/video/raw/${data.session_id}`;
               try {
                 await fetch(`${getApiBaseUrl()}/video/update_expected/${data.session_id}`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ count: expectedDucks })
                 }).catch(() => {});
-                await fetch(`${getApiBaseUrl()}/video/start/${data.session_id}`, { method: 'POST' });
-                const streamUrl = `${getApiBaseUrl()}/video/stream/${data.session_id}`;
-                onVideoUploaded(streamUrl, file.name, data.session_id);
-              } catch (err) {
-                console.error('Auto-start inference error, falling back to local preview:', err);
-                
-                if (blobUrlRef.current) {
-                  URL.revokeObjectURL(blobUrlRef.current);
-                }
-                
-                const localBlobUrl = URL.createObjectURL(file);
-                blobUrlRef.current = localBlobUrl;
-                onVideoUploaded(localBlobUrl, file.name, data.session_id);
-              }
+              } catch {}
+              onVideoUploaded(rawVideoUrl, file.name, data.session_id);
             }
           }, 350);
         } catch (e) {

@@ -46,6 +46,12 @@ async def upload_video(file: UploadFile = File(...), expected_ducks: int = Form(
     
     try:
         content = await file.read()
+        if len(content) < 5000:
+            logger.warning(f"[UPLOAD] Video file {file.filename} is too small ({len(content)} bytes)")
+            return JSONResponse(
+                status_code=400,
+                content={"message": "Recorded video is empty or too short. Please record for at least 2-3 seconds."}
+            )
         with open(raw_save_path, "wb") as f:
             f.write(content)
         if is_camera_recording:
@@ -65,6 +71,7 @@ async def upload_video(file: UploadFile = File(...), expected_ducks: int = Form(
         logger.warning(f"Could not locate ffmpeg, falling back to raw video: {e}")
         ffmpeg_exe = None
 
+    transcode_ok = False
     if ffmpeg_exe:
         def run_transcode():
             return subprocess.run(
@@ -82,22 +89,26 @@ async def upload_video(file: UploadFile = File(...), expected_ducks: int = Form(
         try:
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(None, run_transcode)
-            if result.returncode != 0:
+            if result.returncode == 0 and os.path.exists(browser_video_path) and os.path.getsize(browser_video_path) > 1000:
+                transcode_ok = True
+                logger.info(f"[UPLOAD] Transcoded cleanly to H.264 MP4: {browser_video_path}")
+            else:
                 logger.warning(f"ffmpeg transcode failed; using raw upload: {result.stderr}")
                 browser_video_path = raw_save_path
             
         except Exception as e:
-            # The upload is still usable by OpenCV, even if it cannot be
-            # converted for browser playback.
             logger.warning(f"ffmpeg execution failed; using raw upload: {e}")
             browser_video_path = raw_save_path
     else:
         browser_video_path = raw_save_path
     
+    # Prefer clean H.264 MP4 for OpenCV inference when available for maximum compatibility
+    effective_inference_path = browser_video_path if transcode_ok else raw_save_path
+
     # Save path in session state so it's ready to start when user commands
     session = ml_inference_service.sessions.get(session_id)
     if session:
-        session["inference_video_path"] = raw_save_path
+        session["inference_video_path"] = effective_inference_path
         session["browser_video_path"] = browser_video_path
         session["status"] = "ready"
         session["stats"]["status"] = "ready"

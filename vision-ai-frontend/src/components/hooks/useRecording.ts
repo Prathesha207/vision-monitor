@@ -22,7 +22,19 @@ export function useRecording() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const mimeTypes = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+    // Draw initial frame immediately so captureStream has valid pixels right away
+    try {
+      if (imgElement && imgElement.naturalWidth > 0) {
+        ctx.drawImage(imgElement, 0, 0, canvas.width, canvas.height);
+      } else {
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+    } catch (e) {
+      console.warn('[RECORD] Initial canvas draw notice:', e);
+    }
+
+    const mimeTypes = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
     let selectedMimeType = '';
     for (const mime of mimeTypes) {
       if (MediaRecorder.isTypeSupported(mime)) {
@@ -30,7 +42,9 @@ export function useRecording() {
         break;
       }
     }
-    if (!selectedMimeType) return;
+    if (!selectedMimeType) {
+      selectedMimeType = 'video/webm';
+    }
 
     const stream = canvas.captureStream(30);
     const mediaRecorder = new MediaRecorder(stream, { mimeType: selectedMimeType });
@@ -38,21 +52,34 @@ export function useRecording() {
     chunksRef.current = [];
 
     mediaRecorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+      if (e.data && e.data.size > 0) {
+        chunksRef.current.push(e.data);
+      }
     };
 
     mediaRecorder.onstop = () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      stream.getTracks().forEach(track => track.stop());
+
       const blob = new Blob(chunksRef.current, { type: selectedMimeType });
+      if (blob.size < 5000) {
+        console.warn(`[RECORD] Recording was too short or empty (${blob.size} bytes). Discarding.`);
+        return;
+      }
+
       const url = URL.createObjectURL(blob);
       setRecordedVideoUrl(url);
       
-      const ext = selectedMimeType.includes('vp9') || selectedMimeType.includes('vp8') || selectedMimeType.includes('webm') ? 'webm' : 'mp4';
+      const ext = selectedMimeType.includes('webm') ? 'webm' : 'mp4';
       const file = new File([blob], `recorded_camera_${Date.now()}.${ext}`, { type: selectedMimeType });
       setRecordedFile(file);
-      stream.getTracks().forEach(track => track.stop());
     };
 
-    mediaRecorder.start();
+    // Pass timeslice (250ms) so dataavailable fires continuously during recording
+    mediaRecorder.start(250);
     setIsRecording(true);
     setRecordedVideoUrl(null);
     setRecordedFile(null);
@@ -60,7 +87,13 @@ export function useRecording() {
     let lastTime = performance.now();
     const drawLoop = (time: number) => {
       if (time - lastTime >= 1000 / 30) {
-        ctx.drawImage(imgElement, 0, 0, canvas.width, canvas.height);
+        try {
+          if (imgElement && imgElement.complete && imgElement.naturalWidth > 0) {
+            ctx.drawImage(imgElement, 0, 0, canvas.width, canvas.height);
+          }
+        } catch (e) {
+          // Ignore transient cross-origin or render glitches
+        }
         lastTime = time;
       }
       animationFrameRef.current = requestAnimationFrame(drawLoop);
@@ -72,6 +105,9 @@ export function useRecording() {
   const stopRecording = useCallback(() => {
     if (!isRecording) return;
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.requestData();
+      } catch {}
       mediaRecorderRef.current.stop();
     }
     if (animationFrameRef.current) {
