@@ -65,8 +65,18 @@ DUCK_ANALYZER_WHEEL="$(find "$BACKEND_DIR/app/ml" -maxdepth 1 -name 'duck_analyz
 [[ -n "$DUCK_ANALYZER_WHEEL" ]] || { echo "The bundled duck_analyzer wheel is missing."; exit 1; }
 python -m pip install "$DUCK_ANALYZER_WHEEL"
 
+if [[ -f "$BACKEND_DIR/app/ml/requirements.txt" ]]; then
+  python -m pip install -r "$BACKEND_DIR/app/ml/requirements.txt"
+fi
+
 cd "$BACKEND_DIR"
 rm -rf "$BACKEND_DIR/build" "$BACKEND_DIR/dist"
+
+DB_DATA_ARG=()
+if [[ -f "$BACKEND_DIR/vision_ai.db" ]]; then
+  DB_DATA_ARG=(--add-data "$BACKEND_DIR/vision_ai.db:.")
+fi
+
 pyinstaller --noconfirm --clean --onedir --name backend "$BACKEND_DIR/run.py" \
   --distpath "$BACKEND_DIR/dist" \
   --workpath "$BACKEND_DIR/build" \
@@ -74,6 +84,7 @@ pyinstaller --noconfirm --clean --onedir --name backend "$BACKEND_DIR/run.py" \
   --add-data "$BACKEND_DIR/app/ml/models:app/ml/models" \
   --add-data "$BACKEND_DIR/app/ml/config.yaml:app/ml" \
   --add-data "$BACKEND_DIR/alembic:alembic" \
+  "${DB_DATA_ARG[@]}" \
   --collect-all app \
   --collect-all fastapi \
   --collect-all starlette \
@@ -83,6 +94,7 @@ pyinstaller --noconfirm --clean --onedir --name backend "$BACKEND_DIR/run.py" \
   --collect-all torch \
   --collect-all torchvision \
   --collect-all ultralytics \
+  --collect-all lap \
   --collect-all segmentation_models_pytorch \
   --collect-all depthai \
   --collect-all av \
@@ -98,7 +110,7 @@ cp -a "$BACKEND_DIR/dist/backend/." "$FRONTEND_DIR/release-backend/"
 chmod +x "$FRONTEND_DIR/release-backend/backend"
 
 cd "$FRONTEND_DIR"
-npm ci --include=optional
+npm ci --include=optional 2>/dev/null || npm install --include=optional
 npm run "package:linux:$ELECTRON_ARCH"
 
 echo

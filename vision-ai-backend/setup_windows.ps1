@@ -28,8 +28,11 @@ $DuckAnalyzerWheel = Get-ChildItem (Join-Path $BackendDir 'app\ml\duck_analyzer-
 if (-not $DuckAnalyzerWheel) { throw 'The bundled duck_analyzer wheel is missing.' }
 & $VenvPython -m pip install $DuckAnalyzerWheel.FullName
 Push-Location $FrontendDir
-if (Test-Path 'node_modules') { Remove-Item 'node_modules' -Recurse -Force }
 & npm.cmd ci --include=optional
+if ($LASTEXITCODE -ne 0) {
+  Write-Host 'npm ci failed, falling back to npm install...'
+  & npm.cmd install --include=optional
+}
 Pop-Location
 
 & $VenvPython -c "import torch; print('PyTorch:', torch.__version__); print('CUDA available:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"

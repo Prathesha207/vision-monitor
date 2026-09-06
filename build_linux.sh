@@ -16,6 +16,18 @@ chmod +x "$ROOT_DIR/vision-ai-backend/build_linux_desktop.sh"
 chmod +x "$ROOT_DIR/vision-ai-backend/setup_linux.sh"
 chmod +x "$ROOT_DIR/vision-ai-backend/run_dev_linux.sh"
 
+MODE="${1:-app}"
+
+if [[ "$MODE" == "--dev" || "$MODE" == "dev" ]]; then
+  echo "Starting Vision AI development environment..."
+  exec "$ROOT_DIR/vision-ai-backend/run_dev_linux.sh"
+fi
+
+if [[ "$MODE" == "--setup" || "$MODE" == "setup" ]]; then
+  echo "Running Vision AI setup..."
+  exec "$ROOT_DIR/vision-ai-backend/setup_linux.sh"
+fi
+
 # Run build script inside vision-ai-backend
 cd "$ROOT_DIR/vision-ai-backend"
 echo "Starting desktop application build..."
@@ -26,7 +38,12 @@ echo "========================================================"
 echo "  🎉 SUCCESS! Your Linux App is ready to use:           "
 echo "========================================================"
 find "$ROOT_DIR/vision-ai-frontend/dist_app" -name "*.AppImage" -exec ls -lh {} + 2>/dev/null || true
+find "$ROOT_DIR/vision-ai-frontend/dist_app" -name "*.deb" -exec ls -lh {} + 2>/dev/null || true
 echo
-echo "To run it, simply execute:"
+echo "To run the AppImage, simply execute:"
+echo "  chmod +x ./vision-ai-frontend/dist_app/Vision-AI-*.AppImage"
 echo "  ./vision-ai-frontend/dist_app/Vision-AI-*.AppImage"
+echo
+echo "Or install the Debian package:"
+echo "  sudo dpkg -i ./vision-ai-frontend/dist_app/vision-ai_*.deb"
 echo "========================================================"

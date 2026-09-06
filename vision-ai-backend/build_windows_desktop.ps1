@@ -67,7 +67,10 @@ Remove-Item -LiteralPath (Join-Path $ReleaseBackend '_internal\_polars_runtime_3
 Push-Location $FrontendDir
 try {
   & npm.cmd ci --include=optional
-  if ($LASTEXITCODE -ne 0) { throw 'npm ci failed.' }
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host 'npm ci failed, falling back to npm install...'
+    & npm.cmd install --include=optional
+  }
   & npx electron-builder --win --dir --x64
   if ($LASTEXITCODE -ne 0) { throw 'electron-builder packaging failed.' }
 
