@@ -1,5 +1,4 @@
 import React from 'react';
-import { ShieldAlert } from 'lucide-react';
 import type { DuckEntity } from '../../types';
 import { playDuckQuackSound } from '../../utils/audio';
 
@@ -108,16 +107,14 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
               >
                 <span>
                   {isMissing ? (
-                    <span className="inline-flex items-center gap-0.5 font-black text-rose-200">
-                      <ShieldAlert className="w-2.5 h-2.5 text-rose-300" />
-                      <span>#{duck.id} MISSING</span>
+                    <span className="font-black text-rose-200">
+                      #{duck.id} MISSING
                     </span>
                   ) : isProvisional ? (
                     'WARMING_UP'
                   ) : isAnomaly ? (
-                    <span className="inline-flex items-center gap-0.5 font-black text-rose-200">
-                      <ShieldAlert className="w-2.5 h-2.5 text-rose-300" />
-                      <span>{duck.species === 'Duck' ? `#${duck.id}` : duck.species}</span>
+                    <span className="font-black text-rose-200">
+                      {duck.species === 'Duck' ? `#${duck.id}` : duck.species}
                     </span>
                   ) : (
                     `#${duck.id}`

@@ -42,16 +42,20 @@ export const useVideoUpload = (
           setUploadProgress(100);
           setTimeout(async () => {
             setUploadProgress(null);
+            const baseUrl = getApiBaseUrl();
+            try {
+              await fetch(`${baseUrl}/video/update_expected/${data.session_id}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ count: expectedDucks })
+              }).catch(() => {});
+              await fetch(`${baseUrl}/video/start/${data.session_id}`, { method: 'POST' });
+            } catch (e) {
+              console.error('Failed to auto-start video inference:', e);
+            }
             if (onVideoUploaded) {
-              const rawVideoUrl = `${getApiBaseUrl()}/video/raw/${data.session_id}`;
-              try {
-                await fetch(`${getApiBaseUrl()}/video/update_expected/${data.session_id}`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ count: expectedDucks })
-                }).catch(() => {});
-              } catch {}
-              onVideoUploaded(rawVideoUrl, file.name, data.session_id);
+              const streamUrl = `${baseUrl}/video/stream/${data.session_id}`;
+              onVideoUploaded(streamUrl, file.name, data.session_id);
             }
           }, 350);
         } catch (e) {

@@ -6,9 +6,10 @@ import { useRecording } from './hooks/useRecording';
 import { playWaterDropSound } from '../utils/audio';
 import { cameraService } from './service/cameraService';
 
+import { Video, Loader2 } from 'lucide-react';
+
 // Extracted Canvas Components
 import { BoundingBoxOverlay } from './canvas/BoundingBoxOverlay';
-import { VideoUploadCard } from './canvas/VideoUploadCard';
 import { CameraOfflineCard } from './canvas/CameraOfflineCard';
 import { CameraStandbyCard } from './canvas/CameraStandbyCard';
 import { TopToolbar } from './canvas/TopToolbar';
@@ -129,7 +130,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   // Hooks
   const { isFullscreen, toggleFullscreen } = useFullscreen(containerRef);
   const { fittedRect } = useContainerFit(containerRef, canvasRef, videoAspect, videoDimensions, isCameraSource);
-  const { isDragOver, uploadProgress, isSelectingVideo, handleFileInputChange, handleSelectVideoAndStart, handleDragOver, handleDragLeave, handleDrop } = useVideoUpload(fileInputRef, expectedDucks, onCustomVideoUploaded, recordedFile, clearRecording, initialUploadFile);
+  const { uploadProgress, isSelectingVideo, handleFileInputChange, handleSelectVideoAndStart } = useVideoUpload(fileInputRef, expectedDucks, onCustomVideoUploaded, recordedFile, clearRecording, initialUploadFile);
   const { handleCanvasClick } = useRippleEffect(canvasRef, ducks, selectedDuckId, onSelectDuck, showAllBoxes, isSceneAnomaly);
 
   useEffect(() => {
@@ -202,16 +203,9 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
     <div
       ref={containerRef}
       id="detection-hero-viewport"
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={(e) => handleDrop(e, isVideoSource)}
       className={`relative w-full flex-1 h-full min-h-[350px] lg:min-h-0 overflow-hidden border select-none group ${
         isFullscreen ? 'rounded-none border-none' : 'rounded-3xl'
-      } ${
-        isDragOver
-          ? 'border-[var(--accent-pond)] ring-4 ring-[var(--accent-pond-subtle)]'
-          : 'border-[var(--border-color)]'
-      } shadow-sm`}
+      } border-[var(--border-color)] shadow-sm`}
       style={{
         backgroundColor: (isWaitingForVideo || (!isCameraConnected && isCameraSource)) ? 'var(--bg-card)' : '#000000',
         ...(isFullscreen ? { width: '100%', height: '100%', minHeight: '100vh', maxHeight: '100vh' } : {})
@@ -219,13 +213,56 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
     >
       <input type="file" ref={fileInputRef} onChange={handleFileInputChange} accept="video/*" className="hidden" />
 
-      {isWaitingForVideo && (
-        <VideoUploadCard
-          uploadProgress={uploadProgress}
-          isSelectingVideo={isSelectingVideo}
-          isBackendConnected={isBackendConnected}
-          onSelectVideoAndStart={handleSelectVideoAndStart}
-        />
+      {/* Video Source Standby View */}
+      {isWaitingForVideo && uploadProgress === null && (
+        <div
+          onClick={handleSelectVideoAndStart}
+          className="absolute inset-0 w-full h-full flex flex-col items-center justify-center text-center p-6 select-none z-10 cursor-pointer"
+          style={{ backgroundColor: 'var(--bg-card)' }}
+        >
+          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mb-3 sm:mb-4 text-emerald-400 shadow-md">
+            <Video className="w-7 h-7 sm:w-8 sm:h-8" />
+          </div>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold mb-2.5 shadow-sm">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            VIDEO INFERENCE STANDBY
+          </div>
+          <h3 className="text-base sm:text-lg lg:text-xl font-bold text-[var(--text-primary)] mb-1">
+            Video Source Standby
+          </h3>
+          <p className="text-xs sm:text-sm text-[var(--text-secondary)] max-w-md mb-2 leading-relaxed font-medium">
+            Click <span className="font-bold text-emerald-400">START INFERENCE</span> above to select a video file and begin analysis.
+          </p>
+          {isSelectingVideo && (
+            <div className="flex items-center gap-2 mt-3 text-xs sm:text-sm text-emerald-400 font-medium">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Opening video...</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Video Uploading & Initializing Indicator */}
+      {isWaitingForVideo && uploadProgress !== null && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/80 backdrop-blur-xs p-6 select-none">
+          <div className="w-full max-w-xs flex flex-col items-center">
+            <div className="flex items-center justify-between w-full text-xs text-[var(--text-secondary)] mb-2 font-medium">
+              <span className="flex items-center gap-2 text-emerald-400">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Uploading & Initializing...
+              </span>
+              <span className="font-bold font-mono text-emerald-400">
+                {Math.round(uploadProgress)}%
+              </span>
+            </div>
+            <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-emerald-500 transition-all duration-150 rounded-full"
+                style={{ width: `${uploadProgress}%` }}
+              />
+            </div>
+          </div>
+        </div>
       )}
 
       {isCameraSource && !isCameraConnected && (
