@@ -80,7 +80,7 @@
   "build": {
     "appId": "com.visionai.application",
     "productName": "Vision-AI",
-    "compression": "maximum",
+    "compression": "normal",
     "asar": true,
     "npmRebuild": false,
     "buildDependenciesFromSource": false,
@@ -103,6 +103,8 @@
       }
     ],
     "linux": {
+      "desktopName": "vision-ai",
+      "syncDesktopName": true,
       "icon": "public/icon.png",
       "executableArgs": [
         "--no-sandbox"
@@ -111,6 +113,9 @@
         "AppImage",
         "deb"
       ],
+      "deb": {
+        "compression": "gz"
+      },
       "category": "Utility"
     },
     "win": {
