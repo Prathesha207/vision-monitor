@@ -18,12 +18,24 @@ router = APIRouter()
 
 
 
+class StartCameraPayload(BaseModel):
+    camera_id: Optional[int] = None
+    ip_address: Optional[str] = None
+
 # ==================== App Lifecycle ====================
 
 @router.post("/start")
-async def start_camera(db: Session = Depends(get_db)):
+async def start_camera(payload: Optional[StartCameraPayload] = None, db: Session = Depends(get_db)):
     """App startup — connect device and build pipeline."""
-    camera = camera_service.get_camera_config(db)
+    camera = None
+    if payload and payload.camera_id:
+        camera = db.query(Camera).filter(Camera.id == payload.camera_id).first()
+    elif payload and payload.ip_address:
+        camera = db.query(Camera).filter(Camera.ip_address == payload.ip_address).first()
+
+    if not camera:
+        camera = camera_service.get_camera_config(db)
+
     if not camera or not camera.ip_address:
         return {"status": "error", "message": "Camera not configured"}
     result = await oak_camera_service.start(camera)

@@ -147,29 +147,35 @@ class OakCameraService:
         value = str(identifier or "").strip()
         available = dai.Device.getAllAvailableDevices()
 
-        # USB devices are discovered locally. This also supports old database
-        # rows that used 127.0.0.1 as a mock/default address.
-        if value.lower() in {"", "usb", "auto", "127.0.0.1", "localhost"}:
-            for device_info in available:
-                name = str(getattr(device_info, "name", "")).lower()
-                state = str(getattr(device_info, "state", "")).lower()
-                if "usb" in name or "usb" in state or "tcp" not in state:
-                    return device_info
-            if available:
-                return available[0]
+        if not available:
             raise RuntimeError("No OAK device found over USB or network")
 
-        # Match a seeded numeric deviceId or a textual MXID against devices
-        # currently visible to this Linux machine.
+        # 1. Match against MXID, deviceId, name, or description
+        if value and value.lower() not in {"", "usb", "auto", "127.0.0.1", "localhost"}:
+            for device_info in available:
+                device_id = str(getattr(device_info, "deviceId", "") or "")
+                mxid = str(getattr(device_info, "mxid", "") or "")
+                name = str(getattr(device_info, "name", "") or "")
+                desc_name = ""
+                try:
+                    desc_name = str(getattr(device_info.getXLinkDeviceDesc(), "name", ""))
+                except Exception:
+                    pass
+                if value in {device_id, mxid, name, desc_name}:
+                    return device_info
+            logger.warning(
+                f"[DEVICE] Identifier '{value}' not matched in visible devices. Trying available devices..."
+            )
+
+        # 2. Prefer USB devices
         for device_info in available:
-            device_id = str(getattr(device_info, "deviceId", ""))
-            mxid = str(getattr(device_info, "mxid", ""))
-            name = str(getattr(device_info, "name", ""))
-            if value in {device_id, mxid, name}:
+            name = str(getattr(device_info, "name", "")).lower()
+            state = str(getattr(device_info, "state", "")).lower()
+            if "usb" in name or "usb" in state or "tcp" not in state:
                 return device_info
 
-        # Fall back to an IP address for network-connected OAK devices.
-        return dai.DeviceInfo(value)
+        # 3. Fallback to first discovered device
+        return available[0]
 
     async def disconnect(self) -> None:
         try:
@@ -200,9 +206,6 @@ class OakCameraService:
         try:
             logger.info("[PIPELINE] Building...")
 
-            cam = pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_A)
-            init_ctrl = cam.initialControl
-
             # --- Resolution / FPS (parsed first — needed by AE limit below) ---
             resolution = config.resolution or "1920x1080"
             try:
@@ -219,17 +222,54 @@ class OakCameraService:
             control_mode = (config.control_mode or "auto").lower()
             self.control_mode = control_mode
 
+            cam = None
+            is_color_camera = False
+
+            # Try DepthAI unified Camera node first
+            try:
+                cam = pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_A)
+                init_ctrl = cam.initialControl
+            except Exception as cam_err:
+                err_str = str(cam_err)
+                logger.warning(f"[PIPELINE] dai.node.Camera build failed: {err_str}")
+                if "OAK4 has not been setup yet" in err_str or "setup.luxonis.com" in err_str:
+                    logger.error(
+                        "[PIPELINE] Connected camera is an OAK4 device that requires setup! "
+                        "Complete setup via https://setup.luxonis.com/ or run 'oakctl device setup apply'."
+                    )
+                    realtime_log_service.add_log(
+                        "camera",
+                        "CAMERA",
+                        "OAK4 camera requires setup: visit https://setup.luxonis.com or run oakctl",
+                        "error"
+                    )
+
+                # Attempt ColorCamera fallback (for RVC2 / classic OAK-D / OAK-1 devices)
+                try:
+                    logger.info("[PIPELINE] Attempting dai.node.ColorCamera fallback...")
+                    cam = pipeline.create(dai.node.ColorCamera)
+                    cam.setBoardSocket(dai.CameraBoardSocket.CAM_A)
+                    if hasattr(dai.ColorCameraProperties, "SensorResolution"):
+                        cam.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
+                    cam.setFps(fps)
+                    cam.setInterleaved(False)
+                    cam.setVideoSize(width, height)
+                    init_ctrl = cam.initialControl
+                    is_color_camera = True
+                    logger.info("[PIPELINE] ColorCamera node created successfully as fallback")
+                except Exception as color_err:
+                    logger.error(f"[PIPELINE] ColorCamera fallback also failed: {color_err}")
+                    raise cam_err
+
             if control_mode == "auto":
                 init_ctrl.setAutoExposureEnable()
                 init_ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.CONTINUOUS_VIDEO)
                 # Cap shutter to frame period — prevents AE from picking 300ms in dim scenes.
-                # initialControl is set here as a hint; the runtime send in start_streaming
-                # is the authoritative enforcement (initialControl alone is unreliable).
                 ae_limit_us = max(1_000, int(1_000_000 / max(fps, 1)) - 2_000)
                 self._ae_limit_us = ae_limit_us
                 try:
                     init_ctrl.setAutoExposureLimit(ae_limit_us)
-                    logger.info(f"[PIPELINE] Auto exposure + focus | AE shutter hint: {ae_limit_us} µs (will be enforced via runtime control at stream start)")
+                    logger.info(f"[PIPELINE] Auto exposure + focus | AE shutter hint: {ae_limit_us} µs")
                 except AttributeError:
                     logger.warning("[PIPELINE] setAutoExposureLimit not on initialControl — will send via runtime control only")
             else:
@@ -249,22 +289,29 @@ class OakCameraService:
                 init_ctrl.setContrast(int(config.contrast or 0))
                 logger.info(f"[PIPELINE] Manual: exp={exposure}, gain={gain}, focus={focus}")
 
-            # --- Node 1: MJPEG encoder → stream preview ---
-            mjpeg_out = cam.requestOutput(
-                (width, height), type=dai.ImgFrame.Type.NV12, fps=fps
-            )
             encoder = pipeline.create(dai.node.VideoEncoder)
             encoder.setDefaultProfilePreset(fps, dai.VideoEncoderProperties.Profile.MJPEG)
-            mjpeg_out.link(encoder.input)
-            self._mjpeg_dai_queue = encoder.bitstream.createOutputQueue(maxSize=4, blocking=False)
-            logger.info("[PIPELINE] Node 1: MJPEG encoder ready")
 
-            # --- Node 2: Raw NV12 → inference / recording ---
-            raw_out = cam.requestOutput(
-                (width, height), type=dai.ImgFrame.Type.NV12, fps=fps
-            )
-            self._raw_dai_queue = raw_out.createOutputQueue(maxSize=4, blocking=False)
-            logger.info("[PIPELINE] Node 2: Raw NV12 ready")
+            if not is_color_camera:
+                # --- Node 1: MJPEG encoder → stream preview ---
+                mjpeg_out = cam.requestOutput(
+                    (width, height), type=dai.ImgFrame.Type.NV12, fps=fps
+                )
+                mjpeg_out.link(encoder.input)
+                self._mjpeg_dai_queue = encoder.bitstream.createOutputQueue(maxSize=4, blocking=False)
+                logger.info("[PIPELINE] Node 1: MJPEG encoder ready")
+
+                # --- Node 2: Raw NV12 → inference / recording ---
+                raw_out = cam.requestOutput(
+                    (width, height), type=dai.ImgFrame.Type.NV12, fps=fps
+                )
+                self._raw_dai_queue = raw_out.createOutputQueue(maxSize=4, blocking=False)
+                logger.info("[PIPELINE] Node 2: Raw NV12 ready")
+            else:
+                cam.video.link(encoder.input)
+                self._mjpeg_dai_queue = encoder.bitstream.createOutputQueue(maxSize=4, blocking=False)
+                self._raw_dai_queue = cam.video.createOutputQueue(maxSize=4, blocking=False)
+                logger.info("[PIPELINE] ColorCamera outputs wired successfully")
 
             # --- Camera control input ---
             self._control_queue = cam.inputControl.createInputQueue(maxSize=4, blocking=False)
@@ -1475,6 +1522,11 @@ class OakCameraService:
 
             except Exception as e:
                 logger.error(f"[START] Failed: {e}", exc_info=True)
+                try:
+                    self._cleanup_pipeline()
+                    await self.disconnect()
+                except Exception:
+                    pass
                 return {"status": "error", "message": str(e)}
 
     async def stop(self) -> dict:

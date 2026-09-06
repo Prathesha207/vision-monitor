@@ -165,7 +165,32 @@ def get_cameras(db: Session):
 
 
 def get_camera_config(db: Session):
-    return db.query(Camera).first()
+    # 1. Prefer real enabled hardware cameras (exclude mock 127.0.0.1)
+    real_cam = (
+        db.query(Camera)
+        .filter(
+            Camera.ip_address.isnot(None),
+            Camera.ip_address != "127.0.0.1",
+            Camera.is_enabled == True,
+        )
+        .order_by(Camera.id.desc())
+        .first()
+    )
+    if real_cam:
+        return real_cam
+
+    # 2. Fallback to any enabled camera
+    enabled_cam = (
+        db.query(Camera)
+        .filter(Camera.is_enabled == True)
+        .order_by(Camera.id.desc())
+        .first()
+    )
+    if enabled_cam:
+        return enabled_cam
+
+    # 3. Fallback to newest camera
+    return db.query(Camera).order_by(Camera.id.desc()).first()
 
 
 def get_inference_config(db: Session):
