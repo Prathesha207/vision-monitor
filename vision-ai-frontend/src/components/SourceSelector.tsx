@@ -216,33 +216,22 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                 </button>
               )}
 
-              {/* RESET button for Camera mode: resets inference stats & detections without switching source */}
-              {isCameraMode && (
+              {/* Unified RESET button */}
+              {(isCameraMode || (isVideoMode && hasActiveVideo)) && (
                 <button
                   onClick={() => {
                     playWaterDropSound();
-                    onResetCamera?.();
+                    if (isCameraMode) {
+                      onResetCamera?.();
+                    } else {
+                      onResetVideo?.();
+                    }
                   }}
-                  title="Reset camera inference state & detections"
+                  title={isCameraMode ? "Reset camera inference state & detections" : "Reset video playback and detections"}
                   className="h-8 sm:h-9 flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-100 hover:text-white border border-slate-600/80 text-[11px] sm:text-xs font-semibold shadow-xs active:scale-95 cursor-pointer transition-all shrink-0"
                 >
                   <RotateCcw className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                   <span className="hidden sm:inline">RESET</span>
-                </button>
-              )}
-
-              {/* Video Mode single RESET button */}
-              {isVideoMode && hasActiveVideo && (
-                <button
-                  onClick={() => {
-                    playWaterDropSound();
-                    onResetVideo?.();
-                  }}
-                  title="Reset video and inference"
-                  className="h-8 sm:h-9 flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-100 hover:text-white border border-slate-600/80 text-[11px] sm:text-xs font-semibold shadow-xs active:scale-95 cursor-pointer transition-all shrink-0"
-                >
-                  <RotateCcw className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                  <span>RESET</span>
                 </button>
               )}
             </div>

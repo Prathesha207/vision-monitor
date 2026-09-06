@@ -309,6 +309,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                 showAllBoxes={showAllBoxes}
                 isHandPresent={isHandPresent}
                 isSceneAnomaly={isSceneAnomaly}
+                isCountMismatch={anomalyStatus.difference !== 0}
               />
             )}
 

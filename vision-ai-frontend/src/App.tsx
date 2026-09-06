@@ -397,9 +397,8 @@ export default function App() {
         await fetch(`${getApiBaseUrl()}/video/stop/${video.videoSessionId}`, { method: 'POST' });
       } catch {}
     }
-    video.handleClearVideo();
-    showToast('info', 'Video cleared and reset');
-    addLog('Video reset • Ready for new upload or inference.', 'info');
+    showToast('info', 'Video playback reset to beginning');
+    addLog('Video playback reset to frame 0 • Ready for inference.', 'info');
   };
 
   // Wrap toggle/stop/resume to pass startVideoInference

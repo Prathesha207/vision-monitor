@@ -76,8 +76,8 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
   let borderClasses = 'border border-[var(--border-color)] bg-[var(--bg-card)] hover:border-[var(--accent-pond)]';
   if (isMissing) {
     borderClasses = isSelected
-      ? 'border-2 border-dashed border-amber-500 ring-2 ring-amber-400/50 bg-amber-500/10'
-      : 'border-2 border-dashed border-amber-500 dark:border-amber-400 bg-amber-500/10 hover:border-amber-500';
+      ? 'border-2 border-dashed border-rose-500 ring-2 ring-rose-400/50 bg-rose-500/10'
+      : 'border-2 border-dashed border-rose-500 dark:border-rose-400 bg-rose-500/10 hover:border-rose-500';
   } else if (isNew) {
     borderClasses = isSelected
       ? 'border-2 border-cyan-500 ring-2 ring-cyan-400/50 bg-cyan-500/10'
@@ -165,7 +165,7 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
       <div className={`flex items-center justify-between px-1 py-0.5 gap-1 border-t shrink-0 font-bold ${barColorClasses}`}>
         <div className="flex items-center gap-1 min-w-0 flex-nowrap whitespace-nowrap overflow-hidden">
           <span className={`w-1.5 h-1.5 rounded-full shrink-0 flex-none self-center ${
-            isMissing ? 'bg-amber-500 animate-pulse'
+            isMissing ? 'bg-rose-500 animate-pulse'
               : isNew ? 'bg-cyan-400 animate-pulse'
               : isAlert ? 'bg-[var(--status-anomaly-text)] shadow-xs animate-pulse ring-1 ring-[var(--status-anomaly-text)]/60'
               : isCountMismatch ? 'bg-rose-500 shadow-xs ring-1 ring-rose-400/50'
@@ -178,7 +178,7 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
         {(showBadge || isMissing || isAlert || isNew) && (
           <span className={`text-[6.5px] px-1 py-0.2 rounded font-black shrink-0 uppercase leading-none self-center ${
             isMissing
-              ? 'bg-amber-500 text-white shadow-xs'
+              ? 'bg-rose-600 text-white shadow-xs'
               : isNew
               ? 'bg-cyan-500 text-white shadow-xs'
               : isAlert
@@ -322,15 +322,15 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
           title="Missing ducks"
           className={`flex-1 py-1 px-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
             filter === 'missed'
-              ? 'bg-amber-500 text-white shadow-xs'
+              ? 'bg-rose-600 text-white shadow-xs'
               : missedCount > 0
-              ? 'text-amber-600 dark:text-amber-400 bg-amber-500/10 font-extrabold'
+              ? 'text-rose-600 dark:text-rose-400 bg-rose-500/10 font-extrabold'
               : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
           }`}
         >
           <span>Missed</span>
           <span className={`text-[8.5px] px-1.5 py-0.2 rounded-full font-mono ${
-            missedCount > 0 ? 'bg-amber-500 text-white animate-pulse' : 'bg-black/20'
+            missedCount > 0 ? 'bg-rose-600 text-white animate-pulse' : 'bg-black/20'
           }`}>
             {missedCount}
           </span>
