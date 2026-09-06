@@ -9,6 +9,7 @@ interface BoundingBoxOverlayProps {
   onSelectDuck: (id: string | null) => void;
   showAllBoxes: boolean;
   isHandPresent: boolean;
+  isSceneAnomaly?: boolean;
 }
 
 export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
@@ -17,6 +18,7 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
   onSelectDuck,
   showAllBoxes,
   isHandPresent,
+  isSceneAnomaly = false,
 }) => {
   if (isHandPresent) return null;
 
@@ -28,16 +30,16 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
         .filter((duck) => {
           if (duck.species === 'Hand' || duck.handDetected) return false;
           const isMissing = duck.statusEvent === 'missing';
-          const isAnomalyDuck = duck.provisional || duck.isAnomaly || isMissing;
+          const isAnomalyDuck = duck.provisional || duck.isAnomaly || isMissing || isSceneAnomaly;
           // In "Anomalies Only" mode, ONLY anomaly ducks are shown.
-          // Normal ducks must NEVER leak through in "Anomalies Only" mode.
+          // If scene has an anomaly (count mismatch), ALL boxes are considered anomaly.
           const isVisible = showAllBoxes || isAnomalyDuck;
           return isVisible && Number.isFinite(duck.x) && Number.isFinite(duck.y) && Number.isFinite(duck.width) && Number.isFinite(duck.height) && duck.width > 0 && duck.height > 0;
         })
         .map((duck, idx) => {
           const isProvisional = duck.provisional;
           const isMissing = duck.statusEvent === 'missing';
-          const isAnomaly = !isProvisional && (duck.isAnomaly || isMissing);
+          const isAnomaly = !isProvisional && (duck.isAnomaly || isMissing || isSceneAnomaly);
           const isSelected = duck.id === selectedDuckId;
           
           let borderColor = 'border-emerald-400/80 bg-emerald-500/5';
@@ -46,10 +48,10 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
           let confColor = 'text-emerald-400';
 
           if (isMissing) {
-            borderColor = 'border-2 border-dashed border-amber-500 bg-amber-500/15';
-            bracketColor = 'border-amber-400';
-            tagStyle = 'bg-amber-950/90 text-amber-200 border border-amber-500/80 font-bold shadow-xs';
-            confColor = 'text-amber-300 font-bold';
+            borderColor = 'border-2 border-dashed border-rose-500 bg-rose-500/15';
+            bracketColor = 'border-rose-400';
+            tagStyle = 'bg-rose-950/90 text-rose-200 border border-rose-500/80 font-bold shadow-xs';
+            confColor = 'text-rose-300 font-bold';
           } else if (isProvisional) {
             borderColor = 'border-amber-400/90 bg-amber-500/10';
             bracketColor = 'border-amber-300';

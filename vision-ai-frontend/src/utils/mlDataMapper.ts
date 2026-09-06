@@ -27,7 +27,7 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEnt
   const incomingDucks: DuckEntity[] = [];
   const addedIds = data.added_ids || [];
   const missingIds = data.missing_ids || [];
-  const isWarmingUp = data.status === 'WARMING' || !data.anchor_locked;
+  const isWarmingUp = data.status === 'WARMING';
 
   // Find thumbnails. Ensure we do not drop thumbnails when data.thumbnails is an empty array [] (which is truthy in JS!)
   const rawDataThumbs = Array.isArray(data.thumbnails) ? data.thumbnails : [];
@@ -134,6 +134,18 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEnt
 
   if (!isWarmingUp) {
     missingIds.forEach((mid: any) => resolvedMissingIds.add(String(mid)));
+
+    // When under-count exists, ensure missing slots up to expectedCount are included
+    const expectedCount = Number(data.expected_duck_count) || 0;
+    if (expectedCount > 0 && expectedCount > incomingDucks.length) {
+      for (let idNum = 1; idNum <= expectedCount; idNum++) {
+        const idStr = String(idNum);
+        const exists = incomingDucks.some(d => d.id === idStr || Number(d.id) === idNum);
+        if (!exists) {
+          resolvedMissingIds.add(idStr);
+        }
+      }
+    }
   }
 
   // Inject missing ducks so they appear in the gallery.
