@@ -33,7 +33,7 @@ if command -v nvidia-smi >/dev/null 2>&1; then
       echo "Install the NVIDIA/platform ARM64 PyTorch package later for GPU inference."
     fi
   else
-    PYTORCH_CUDA_INDEX="${PYTORCH_CUDA_INDEX:-https://download.pytorch.org/whl/cu128}"
+    PYTORCH_CUDA_INDEX="${PYTORCH_CUDA_INDEX:-https://download.pytorch.org/whl/cu121}"
     if ! python -m pip install --force-reinstall \
       --index-url "$PYTORCH_CUDA_INDEX" \
       torch torchvision; then
@@ -46,7 +46,12 @@ else
   echo "No NVIDIA GPU detected; keeping CPU-compatible PyTorch."
 fi
 
-python -m pip install "$BACKEND_DIR/app/ml/duck_analyzer-1.0.8-py3-none-any.whl"
+DUCK_ANALYZER_WHEEL="$(find "$BACKEND_DIR/app/ml" -maxdepth 1 -name 'duck_analyzer-*.whl' -print | sort -r | head -n 1)"
+if [[ -z "$DUCK_ANALYZER_WHEEL" ]]; then
+  echo "The bundled duck_analyzer wheel is missing."
+  exit 1
+fi
+python -m pip install "$DUCK_ANALYZER_WHEEL"
 
 # Native Rollup/Vite modules must be installed on this exact Linux architecture.
 cd "$FRONTEND_DIR"

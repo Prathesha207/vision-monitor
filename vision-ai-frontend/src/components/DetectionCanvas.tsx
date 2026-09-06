@@ -3,7 +3,7 @@ import type { DuckEntity, StreamSourceType, AnomalyStatus } from '../types';
 import { getApiBaseUrl } from '../lib/api';
 import { useInferenceStore } from '../store/inferenceStore';
 import { useRecording } from './hooks/useRecording';
-import { playWaterDropSound, playDuckQuackSound } from '../utils/audio';
+import { playWaterDropSound } from '../utils/audio';
 
 // Extracted Canvas Components
 import { BoundingBoxOverlay } from './canvas/BoundingBoxOverlay';
@@ -49,6 +49,7 @@ interface DetectionCanvasProps {
   initialUploadFile?: File;
   isBackendConnected?: boolean;
   onRegisterTriggerUpload?: (trigger: () => void) => void;
+  lastCameraFrame?: string;
 }
 
 export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
@@ -81,6 +82,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   initialUploadFile,
   isBackendConnected = true,
   onRegisterTriggerUpload,
+  lastCameraFrame,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -101,6 +103,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   const isCameraSource = sourceType === 'oak-camera' || sourceType === 'webcam';
   const hasActiveVideo = isVideoSource && !!customVideoUrl;
   const isWaitingForVideo = isVideoSource && !hasActiveVideo;
+  const isCameraOffline = isCameraSource && !isCameraConnected;
   
   const isHandPresent = 
     backendStats?.status === 'HAND' || 
@@ -108,11 +111,13 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
     anomalyStatus?.message?.includes('HAND') ||
     ducks.some((d) => d.species === 'Hand' || d.handDetected === true || d.statusEvent === 'hand_present');
   
-  const isSceneAnomaly = anomalyStatus?.isAnomaly === true || backendStats?.status === 'ANOMALY';
+  // anomalyStatus is the reconciled current-frame verdict used by every
+  // status surface. Do not reintroduce a stale raw backend status here.
+  const isSceneAnomaly = anomalyStatus?.isAnomaly === true;
 
   // Hooks
   const { isFullscreen, toggleFullscreen } = useFullscreen(containerRef);
-  const { containerSize, fittedRect } = useContainerFit(containerRef, canvasRef, videoAspect, videoDimensions, isCameraSource);
+  const { fittedRect } = useContainerFit(containerRef, canvasRef, videoAspect, videoDimensions, isCameraSource);
   const { isDragOver, uploadProgress, isSelectingVideo, handleFileInputChange, handleSelectVideoAndStart, handleDragOver, handleDragLeave, handleDrop } = useVideoUpload(fileInputRef, expectedDucks, onCustomVideoUploaded, recordedFile, clearRecording, initialUploadFile);
   const { handleCanvasClick } = useRippleEffect(canvasRef, ducks, selectedDuckId, onSelectDuck, showAllBoxes, isSceneAnomaly);
 
@@ -216,74 +221,75 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
         <CameraOfflineCard
           onSwitchToVideo={() => onRequestSwitchMode?.('uploaded-video')}
           onRetryConnection={() => window.location.reload()}
-          onCanvasClick={(e) => handleCanvasClick(e, containerRef)}
+          onCanvasClick={handleCanvasClick}
         />
       )}
 
       {/* 2 & 3. VIDEO & CAMERA VIEWPORT WITH TRUE ASPECT RATIO */}
       {(hasActiveVideo || (isCameraSource && isCameraConnected)) && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-black" onClick={(e) => handleCanvasClick(e, containerRef)}>
-          {/* STREAM VIEWPORT: If backend session is active (video or camera), render via <img> to support MJPEG streaming */}
-          {(videoSessionId || isCameraSource) ? (
-            <img
-              ref={cameraImgRef}
-              src={
-                isCameraSource 
-                  ? (isStreaming ? `${getApiBaseUrl()}/oak/inference/stream/live?t=${streamCacheBuster}` : undefined) 
-                  : effectiveVideoUrl
-              }
-              className="absolute z-0 pointer-events-none object-contain rounded bg-black"
-              style={fittedRect}
-              alt="Stream"
-              onLoad={(e) => {
-                const tgt = e.target as HTMLImageElement;
-                if (tgt.naturalWidth && tgt.naturalHeight) {
-                  setVideoAspect(tgt.naturalWidth / tgt.naturalHeight);
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-black">
+          <div className="relative shrink-0" style={fittedRect} onClick={handleCanvasClick}>
+            {/* STREAM VIEWPORT: If backend session is active (video or camera), render via <img> to support MJPEG streaming */}
+            {(videoSessionId || isCameraSource) ? (
+              <img
+                ref={cameraImgRef}
+                src={
+                  isCameraSource
+                    ? (isStreaming
+                        ? `${getApiBaseUrl()}/oak/inference/stream/live?t=${streamCacheBuster}`
+                        : (lastCameraFrame || `${getApiBaseUrl()}/oak/snapshot?t=${streamCacheBuster}`))
+                    : effectiveVideoUrl
                 }
-                setIsFirstFrameLoaded(true);
-              }}
-              onError={(e) => {
-                if (isCameraSource && onCameraDeviceChange) onCameraDeviceChange(false);
-              }}
-            />
-          ) : hasActiveVideo ? (
-            /* Local MP4 video preview before backend session starts */
-            <video
-              ref={videoRef}
-              src={customVideoUrl}
-              className="absolute z-0 pointer-events-none rounded bg-black"
-              style={fittedRect}
-              loop
-              muted
-              playsInline
-              onLoadedMetadata={(e) => {
-                const tgt = e.target as HTMLVideoElement;
-                if (tgt.videoWidth && tgt.videoHeight) {
-                  setVideoAspect(tgt.videoWidth / tgt.videoHeight);
-                }
-                setIsFirstFrameLoaded(true);
-              }}
-            />
-          ) : null}
+                className="absolute inset-0 z-0 h-full w-full pointer-events-none rounded bg-black object-contain"
+                alt="Stream"
+                onLoad={(e) => {
+                  const tgt = e.target as HTMLImageElement;
+                  if (tgt.naturalWidth && tgt.naturalHeight) {
+                    setVideoAspect(tgt.naturalWidth / tgt.naturalHeight);
+                  }
+                  setIsFirstFrameLoaded(true);
+                }}
+                onError={() => {
+                  if (isCameraSource && onCameraDeviceChange) onCameraDeviceChange(false);
+                }}
+              />
+            ) : hasActiveVideo ? (
+              /* Local MP4 video preview before backend session starts */
+              <video
+                ref={videoRef}
+                src={customVideoUrl}
+                className="absolute inset-0 z-0 h-full w-full pointer-events-none rounded bg-black object-contain"
+                loop
+                muted
+                playsInline
+                onLoadedMetadata={(e) => {
+                  const tgt = e.target as HTMLVideoElement;
+                  if (tgt.videoWidth && tgt.videoHeight) {
+                    setVideoAspect(tgt.videoWidth / tgt.videoHeight);
+                  }
+                  setIsFirstFrameLoaded(true);
+                }}
+              />
+            ) : null}
 
-          <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-10 rounded" style={fittedRect} />
+            <canvas ref={canvasRef} className="absolute inset-0 z-10 h-full w-full pointer-events-none rounded" />
 
-          {/* AI Bounding Boxes: Shown in INFERENCE mode or always for video upload */}
-          {(feedMode === 'inference' || !isCameraSource) && (
-            <BoundingBoxOverlay
-              ducks={ducks}
-              selectedDuckId={selectedDuckId}
-              onSelectDuck={onSelectDuck}
-              showAllBoxes={showAllBoxes}
-              isHandPresent={isHandPresent}
-              isFrameAnomaly={isSceneAnomaly}
-            />
-          )}
+            {/* AI Bounding Boxes: Shown in INFERENCE mode or always for video upload */}
+            {(feedMode === 'inference' || !isCameraSource) && (
+              <BoundingBoxOverlay
+                ducks={ducks}
+                selectedDuckId={selectedDuckId}
+                onSelectDuck={onSelectDuck}
+                showAllBoxes={showAllBoxes}
+                isHandPresent={isHandPresent}
+              />
+            )}
 
-          {/* Hand detected warning border: Shown in INFERENCE mode or always for video upload */}
-          {(feedMode === 'inference' || !isCameraSource) && isHandPresent && (
-            <div className="absolute inset-0 z-30 pointer-events-none border-4 border-amber-500/80 rounded" />
-          )}
+            {/* Hand detected warning border: Shown in INFERENCE mode or always for video upload */}
+            {(feedMode === 'inference' || !isCameraSource) && isHandPresent && (
+              <div className="absolute inset-0 z-30 pointer-events-none border-4 border-amber-500/80 rounded" />
+            )}
+          </div>
         </div>
       )}
 
@@ -295,6 +301,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
         hasActiveVideo={hasActiveVideo}
         isRunning={isRunning}
         isFirstFrameLoaded={isFirstFrameLoaded}
+        isCameraConnected={isCameraConnected}
       />
 
       <TopToolbar
@@ -328,7 +335,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
         isFirstFrameLoaded={isFirstFrameLoaded}
       />
 
-      {showHUD && (!isWaitingForVideo || isCameraSource) && (
+      {showHUD && !isCameraOffline && (isRunning || isStarting || ducks.length > 0 || ((backendStats?.frames_processed ?? 0) > 0)) && (
         <StatusBar
           anomalyStatus={anomalyStatus}
           fps={fps}

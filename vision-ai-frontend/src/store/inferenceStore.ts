@@ -61,6 +61,7 @@ export interface InferenceStats {
 interface InferenceStoreState {
   stats: InferenceStats;
   setStats: (newStats: Partial<InferenceStats>) => void;
+  replaceStats: (stats: InferenceStats) => void;
   resetStats: () => void;
 }
 
@@ -106,5 +107,6 @@ export const useInferenceStore = create<InferenceStoreState>((set) => ({
       },
     };
   }),
+  replaceStats: (stats) => set({ stats }),
   resetStats: () => set({ stats: initialStats }),
 }));

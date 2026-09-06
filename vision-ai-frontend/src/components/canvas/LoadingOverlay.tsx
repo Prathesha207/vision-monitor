@@ -9,6 +9,7 @@ interface LoadingOverlayProps {
   hasActiveVideo: boolean;
   isRunning: boolean;
   isFirstFrameLoaded: boolean;
+  isCameraConnected?: boolean;
 }
 
 export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
@@ -18,8 +19,14 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
   cameraStartingState = 'ready',
   hasActiveVideo,
   isRunning,
-  isFirstFrameLoaded
+  isFirstFrameLoaded,
+  isCameraConnected = false,
 }) => {
+  // Never show loading overlay if camera mode is active but camera is offline/disconnected
+  if (isCameraSource && !isCameraConnected) {
+    return null;
+  }
+
   return (
     <>
       {isStarting && (

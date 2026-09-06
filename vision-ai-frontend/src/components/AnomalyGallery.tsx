@@ -2,7 +2,6 @@ import React, { useState, useMemo, memo, useCallback } from 'react';
 import { Sparkles, EyeOff } from 'lucide-react';
 import { DuckEntity, AnomalyStatus } from '../types';
 import { playWaterDropSound, playDuckQuackSound } from '../utils/audio';
-import { useInferenceStore } from '../store/inferenceStore';
 
 interface DetectionCropCanvasProps {
   duck: DuckEntity;
@@ -232,35 +231,14 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
   expectedCount,
 }) => {
   const [filter, setFilter] = useState<'all' | 'missed' | 'alert'>('all');
-  const mlStats = useInferenceStore((state) => state.stats);
-
   const isCountMismatch = useMemo(() => {
-    // 1. Direct from anomalyStatus if available
-    if (anomalyStatus?.isAnomaly) {
-      if (
-        anomalyStatus.type === 'OVER_COUNT' ||
+    return Boolean(
+      anomalyStatus?.isAnomaly &&
+      (anomalyStatus.type === 'OVER_COUNT' ||
         anomalyStatus.type === 'UNDER_COUNT' ||
-        (anomalyStatus.difference !== undefined && anomalyStatus.difference !== 0)
-      ) {
-        return true;
-      }
-    }
-    // 2. From mlStats if backend status is ANOMALY
-    if (mlStats?.status === 'ANOMALY') {
-      const exp = expectedCount ?? mlStats.expected_duck_count;
-      const det = mlStats.detected_duck_count;
-      if (exp > 0 && det !== exp) {
-        return true;
-      }
-      if (Array.isArray(mlStats.reasons) && mlStats.reasons.some((r: string) => typeof r === 'string' && r.toLowerCase().includes('count'))) {
-        return true;
-      }
-      if (!mlStats.detected_other_toy_count || mlStats.detected_other_toy_count === 0) {
-        return true;
-      }
-    }
-    return false;
-  }, [anomalyStatus, mlStats, expectedCount]);
+        anomalyStatus.difference !== 0)
+    );
+  }, [anomalyStatus]);
 
   // Priority rank for sorting: other species (foreign/unknown) pinned at top,
   // everything else (including missing) stays in stable numeric ID order.

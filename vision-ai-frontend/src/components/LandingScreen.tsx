@@ -50,6 +50,9 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
             if (mountedRef.current) {
               setHealthStatus('ready');
               setHealthMessage('AI Engine ready');
+              if (typeof window !== 'undefined' && localStorage.getItem('vision_monitor_initialized') === 'true') {
+                onInitialize();
+              }
             }
             return;
           } else if (data.status === 'starting') {

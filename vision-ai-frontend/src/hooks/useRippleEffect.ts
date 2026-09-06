@@ -19,6 +19,9 @@ export const useRippleEffect = (
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    const canvasRect = canvas.getBoundingClientRect();
+    const scaleX = canvasRect.width ? canvas.width / canvasRect.width : 1;
+    const scaleY = canvasRect.height ? canvas.height / canvasRect.height : 1;
     
     let animationFrameId: number;
     
@@ -37,7 +40,7 @@ export const useRippleEffect = (
         
         if (ripple.opacity > 0) {
           ctx.beginPath();
-          ctx.arc(ripple.x, ripple.y, ripple.radius, 0, Math.PI * 2);
+          ctx.arc(ripple.x * scaleX, ripple.y * scaleY, ripple.radius * scaleX, 0, Math.PI * 2);
           ctx.strokeStyle = `rgba(56, 189, 248, ${ripple.opacity})`;
           ctx.lineWidth = 2;
           ctx.stroke();

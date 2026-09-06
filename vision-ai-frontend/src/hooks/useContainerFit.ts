@@ -76,5 +76,24 @@ export const useContainerFit = (
     };
   }, [containerSize, videoAspect, videoDimensions, isCameraSource]);
 
+  // The canvas lives inside the fitted video viewport, which can change size when
+  // metadata arrives without causing the outer container to resize. Keep its
+  // bitmap dimensions in sync so ripple coordinates match the visible frame.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const targetW = Math.round(rect.width * dpr);
+    const targetH = Math.round(rect.height * dpr);
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+    }
+  }, [canvasRef, fittedRect]);
+
   return { containerSize, fittedRect };
 };

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build Linux desktop artifacts from an Ubuntu/Debian machine.
+# Build Linux desktop artifacts from a native Ubuntu/Debian machine.
 # Run this script from vision-ai-backend after cloning BOTH sibling folders:
 #   vision-ai-backend/ and vision-ai-frontend/
 set -euo pipefail
@@ -7,6 +7,13 @@ set -euo pipefail
 BACKEND_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRONTEND_DIR="$(cd "$BACKEND_DIR/../vision-ai-frontend" && pwd)"
 VENV_DIR="$BACKEND_DIR/.venv-linux-build"
+MACHINE_ARCH="$(uname -m)"
+
+case "$MACHINE_ARCH" in
+  x86_64) ELECTRON_ARCH="x64" ;;
+  aarch64|arm64) ELECTRON_ARCH="arm64" ;;
+  *) echo "Unsupported Linux architecture: $MACHINE_ARCH"; exit 1 ;;
+esac
 
 if [[ ! -f "$FRONTEND_DIR/package.json" ]]; then
   echo "vision-ai-frontend must be beside vision-ai-backend."
@@ -27,7 +34,7 @@ if [[ "${USE_CUDA:-0}" == "1" || ( "${USE_CUDA:-auto}" == "auto" && -n "$(comman
       echo "ARM64 detected without vendor CUDA PyTorch; building with CPU PyTorch."
     fi
   else
-    PYTORCH_CUDA_INDEX="${PYTORCH_CUDA_INDEX:-https://download.pytorch.org/whl/cu128}"
+    PYTORCH_CUDA_INDEX="${PYTORCH_CUDA_INDEX:-https://download.pytorch.org/whl/cu121}"
     python -m pip install --force-reinstall \
       --index-url "$PYTORCH_CUDA_INDEX" \
       torch torchvision
@@ -35,7 +42,9 @@ if [[ "${USE_CUDA:-0}" == "1" || ( "${USE_CUDA:-auto}" == "auto" && -n "$(comman
 else
   echo "Building with CPU-compatible PyTorch. Set USE_CUDA=1 to force CUDA."
 fi
-python -m pip install "$BACKEND_DIR/app/ml/duck_analyzer-1.0.8-py3-none-any.whl"
+DUCK_ANALYZER_WHEEL="$(find "$BACKEND_DIR/app/ml" -maxdepth 1 -name 'duck_analyzer-*.whl' -print | sort -r | head -n 1)"
+[[ -n "$DUCK_ANALYZER_WHEEL" ]] || { echo "The bundled duck_analyzer wheel is missing."; exit 1; }
+python -m pip install "$DUCK_ANALYZER_WHEEL"
 
 cd "$BACKEND_DIR"
 rm -rf build dist
@@ -56,19 +65,19 @@ pyinstaller --noconfirm --clean --onedir --name backend run.py \
   --collect-all depthai \
   --collect-all av \
   --collect-all duck_analyzer \
-  --collect-all mediapipe
+  --collect-all mediapipe \
+  --collect-all matplotlib
 
-# Electron expects resources/backend/backend on Linux. Use a fresh Linux
-# checkout, because this replaces any Windows backend.exe copied there.
-rm -rf "$FRONTEND_DIR/backend"
-mkdir -p "$FRONTEND_DIR/backend"
-cp -a "$BACKEND_DIR/dist/backend/." "$FRONTEND_DIR/backend/"
-chmod +x "$FRONTEND_DIR/backend/backend"
+# Keep release files separate from developer/runtime data in frontend/backend.
+# Electron maps this directory to resources/backend inside each installer.
+rm -rf "$FRONTEND_DIR/release-backend"
+mkdir -p "$FRONTEND_DIR/release-backend"
+cp -a "$BACKEND_DIR/dist/backend/." "$FRONTEND_DIR/release-backend/"
+chmod +x "$FRONTEND_DIR/release-backend/backend"
 
 cd "$FRONTEND_DIR"
-npm ci
-npm run build
-npx electron-builder --linux --x64 --publish never
+npm ci --include=optional
+npm run "package:linux:$ELECTRON_ARCH"
 
 echo
-echo "Linux artifacts are in: $FRONTEND_DIR/dist_app"
+echo "Linux $ELECTRON_ARCH artifacts are in: $FRONTEND_DIR/dist_app"

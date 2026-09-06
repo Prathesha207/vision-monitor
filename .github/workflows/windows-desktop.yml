@@ -1,0 +1,46 @@
+name: Build Windows desktop application
+
+on:
+  workflow_dispatch:
+    inputs:
+      acceleration:
+        description: "PyTorch package to embed"
+        required: true
+        default: cpu
+        type: choice
+        options: [cpu, cuda]
+  push:
+    branches: [main]
+    paths:
+      - "vision-ai-backend/**"
+      - "vision-ai-frontend/**"
+      - ".github/workflows/windows-desktop.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  package-windows:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: vision-ai-frontend/package-lock.json
+      - name: Build portable NSIS installer
+        shell: pwsh
+        run: |
+          $acceleration = '${{ inputs.acceleration || 'cpu' }}'
+          ./vision-ai-backend/build_windows_desktop.ps1 -Acceleration $acceleration
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vision-ai-windows-x64-${{ inputs.acceleration || 'cpu' }}
+          if-no-files-found: error
+          retention-days: 14
+          path: vision-ai-frontend/dist_app/*.exe

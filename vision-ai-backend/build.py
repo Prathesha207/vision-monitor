@@ -182,22 +182,29 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='{exe_name}',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
     console=True,       # set False to hide the terminal window in production
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='{exe_name}',
 )
 """
     with open(spec_path, "w") as f:
@@ -246,12 +253,13 @@ def main():
     )
 
     if result.returncode == 0:
-        exe_path = os.path.join("dist", f"{EXE_NAME}.exe")
+        exe_name_full = f"{EXE_NAME}.exe" if sys.platform == "win32" else EXE_NAME
+        exe_path = os.path.join("dist", EXE_NAME, exe_name_full)
         size_mb = os.path.getsize(exe_path) / (1024 * 1024) if os.path.exists(exe_path) else 0
         print(f"\n[SUCCESS] Build successful!")
-        print(f"   Output : dist/{EXE_NAME}.exe")
+        print(f"   Output : dist/{EXE_NAME}/{exe_name_full}")
         print(f"   Size   : {size_mb:.1f} MB")
-        print(f"\nTest it: .\\dist\\{EXE_NAME}.exe")
+        print(f"\nTest it: .\\dist\\{EXE_NAME}\\{exe_name_full}")
     else:
         print(f"\n❌ Build failed with exit code {result.returncode}")
         print("   Check the output above for missing modules and add them to ALWAYS_HIDDEN in build.py")

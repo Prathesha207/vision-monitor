@@ -2,7 +2,7 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const targetDir = path.join(__dirname, 'dist-app');
+const targetDir = path.join(__dirname, 'dist_app');
 const tmpDir = path.join(targetDir, 'win-unpacked.tmp');
 const destDir = path.join(targetDir, 'win-unpacked');
 

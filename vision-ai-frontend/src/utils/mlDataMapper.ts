@@ -126,34 +126,14 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEnt
     });
   }
 
-  // Collect all duck IDs that are actively detected (and NOT missing) in this frame
-  const detectedIds = new Set<string>();
-  incomingDucks.forEach(d => {
-    if (d.species === 'Duck' && d.statusEvent !== 'missing') {
-      detectedIds.add(String(d.id));
-    }
-  });
-
-  // Track all missing IDs (from backend's missing_ids array)
-  // ABSOLUTELY NO missing ducks during warmup!
+  // Only render missing cards explicitly reported for this frame. Thumbnail
+  // history is intentionally not evidence that a duck is currently missing:
+  // it is a session-wide gallery cache and would otherwise turn normal later
+  // frames into stale missing/anomaly frames.
   const resolvedMissingIds = new Set<string>();
 
   if (!isWarmingUp) {
     missingIds.forEach((mid: any) => resolvedMissingIds.add(String(mid)));
-
-    // If anchor is locked and we have active detections with real locked IDs (not provisional),
-    // any confirmed duck that has disappeared from detections is missing!
-    const hasLockedDetections = incomingDucks.some(d => !d.provisional && !d.id.startsWith('prov-'));
-    if (data.anchor_locked && hasLockedDetections) {
-      allThumbnails.forEach((t: any) => {
-        if ((t.event === 'confirmed' || t.event === 'added') && (t.species === 'duck' || !t.species)) {
-          const sid = String(t.id);
-          if (!detectedIds.has(sid)) {
-            resolvedMissingIds.add(sid);
-          }
-        }
-      });
-    }
   }
 
   // Inject missing ducks so they appear in the gallery.

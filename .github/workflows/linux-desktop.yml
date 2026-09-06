@@ -14,9 +14,19 @@ permissions:
 
 jobs:
   package-linux:
-    name: AppImage and Debian package (x64)
-    runs-on: ubuntu-22.04
+    name: AppImage and Debian package (${{ matrix.arch }})
+    # PyInstaller cannot cross-compile Python or PyTorch. Each backend is
+    # created on a runner with the same CPU architecture as its users.
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
 
     steps:
       - name: Check out source
@@ -47,7 +57,7 @@ jobs:
       - name: Upload Linux installers
         uses: actions/upload-artifact@v4
         with:
-          name: vision-ai-linux-x64
+          name: vision-ai-linux-${{ matrix.arch }}
           if-no-files-found: error
           retention-days: 14
           path: |

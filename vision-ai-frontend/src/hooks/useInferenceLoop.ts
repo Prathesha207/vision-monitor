@@ -25,7 +25,8 @@ export function useInferenceLoop({
   framesProcessed,
   setFramesProcessed,
   uptimeSeconds,
-  setUptimeSeconds
+  setUptimeSeconds,
+  setLastCameraFrame,
 }: {
   sourceType: StreamSourceType;
   videoSessionId: string | null;
@@ -46,6 +47,7 @@ export function useInferenceLoop({
   setFramesProcessed: (val: number) => void;
   uptimeSeconds: number;
   setUptimeSeconds: (val: number) => void;
+  setLastCameraFrame?: (frame: string) => void;
 }) {
   // FPS is preserved on stop so users can review the achieved performance.
   // It is only reset upon explicit session reset / clearing video or starting a new run.
@@ -68,6 +70,9 @@ export function useInferenceLoop({
             const data = JSON.parse(event.data);
             if (!isMounted) return;
             useInferenceStore.getState().setStats(data);
+            if (data.frame && setLastCameraFrame) {
+              setLastCameraFrame(data.frame);
+            }
             if (data.status !== 'queued' && data.status !== 'error' && data.status !== 'idle') {
               setFps(data.metrics?.fps || data.fps || 0);
               setFramesProcessed(data.frames_processed || 0);

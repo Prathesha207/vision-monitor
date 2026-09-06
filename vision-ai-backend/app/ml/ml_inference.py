@@ -33,6 +33,18 @@ class VideoInferenceService:
         # Resolve config path relative to this file
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.config_path = os.path.join(base_dir, "ml", "config.yaml")
+        if not os.path.exists(self.config_path):
+            candidates = [
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml"),
+                os.path.join(base_dir, "app", "ml", "config.yaml"),
+            ]
+            if hasattr(sys, "_MEIPASS"):
+                candidates.insert(0, os.path.join(sys._MEIPASS, "app", "ml", "config.yaml"))
+                candidates.insert(1, os.path.join(sys._MEIPASS, "ml", "config.yaml"))
+            for cand in candidates:
+                if os.path.exists(cand):
+                    self.config_path = cand
+                    break
 
     def stop_all_sessions(self):
         for sid, session in self.sessions.items():

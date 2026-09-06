@@ -216,6 +216,24 @@ def get_health():
     return {"status": "ready", "message": "Backend is healthy", "data": None}
 
 
+@app.post("/api/system/shutdown")
+@app.post("/shutdown")
+def shutdown_system():
+    """Endpoint for graceful desktop exit requested by Electron."""
+    import threading
+    import signal
+
+    def _delayed_exit():
+        time.sleep(0.5)
+        try:
+            os.kill(os.getpid(), signal.SIGTERM)
+        except Exception:
+            os._exit(0)
+
+    threading.Thread(target=_delayed_exit, daemon=True).start()
+    return {"status": "shutting_down", "message": "Backend terminating cleanly"}
+
+
 # ---------------------------------------------------
 #  REGISTER ROUTES
 # ---------------------------------------------------

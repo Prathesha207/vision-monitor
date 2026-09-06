@@ -46,6 +46,22 @@ export function useAnomalyStatus({
       };
     }
 
+    // When inference is not running and no detections exist yet: Standby/Ready (difference is 0, not -18!)
+    if (!isRunning && framesProcessed === 0 && ducks.length === 0) {
+      return {
+        isAnomaly: false,
+        type: 'NONE',
+        message: isCameraSource ? 'READY' : 'STANDBY',
+        subMessage: isCameraSource
+          ? 'Camera connected • Click Start Stream or Start Inference'
+          : 'Video loaded • Click Start Inference to begin analysis',
+        detectedCount: 0,
+        expectedCount: expectedDucks,
+        difference: 0,
+        foreignSpecies: [],
+      };
+    }
+
     if (isRunning && (isStarting || backendStatus === 'WARMING' || framesProcessed === 0)) {
       return {
         isAnomaly: false,
@@ -59,27 +75,46 @@ export function useAnomalyStatus({
       };
     }
 
-    const detectedCount = backendStats.detected_duck_count > 0 ? backendStats.detected_duck_count : ducks.length;
-    const foreignCount = backendStats.detected_other_toy_count;
-    const expectedFromMl = backendStats.expected_duck_count > 0 ? backendStats.expected_duck_count : expectedDucks;
+    // The backend count is the count for the current inference frame. Do not
+    // fall back when it is zero: doing so can reuse gallery cards from the
+    // prior frame and make the status disagree with the displayed count.
+    const backendDetected = Number(backendStats.detected_duck_count);
+    const detectedCount = Number.isFinite(backendDetected)
+      ? backendDetected
+      : ducks.filter((duck) => duck.species === 'Duck' && duck.statusEvent !== 'missing').length;
+    const backendExpected = Number(backendStats.expected_duck_count);
+    const expectedFromMl = Number.isFinite(backendExpected) && backendExpected > 0
+      ? backendExpected
+      : expectedDucks;
+    const backendForeign = Number(backendStats.detected_other_toy_count);
+    const foreignCount = Number.isFinite(backendForeign)
+      ? backendForeign
+      : ducks.filter((duck) => duck.species === 'Unknown' && !duck.provisional).length;
+    const missingIds = Array.isArray(backendStats.missing_ids) ? backendStats.missing_ids : [];
+    const hasMissingDuck = missingIds.length > 0 || ducks.some((duck) =>
+      !duck.provisional && duck.statusEvent === 'missing'
+    );
     const difference = detectedCount - expectedFromMl;
     const foreignSpecies = foreignCount > 0 ? ['Unknown'] : [];
 
     const isCountMismatch = detectedCount !== expectedFromMl;
     const hasForeign = foreignCount > 0;
-    
-    const isAnomaly = backendStatus === 'ANOMALY' || backendStatus === 'HAND';
-    let message = backendStatus === 'HAND' ? 'HAND DETECTED' : 'NORMAL';
+    const hasHand = backendStatus === 'HAND' || backendStats.hand_detected === true;
+
+    // This is the sole client verdict. A bare/stale backend status is not
+    // enough: current-frame evidence must support it. This keeps every UI
+    // surface in agreement when status packets and detection packets arrive
+    // at slightly different times.
+    const isAnomaly = hasHand || isCountMismatch || hasMissingDuck || hasForeign;
+    let message = hasHand ? 'HAND DETECTED' : isAnomaly ? 'ANOMALY' : 'NORMAL';
     let subMessage = `${detectedCount} ducks detected in target area. Count matches expected (${expectedFromMl}).`;
     let type: AnomalyStatus['type'] = 'NONE';
 
-    if (backendStatus === 'HAND') {
+    if (hasHand) {
       type = 'UNKNOWN';
       message = 'HAND DETECTED';
       subMessage = 'Hand detected in frame. Evaluation paused until hand is removed.';
-    } else if (backendStatus === 'ANOMALY') {
-      message = 'ANOMALY';
-      
+    } else if (isAnomaly) {
       if (hasForeign && isCountMismatch) {
         type = 'FOREIGN_SPECIES';
         subMessage = `${foreignCount} non-duck detected & duck count: ${detectedCount}/${expectedFromMl} (${difference > 0 ? `+${difference}` : difference})`;
@@ -94,13 +129,16 @@ export function useAnomalyStatus({
           subMessage = `+${difference} above expected count (${detectedCount} detected, ${expectedFromMl} expected)${added}`;
         } else {
           type = 'UNDER_COUNT';
-          const missingIds = backendStats.missing_ids || [];
           const missing = missingIds.length > 0 ? ` (Missing: ${missingIds.join(', ')})` : '';
           subMessage = `${Math.abs(difference)} missing ducks (${detectedCount} detected, ${expectedFromMl} expected)${missing}`;
         }
+      } else if (hasMissingDuck) {
+        type = 'MISSING_DUCK';
+        const missing = missingIds.length > 0 ? `: ${missingIds.join(', ')}` : '';
+        subMessage = `A tracked duck is missing from this frame${missing}.`;
       } else {
-        type = 'UNKNOWN';
-        subMessage = 'AI Engine flagged an anomaly (Check stream).';
+        type = 'FOREIGN_SPECIES';
+        subMessage = `${foreignCount} non-duck detected.`;
       }
     }
 

@@ -13,7 +13,10 @@
     "dev": "vite",
     "build": "vite build",
     "electron-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron --no-sandbox .\"",
-    "electron-build": "npm run build && electron-builder"
+    "electron-build": "npm run build && electron-builder",
+    "package:win:x64": "npm run build && electron-builder --win nsis --x64 --publish never",
+    "package:linux:x64": "npm run build && electron-builder --linux AppImage deb --x64 --publish never",
+    "package:linux:arm64": "npm run build && electron-builder --linux AppImage deb --arm64 --publish never"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
@@ -77,29 +80,30 @@
   "build": {
     "appId": "com.visionai.application",
     "productName": "Vision-AI",
-    "compression": "store",
+    "compression": "maximum",
     "asar": true,
     "npmRebuild": false,
     "buildDependenciesFromSource": false,
     "directories": {
       "output": "dist_app"
     },
+    "artifactName": "${productName}-${version}-${os}-${arch}-${ext}",
     "files": [
       "dist/**/*",
       "electron/**/*",
       "package.json"
     ],
     "asarUnpack": [
-      "**/*.node",
-      "backend/**/*"
+      "**/*.node"
     ],
     "extraResources": [
       {
-        "from": "backend",
+        "from": "release-backend",
         "to": "backend"
       }
     ],
     "linux": {
+      "icon": "public/icon.png",
       "executableArgs": [
         "--no-sandbox"
       ],
@@ -110,6 +114,7 @@
       "category": "Utility"
     },
     "win": {
+      "icon": "public/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -121,10 +126,13 @@
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
+      "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
-      "unicode": false
+      "shortcutName": "Vision AI",
+      "runAfterFinish": true,
+      "unicode": true
     }
   }
 }

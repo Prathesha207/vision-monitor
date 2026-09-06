@@ -23,7 +23,7 @@ export interface DuckEntity {
   handDetected?: boolean;
 }
 
-export type AnomalyType = 'NONE' | 'OVER_COUNT' | 'UNDER_COUNT' | 'FOREIGN_SPECIES' | 'OUT_OF_BOUNDS' | 'UNKNOWN';
+export type AnomalyType = 'NONE' | 'OVER_COUNT' | 'UNDER_COUNT' | 'MISSING_DUCK' | 'FOREIGN_SPECIES' | 'OUT_OF_BOUNDS' | 'UNKNOWN';
 
 export interface AnomalyStatus {
   isAnomaly: boolean;

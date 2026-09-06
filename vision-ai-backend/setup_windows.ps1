@@ -1,4 +1,5 @@
-# Install the backend and frontend correctly on a Windows development machine.
+# Install a portable Windows development environment.
+# For a distributable NSIS installer, run .\build_windows_desktop.ps1 afterwards.
 $ErrorActionPreference = 'Stop'
 
 $BackendDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -21,10 +22,14 @@ if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
   Write-Host 'No NVIDIA GPU detected; keeping CPU-compatible PyTorch.'
 }
 
-& $VenvPython -m pip install (Join-Path $BackendDir 'app\ml\duck_analyzer-1.0.8-py3-none-any.whl')
+$DuckAnalyzerWheel = Get-ChildItem (Join-Path $BackendDir 'app\ml\duck_analyzer-*.whl') |
+  Sort-Object Name -Descending |
+  Select-Object -First 1
+if (-not $DuckAnalyzerWheel) { throw 'The bundled duck_analyzer wheel is missing.' }
+& $VenvPython -m pip install $DuckAnalyzerWheel.FullName
 Push-Location $FrontendDir
 if (Test-Path 'node_modules') { Remove-Item 'node_modules' -Recurse -Force }
-npm install --include=optional
+& npm.cmd ci --include=optional
 Pop-Location
 
 & $VenvPython -c "import torch; print('PyTorch:', torch.__version__); print('CUDA available:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"

@@ -9,7 +9,6 @@ interface BoundingBoxOverlayProps {
   onSelectDuck: (id: string | null) => void;
   showAllBoxes: boolean;
   isHandPresent: boolean;
-  isFrameAnomaly?: boolean;
 }
 
 export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
@@ -18,7 +17,6 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
   onSelectDuck,
   showAllBoxes,
   isHandPresent,
-  isFrameAnomaly = false,
 }) => {
   if (isHandPresent) return null;
 
@@ -30,7 +28,7 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
         .filter((duck) => {
           if (duck.species === 'Hand' || duck.handDetected) return false;
           const isMissing = duck.statusEvent === 'missing';
-          const isAnomalyDuck = duck.provisional || duck.isAnomaly || isMissing || isFrameAnomaly;
+          const isAnomalyDuck = duck.provisional || duck.isAnomaly || isMissing;
           // In "Anomalies Only" mode, ONLY anomaly ducks are shown.
           // Normal ducks must NEVER leak through in "Anomalies Only" mode.
           const isVisible = showAllBoxes || isAnomalyDuck;
@@ -39,7 +37,7 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
         .map((duck, idx) => {
           const isProvisional = duck.provisional;
           const isMissing = duck.statusEvent === 'missing';
-          const isAnomaly = !isProvisional && (duck.isAnomaly || isMissing || isFrameAnomaly);
+          const isAnomaly = !isProvisional && (duck.isAnomaly || isMissing);
           const isSelected = duck.id === selectedDuckId;
           
           let borderColor = 'border-emerald-400/80 bg-emerald-500/5';
