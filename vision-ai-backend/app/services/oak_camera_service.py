@@ -63,6 +63,7 @@ class OakCameraService:
         self._stream_queue: asyncio.Queue | None = None
         self._stream_subscribers: set[asyncio.Queue] = set()
         self._server_loop: asyncio.AbstractEventLoop | None = None
+        self._is_streaming: bool = False
 
         # ---- Capture threads ----
         self._mjpeg_thread: threading.Thread | None = None
@@ -1642,6 +1643,7 @@ class OakCameraService:
         self._enforce_ae_limit()
         logger.info(f"[STREAMING] Step 2 — AE limit enforced | configured_fps={self._configured_fps} | ae_limit_us={self._ae_limit_us}")
 
+        self._is_streaming = True
         logger.info("[STREAMING] Started")
         realtime_log_service.add_log(
             "stream",
@@ -1652,15 +1654,23 @@ class OakCameraService:
         return {"status": "streaming"}
 
     async def stop_streaming(self) -> dict:
-        """User clicks Stop Streaming — close stream queue, stop threads if recording also inactive."""
-        self._close_stream_queue()
+        """User clicks Stop Streaming — close stream queue, stop threads if recording and inference also inactive."""
+        self._is_streaming = False
+        for q in list(self._stream_subscribers):
+            try:
+                q.put_nowait(None)
+            except Exception:
+                pass
+        self._stream_subscribers.clear()
+        self._stream_queue = None
 
         recording_active = self._active_recording is not None
-        if not recording_active:
-            logger.info("[STREAMING] No active recording — stopping capture threads")
+        inference_active = bool(self._inference_thread and self._inference_thread.is_alive())
+        if not recording_active and not inference_active:
+            logger.info("[STREAMING] No active recording or inference — stopping capture threads")
             self._stop_capture_threads()
         else:
-            logger.info("[STREAMING] Recording still active — keeping capture threads running")
+            logger.info(f"[STREAMING] Keeping capture threads running (recording={recording_active}, inference={inference_active})")
 
         logger.info("[STREAMING] Stopped")
         return {"status": "stopped"}
@@ -1679,7 +1689,7 @@ class OakCameraService:
             "convert_thread": bool(self._convert_thread and self._convert_thread.is_alive()),
             "inference_thread": bool(self._inference_thread and self._inference_thread.is_alive()),
             "inference_watchdog_thread": bool(self._inference_watchdog_thread and self._inference_watchdog_thread.is_alive()),
-            "streaming": bool(self._stream_subscribers) or (self._stream_queue is not None),
+            "streaming": self._is_streaming,
             "fps": round(self.current_fps, 1),
         }
 

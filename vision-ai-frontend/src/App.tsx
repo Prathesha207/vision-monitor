@@ -576,6 +576,8 @@ export default function App() {
               onRegisterTriggerUpload={(fn) => { uploadTriggerRef.current = fn; }}
               lastCameraFrame={lastCameraFrame}
               onRetryConnection={camera.startCameraStream}
+              onStartStream={camera.startCameraStream}
+              framesProcessed={inference.framesProcessed}
             />
           </main>
 

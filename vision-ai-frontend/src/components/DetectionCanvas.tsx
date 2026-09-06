@@ -10,6 +10,7 @@ import { cameraService } from './service/cameraService';
 import { BoundingBoxOverlay } from './canvas/BoundingBoxOverlay';
 import { VideoUploadCard } from './canvas/VideoUploadCard';
 import { CameraOfflineCard } from './canvas/CameraOfflineCard';
+import { CameraStandbyCard } from './canvas/CameraStandbyCard';
 import { TopToolbar } from './canvas/TopToolbar';
 import { StatusBar } from './canvas/StatusBar';
 import { LoadingOverlay } from './canvas/LoadingOverlay';
@@ -32,6 +33,7 @@ interface DetectionCanvasProps {
   onStopInference?: () => void;
   onResumeInference?: () => void;
   isStreaming?: boolean;
+  onStartStream?: () => void;
   onRequestSwitchMode?: (type: StreamSourceType) => void;
   fps: number;
   sourceType: StreamSourceType;
@@ -52,6 +54,7 @@ interface DetectionCanvasProps {
   onRegisterTriggerUpload?: (trigger: () => void) => void;
   lastCameraFrame?: string;
   onRetryConnection?: () => void;
+  framesProcessed?: number;
 }
 
 export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
@@ -66,6 +69,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   onStopInference,
   onResumeInference,
   isStreaming = false,
+  onStartStream,
   onRequestSwitchMode,
   fps,
   sourceType,
@@ -86,6 +90,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   onRegisterTriggerUpload,
   lastCameraFrame,
   onRetryConnection,
+  framesProcessed = 0,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -107,6 +112,9 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   const hasActiveVideo = isVideoSource && !!customVideoUrl;
   const isWaitingForVideo = isVideoSource && !hasActiveVideo;
   const isCameraOffline = isCameraSource && !isCameraConnected;
+
+  const effectiveFramesProcessed = framesProcessed || backendStats?.frames_processed || 0;
+  const hasInferenceResult = effectiveFramesProcessed > 0 && ducks.length > 0;
   
   const isHandPresent = 
     backendStats?.status === 'HAND' || 
@@ -236,8 +244,16 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
         />
       )}
 
+      {isCameraSource && isCameraConnected && !isStreaming && (
+        <CameraStandbyCard
+          onStartStream={onStartStream}
+          onSwitchToVideo={() => onRequestSwitchMode?.('uploaded-video')}
+          onCanvasClick={handleCanvasClick}
+        />
+      )}
+
       {/* 2 & 3. VIDEO & CAMERA VIEWPORT WITH TRUE ASPECT RATIO */}
-      {(hasActiveVideo || (isCameraSource && isCameraConnected)) && (
+      {(hasActiveVideo || (isCameraSource && isCameraConnected && isStreaming)) && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-black">
           <div className="relative shrink-0" style={fittedRect} onClick={handleCanvasClick}>
             {/* STREAM VIEWPORT: If backend session is active (video or camera), render via <img> to support MJPEG streaming */}
@@ -247,9 +263,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                 crossOrigin="anonymous"
                 src={
                   isCameraSource
-                    ? (isStreaming
-                        ? `${getApiBaseUrl()}/oak/inference/stream/live?t=${streamCacheBuster}`
-                        : (lastCameraFrame || `${getApiBaseUrl()}/oak/snapshot?t=${streamCacheBuster}`))
+                    ? `${getApiBaseUrl()}/oak/inference/stream/live?t=${streamCacheBuster}`
                     : effectiveVideoUrl
                 }
                 className="absolute inset-0 z-0 h-full w-full pointer-events-none rounded bg-black object-contain"
@@ -287,7 +301,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
             <canvas ref={canvasRef} className="absolute inset-0 z-10 h-full w-full pointer-events-none rounded" />
 
             {/* AI Bounding Boxes: Shown in INFERENCE mode or always for video upload */}
-            {(feedMode === 'inference' || !isCameraSource) && (
+            {(isRunning || hasInferenceResult) && (feedMode === 'inference' || !isCameraSource) && ducks.length > 0 && (
               <BoundingBoxOverlay
                 ducks={ducks}
                 selectedDuckId={selectedDuckId}
@@ -345,9 +359,10 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
         anomalyStatus={anomalyStatus}
         isStreaming={isStreaming}
         isFirstFrameLoaded={isFirstFrameLoaded}
+        framesProcessed={effectiveFramesProcessed}
       />
 
-      {showHUD && !isCameraOffline && (isRunning || isStarting || ducks.length > 0 || ((backendStats?.frames_processed ?? 0) > 0)) && (
+      {showHUD && !isCameraOffline && (isRunning || isStarting || hasInferenceResult) && (
         <StatusBar
           anomalyStatus={anomalyStatus}
           fps={fps}

@@ -22,6 +22,7 @@ interface TopToolbarProps {
   anomalyStatus: AnomalyStatus;
   isStreaming: boolean;
   isFirstFrameLoaded: boolean;
+  framesProcessed?: number;
 }
 
 export const TopToolbar: React.FC<TopToolbarProps> = ({
@@ -38,17 +39,21 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   showHUD,
   onToggleHUD,
   isCameraSource,
-  isVideoSource,
+  isVideoSource: _isVideoSource,
   anomalyStatus,
   isStreaming,
+  framesProcessed = 0,
 }) => {
   const isMediaActive = isRunning || hasActiveVideo || (isCameraSource && isStreaming);
   if (!isMediaActive) return null;
 
+  const hasInferenceResult = framesProcessed > 0 || (anomalyStatus.detectedCount ?? 0) > 0;
+  const showInferenceStatus = isRunning || hasInferenceResult;
+
   return (
     <>
       {/* Top-Left Corner: Real-Time Status Badge */}
-      {(isRunning || hasActiveVideo) && (
+      {showInferenceStatus && (
         <div className="absolute top-2 sm:top-3 left-2 sm:left-3 pointer-events-auto z-30 flex items-center shrink-0">
           <div
             className={`flex items-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-3 rounded-xl border text-[10px] sm:text-xs font-black tracking-wide shrink-0 transition-all ${
@@ -96,7 +101,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
 
       {/* Top-Right Corner: Action Controls */}
       <div className="absolute top-2 sm:top-3 right-2 sm:right-3 flex items-center gap-1 sm:gap-1.5 pointer-events-auto z-30 ml-auto shrink-0">
-        {(isRunning || hasActiveVideo) && (
+        {showInferenceStatus && (
           <>
             {/* Feed toggle pill: RAW vs INFERENCE - Only shown for OAK camera, NOT for video upload */}
           {isCameraSource && (

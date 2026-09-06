@@ -118,17 +118,23 @@ async def stream(request: Request, session_id: Optional[str] = None):
                     logger.info(f"[STREAM] Client disconnected — frames sent: {frames_sent}")
                     break
 
+                if not oak_camera_service._is_streaming:
+                    logger.info(f"[STREAM] Stream stopped — ending client stream cleanly (frames sent: {frames_sent})")
+                    break
+
                 try:
                     jpeg = await asyncio.wait_for(client_queue.get(), timeout=2.0)
                 except asyncio.TimeoutError:
-                    if not oak_camera_service._is_running:
+                    if not oak_camera_service._is_running or not oak_camera_service._is_streaming:
                         break
-                    # If capture threads died, attempt restart
-                    if not (oak_camera_service._mjpeg_thread and oak_camera_service._mjpeg_thread.is_alive()):
+                    # If capture threads died while streaming is active, attempt restart
+                    if oak_camera_service._is_streaming and not (oak_camera_service._mjpeg_thread and oak_camera_service._mjpeg_thread.is_alive()):
                         oak_camera_service._start_capture_threads()
                     continue
 
                 if jpeg is None:
+                    if not oak_camera_service._is_streaming:
+                        break
                     continue
 
                 yield (
@@ -187,10 +193,8 @@ async def snapshot():
         if success:
             return Response(content=buf.tobytes(), media_type="image/jpeg")
 
-    # 3. If camera is running, ensure capture threads are active and wait briefly
-    if oak_camera_service._is_running:
-        if not (oak_camera_service._mjpeg_thread and oak_camera_service._mjpeg_thread.is_alive()):
-            oak_camera_service._start_capture_threads()
+    # 3. If capture threads are alive, wait briefly for frame
+    if oak_camera_service._mjpeg_thread and oak_camera_service._mjpeg_thread.is_alive():
         frame = await oak_camera_service.get_stream_frame(timeout=1.0)
         if frame is not None:
             return Response(content=frame, media_type="image/jpeg")

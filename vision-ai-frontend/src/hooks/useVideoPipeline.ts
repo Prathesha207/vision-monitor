@@ -75,6 +75,13 @@ export function useVideoPipeline({
     setAutoStartRecordedInference(false);
     setCameraStartingState('ready');
 
+    // Clean slate: clear prior detections, frame counts, and stats for the new video
+    setDucks([]);
+    setFramesProcessed(0);
+    setFps(0);
+    useInferenceStore.getState().resetStats();
+    resetBBoxCache();
+
     if (isStreamUrl) {
       setIsRunning(true);
       showToast('success', `Inference started for "${name}"`);

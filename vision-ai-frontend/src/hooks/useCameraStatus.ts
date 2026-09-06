@@ -69,8 +69,9 @@ export function useCameraStatus(
             setCameraConfig((prev) => (prev.connected !== isOnline ? { ...prev, connected: isOnline } : prev));
             setIsCameraDeviceActive(isOnline);
             setCameraConnected(isOnline);
-            if (data.streaming || data.running) {
-              setIsStreaming(true);
+            // Only force false if the hardware is completely offline
+            if (!isOnline) {
+              setIsStreaming(false);
             }
           }
         } else {
