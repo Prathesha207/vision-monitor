@@ -14,6 +14,7 @@ echo "========================================================"
 # Make inner scripts executable
 chmod +x "$ROOT_DIR/vision-ai-backend/build_linux_desktop.sh"
 chmod +x "$ROOT_DIR/vision-ai-backend/setup_linux.sh"
+chmod +x "$ROOT_DIR/vision-ai-backend/run_dev_linux.sh"
 
 # Run build script inside vision-ai-backend
 cd "$ROOT_DIR/vision-ai-backend"
