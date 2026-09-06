@@ -72,7 +72,7 @@ FailedFrames/
 # Local package/build artifacts
 *.mp4
 *.whl
-!app/ml/duck_analyzer-1.0.8-py3-none-any.whl
+!app/ml/duck_analyzer-*.whl
 vision_ai.db*
 
 # =========================
