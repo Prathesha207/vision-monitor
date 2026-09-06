@@ -61,6 +61,7 @@ class OakCameraService:
 
         # ---- Stream queue (MJPEG thread -> HTTP streaming endpoint) ----
         self._stream_queue: asyncio.Queue | None = None
+        self._stream_subscribers: set[asyncio.Queue] = set()
         self._server_loop: asyncio.AbstractEventLoop | None = None
 
         # ---- Capture threads ----
@@ -478,7 +479,8 @@ class OakCameraService:
                 jpeg = bytes(pkt.getData())
                 frames += 1
 
-                if self._stream_queue is not None and self._server_loop is not None:
+                has_subscribers = bool(self._stream_subscribers) or (self._stream_queue is not None)
+                if has_subscribers and self._server_loop is not None:
                     asyncio.run_coroutine_threadsafe(
                         self._async_stream_push(jpeg), self._server_loop
                     )
@@ -489,11 +491,12 @@ class OakCameraService:
                 now = time.time()
                 if now - last_log >= 5.0:
                     elapsed = now - last_log
+                    sub_count = len(self._stream_subscribers)
                     logger.info(
                         f"[MJPEG] FPS: {frames / elapsed:.1f} | "
                         f"pushed: {frames_pushed} | "
                         f"dropped (no client): {frames_dropped} | "
-                        f"stream_queue_size: {self._stream_queue.qsize() if self._stream_queue else 'N/A'}"
+                        f"subscribers: {sub_count}"
                     )
                     frames = 0
                     frames_pushed = 0
@@ -605,43 +608,81 @@ class OakCameraService:
     # ==================== Stream Queue ====================
 
     async def _async_stream_push(self, jpeg: bytes) -> None:
-        """Drop-oldest push into the asyncio stream queue (called via run_coroutine_threadsafe)."""
-        if self._stream_queue is None:
-            return
-        if self._stream_queue.full():
+        """Drop-oldest push into all subscribed asyncio stream queues."""
+        for q in list(self._stream_subscribers):
+            if q.full():
+                try:
+                    q.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
             try:
-                self._stream_queue.get_nowait()
-            except asyncio.QueueEmpty:
+                q.put_nowait(jpeg)
+            except asyncio.QueueFull:
                 pass
-        try:
-            self._stream_queue.put_nowait(jpeg)
-        except asyncio.QueueFull:
-            pass
-
-    def _open_stream_queue(self) -> None:
-        self._server_loop = asyncio.get_running_loop()
-        self._stream_queue = asyncio.Queue(maxsize=4)
-        logger.info("[STREAM] Queue opened")
-
-    def _close_stream_queue(self) -> None:
-        if self._stream_queue is not None:
-            drained = 0
-            while not self._stream_queue.empty():
+        if self._stream_queue is not None and self._stream_queue not in self._stream_subscribers:
+            if self._stream_queue.full():
                 try:
                     self._stream_queue.get_nowait()
-                    drained += 1
+                except asyncio.QueueEmpty:
+                    pass
+            try:
+                self._stream_queue.put_nowait(jpeg)
+            except asyncio.QueueFull:
+                pass
+
+    def subscribe_stream(self) -> asyncio.Queue:
+        if self._server_loop is None:
+            try:
+                self._server_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                pass
+        q: asyncio.Queue = asyncio.Queue(maxsize=4)
+        self._stream_subscribers.add(q)
+        self._stream_queue = q
+        logger.info(f"[STREAM] Client subscribed — active subscribers: {len(self._stream_subscribers)}")
+        return q
+
+    def unsubscribe_stream(self, q: asyncio.Queue | None = None) -> None:
+        if q is not None:
+            self._stream_subscribers.discard(q)
+            while not q.empty():
+                try:
+                    q.get_nowait()
                 except asyncio.QueueEmpty:
                     break
-            logger.info(f"[STREAM] Queue closed — drained {drained} stale frames")
-        self._stream_queue = None
+        else:
+            for sub in list(self._stream_subscribers):
+                while not sub.empty():
+                    try:
+                        sub.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+            self._stream_subscribers.clear()
+
+        if not self._stream_subscribers:
+            self._stream_queue = None
+        logger.info(f"[STREAM] Client unsubscribed — remaining subscribers: {len(self._stream_subscribers)}")
+
+    def _open_stream_queue(self) -> asyncio.Queue:
+        return self.subscribe_stream()
+
+    def _close_stream_queue(self, q: asyncio.Queue | None = None) -> None:
+        self.unsubscribe_stream(q)
 
     async def get_stream_frame(self, timeout: float = 1.0) -> bytes | None:
-        if self._stream_queue is None:
-            return None
-        try:
-            return await asyncio.wait_for(self._stream_queue.get(), timeout=timeout)
-        except asyncio.TimeoutError:
-            return None
+        if self._stream_queue is not None:
+            try:
+                return await asyncio.wait_for(self._stream_queue.get(), timeout=timeout)
+            except asyncio.TimeoutError:
+                pass
+        if self._latest_bgr is not None:
+            try:
+                ret, buf = cv2.imencode(".jpg", self._latest_bgr, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if ret:
+                    return buf.tobytes()
+            except Exception:
+                pass
+        return None
 
     # ==================== Frame Access ====================
 
@@ -1623,12 +1664,15 @@ class OakCameraService:
         return {
             "running": self._is_running,
             "connected": self.is_connected,
+            "camera_running": self._is_running,
+            "is_running": self._is_running,
+            "is_connected": self.is_connected,
             "mjpeg_thread": bool(self._mjpeg_thread and self._mjpeg_thread.is_alive()),
             "hires_thread": bool(self._hires_thread and self._hires_thread.is_alive()),
             "convert_thread": bool(self._convert_thread and self._convert_thread.is_alive()),
             "inference_thread": bool(self._inference_thread and self._inference_thread.is_alive()),
             "inference_watchdog_thread": bool(self._inference_watchdog_thread and self._inference_watchdog_thread.is_alive()),
-            "streaming": self._stream_queue is not None,
+            "streaming": bool(self._stream_subscribers) or (self._stream_queue is not None),
             "fps": round(self.current_fps, 1),
         }
 

@@ -1,14 +1,17 @@
 import asyncio
 import logging
 import time
+from typing import Optional
 
+import cv2
+import numpy as np
 from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
-from typing import Optional
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_db
+from app.models.camera_model import Camera
 from app.services import camera_service
 from app.services.oak_camera_service import oak_camera_service
 
@@ -68,11 +71,29 @@ async def stop_stream():
 # ==================== MJPEG Stream ====================
 
 @router.get("/stream")
-async def stream(request: Request):
-    """MJPEG HTTP stream — connect to this after stream/start.
-    Opens the frame queue, yields frames until client disconnects,
-    then closes the queue.
+@router.get("/stream/live")
+@router.get("/inference/stream/live")
+@router.get("/inference/stream/{session_id}")
+async def stream(request: Request, session_id: Optional[str] = None):
+    """MJPEG HTTP stream — connect to this after stream/start or on canvas load.
+    Subscribes a client frame queue, yields frames until client disconnects,
+    then unsubscribes cleanly without interrupting other clients.
     """
+    if not oak_camera_service._is_running:
+        # Auto-start camera from database if configured
+        try:
+            from app.core.database import SessionLocal
+            db = SessionLocal()
+            try:
+                cam = camera_service.get_camera_config(db)
+                if cam:
+                    logger.info(f"[STREAM] Auto-starting camera ID {cam.id} ({cam.ip_address}) for stream")
+                    await oak_camera_service.start(cam)
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(f"[STREAM] Auto-start camera failed: {e}")
+
     if not oak_camera_service._is_running:
         return Response(
             content=b"Camera not started",
@@ -80,7 +101,12 @@ async def stream(request: Request):
             media_type="text/plain",
         )
 
-    oak_camera_service._open_stream_queue()
+    # Ensure capture threads are active so frames are actively produced
+    if not (oak_camera_service._mjpeg_thread and oak_camera_service._mjpeg_thread.is_alive()):
+        logger.info("[STREAM] Capture threads not running — starting them now")
+        oak_camera_service._start_capture_threads()
+
+    client_queue = oak_camera_service.subscribe_stream()
 
     async def generate():
         frames_sent = 0
@@ -92,13 +118,17 @@ async def stream(request: Request):
                     logger.info(f"[STREAM] Client disconnected — frames sent: {frames_sent}")
                     break
 
-                jpeg = await oak_camera_service.get_stream_frame(timeout=1.0)
+                try:
+                    jpeg = await asyncio.wait_for(client_queue.get(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    if not oak_camera_service._is_running:
+                        break
+                    # If capture threads died, attempt restart
+                    if not (oak_camera_service._mjpeg_thread and oak_camera_service._mjpeg_thread.is_alive()):
+                        oak_camera_service._start_capture_threads()
+                    continue
 
                 if jpeg is None:
-                    # Queue was closed externally (POST /stream/stop called)
-                    if oak_camera_service._stream_queue is None:
-                        logger.info(f"[STREAM] Stream stopped externally — frames sent: {frames_sent}")
-                        break
                     continue
 
                 yield (
@@ -114,7 +144,7 @@ async def stream(request: Request):
                     elapsed = time.time() - start_time
                     logger.info(
                         f"[STREAM] Frames sent: {frames_sent} | "
-                        f"avg FPS: {frames_sent / elapsed:.1f}"
+                        f"avg FPS: {frames_sent / max(elapsed, 1):.1f}"
                     )
 
         except Exception as e:
@@ -126,7 +156,7 @@ async def stream(request: Request):
                 f"duration: {elapsed:.1f}s | "
                 f"avg FPS: {frames_sent / max(elapsed, 1):.1f}"
             )
-            oak_camera_service._close_stream_queue()
+            oak_camera_service.unsubscribe_stream(client_queue)
 
     return StreamingResponse(
         generate(),
@@ -144,11 +174,31 @@ async def stream(request: Request):
 
 @router.get("/snapshot")
 async def snapshot():
-    """Single JPEG frame — camera must be started first."""
-    frame = await oak_camera_service.get_stream_frame(timeout=2.0)
-    if frame is None:
-        return Response(status_code=503)
-    return Response(content=frame, media_type="image/jpeg")
+    """Single JPEG frame — returns latest live frame or fallback to prevent UI errors."""
+    # 1. Try from stream queue / buffer
+    frame = await oak_camera_service.get_stream_frame(timeout=0.5)
+    if frame is not None:
+        return Response(content=frame, media_type="image/jpeg")
+
+    # 2. Try latest BGR frame from converter
+    bgr = oak_camera_service.get_bgr_frame()
+    if bgr is not None:
+        success, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        if success:
+            return Response(content=buf.tobytes(), media_type="image/jpeg")
+
+    # 3. If camera is running, ensure capture threads are active and wait briefly
+    if oak_camera_service._is_running:
+        if not (oak_camera_service._mjpeg_thread and oak_camera_service._mjpeg_thread.is_alive()):
+            oak_camera_service._start_capture_threads()
+        frame = await oak_camera_service.get_stream_frame(timeout=1.0)
+        if frame is not None:
+            return Response(content=frame, media_type="image/jpeg")
+
+    # 4. Fallback: 1280x720 dark frame to avoid 503 error triggering frontend disconnect
+    blank = np.zeros((720, 1280, 3), dtype=np.uint8)
+    _, buf = cv2.imencode(".jpg", blank, [cv2.IMWRITE_JPEG_QUALITY, 50])
+    return Response(content=buf.tobytes(), media_type="image/jpeg")
 
 
 # ==================== Health ====================

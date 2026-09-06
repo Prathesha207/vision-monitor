@@ -32,6 +32,12 @@ fi
 # Configurable base port (default 8000, or override with BACKEND_PORT=8080)
 TARGET_PORT="${BACKEND_PORT:-${PORT:-8000}}"
 
+# Clean up any lingering dev server process on TARGET_PORT from previous sessions
+if command -v fuser >/dev/null 2>&1; then
+  fuser -k "${TARGET_PORT}/tcp" 2>/dev/null || true
+  sleep 0.3
+fi
+
 # Function to check if a port is available without killing existing processes
 is_port_free() {
   "$BACKEND_DIR/.venv/bin/python" -c "
@@ -65,10 +71,15 @@ cleanup() {
   echo ""
   echo "Stopping development servers..."
   if [[ -n "${BACKEND_PID:-}" ]]; then
+    pkill -P "$BACKEND_PID" 2>/dev/null || true
     kill "$BACKEND_PID" 2>/dev/null || true
   fi
   if [[ -n "${FRONTEND_PID:-}" ]]; then
+    pkill -P "$FRONTEND_PID" 2>/dev/null || true
     kill "$FRONTEND_PID" 2>/dev/null || true
+  fi
+  if command -v fuser >/dev/null 2>&1; then
+    fuser -k "${PORT}/tcp" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT INT TERM

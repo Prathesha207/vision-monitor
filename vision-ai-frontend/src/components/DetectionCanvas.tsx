@@ -261,7 +261,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                   setIsFirstFrameLoaded(true);
                 }}
                 onError={() => {
-                  if (isCameraSource && onCameraDeviceChange) onCameraDeviceChange(false);
+                  console.warn('[DetectionCanvas] Camera stream frame interrupted, retrying...');
                 }}
               />
             ) : hasActiveVideo ? (

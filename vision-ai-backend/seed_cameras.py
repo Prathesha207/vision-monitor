@@ -77,7 +77,7 @@ def check_camera_connections(devices):
                     except Exception as p2_err:
                         print(f"    ✗ ColorCamera fallback also failed: {p2_err}")
 
-            connected.append((actual_id, device_info, pipeline_ok or features_ok))
+            connected.append((actual_id, device_info, pipeline_ok))
             device.close()
 
         except Exception as error:
@@ -99,21 +99,23 @@ def seed_connected_cameras(db, connected_devices):
 
     existing = {camera.ip_address: camera for camera in db.query(Camera).all()}
 
-    for index, (device_id, _, _) in enumerate(connected_devices, start=1):
+    for index, (device_id, _, pipeline_passed) in enumerate(connected_devices, start=1):
         if device_id in existing:
             cam = existing[device_id]
-            cam.is_enabled = True
-            print(f"  - Updated Camera ID {cam.id} ({cam.name} | {cam.ip_address}) -> ENABLED")
+            cam.is_enabled = bool(pipeline_passed)
+            status_text = "ENABLED" if pipeline_passed else "DISABLED (requires setup)"
+            print(f"  - Updated Camera ID {cam.id} ({cam.name} | {cam.ip_address}) -> {status_text}")
         else:
             camera = Camera(
                 name=f"OAK Camera {index}",
                 ip_address=device_id,
                 resolution="1920x1080",
                 fps=30,
-                is_enabled=True,
+                is_enabled=bool(pipeline_passed),
             )
             db.add(camera)
-            print(f"  - Created Camera: {camera.name} | {camera.ip_address} -> ENABLED")
+            status_text = "ENABLED" if pipeline_passed else "DISABLED (requires setup)"
+            print(f"  - Created Camera: {camera.name} | {camera.ip_address} -> {status_text}")
 
     db.commit()
 

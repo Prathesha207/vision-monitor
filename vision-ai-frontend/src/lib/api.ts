@@ -18,7 +18,16 @@ export function getApiBaseUrl(): string {
   // 2. Explicit env override (e.g. from .env file or Cloudflare build)
   const envUrl = (import.meta as any).env?.VITE_API_BASE_URL;
   if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
-    return envUrl.replace(/\/+$/, '');
+    const trimmed = envUrl.replace(/\/+$/, '');
+    if (typeof window !== 'undefined' && window.location?.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      try {
+        const parsed = new URL(trimmed);
+        if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+          return `${window.location.protocol}//${window.location.hostname}:${parsed.port || '8000'}`;
+        }
+      } catch {}
+    }
+    return trimmed;
   }
 
   // 3. Dynamic match of current browser host (e.g. http://localhost:5173 or LAN IP)
