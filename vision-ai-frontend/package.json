@@ -80,7 +80,7 @@
   "build": {
     "appId": "com.visionai.application",
     "productName": "Vision-AI",
-    "compression": "normal",
+    "compression": "store",
     "asar": true,
     "npmRebuild": false,
     "buildDependenciesFromSource": false,
@@ -103,7 +103,6 @@
       }
     ],
     "linux": {
-      "desktopName": "vision-ai",
       "icon": "public/icon.png",
       "executableArgs": [
         "--no-sandbox"
