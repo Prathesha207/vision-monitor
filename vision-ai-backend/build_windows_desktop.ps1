@@ -71,17 +71,8 @@ try {
     Write-Host 'npm ci failed, falling back to npm install...'
     & npm.cmd install --include=optional
   }
-  & npx electron-builder --win --dir --x64
-  if ($LASTEXITCODE -ne 0) { throw 'electron-builder packaging failed.' }
-
-  $Iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
-  if (-not $Iscc -or -not (Test-Path $Iscc)) {
-    $Iscc = Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'
-  }
-  if (-not (Test-Path $Iscc)) { throw 'Inno Setup compiler (ISCC.exe) not found.' }
-
-  & $Iscc "installer.iss"
-  if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed.' }
+  & npm.cmd run package:win:x64
+  if ($LASTEXITCODE -ne 0) { throw 'electron-builder NSIS packaging failed.' }
 } finally { Pop-Location }
 
 Write-Host "Installer ready in $FrontendDir\dist_app"

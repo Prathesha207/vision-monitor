@@ -491,6 +491,7 @@ export default function App() {
     inference.setFps(0);
     inference.setUptimeSeconds(0);
     sourceStateCache.current.camera = null;
+    setLastCameraFrame(undefined);
     // Reset all camera hardware flags so canvas returns to standby/offline state
     camera.setCameraStartingState('ready');
     camera.setIsStreaming(false);
@@ -503,7 +504,7 @@ export default function App() {
     try {
       await cameraService.stopStream();
     } catch {}
-    showToast('info', 'Camera inference reset • Ready to start again');
+    showToast('info', 'Camera reset • Ready to start stream');
     addLog('Camera session reset • Detections cleared, stream ready.', 'info');
   };
 
@@ -524,8 +525,15 @@ export default function App() {
         await fetch(`${getApiBaseUrl()}/video/stop/${video.videoSessionId}`, { method: 'POST' });
       } catch {}
     }
-    showToast('info', 'Video playback reset to beginning');
-    addLog('Video playback reset to frame 0 • Ready for inference.', 'info');
+    // Clear the video pipeline state so the upload card shows again
+    video.setCustomVideoUrl(undefined);
+    video.setLocalPreviewUrl(undefined);
+    video.setVideoSessionId(null);
+    video.setCustomVideoName(undefined);
+    // Clear persisted session so a refresh after reset shows the upload card, not auto-resume
+    clearSessionState();
+    showToast('info', 'Video reset • Upload a new video to begin');
+    addLog('Video cleared • Ready for a new upload.', 'info');
   };
 
   // Wrap toggle/stop/resume to pass startVideoInference

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { getApiBaseUrl } from '../lib/api';
 import { playWaterDropSound } from '../utils/audio';
+import { useInferenceStore } from '../store/inferenceStore';
 
 export const useVideoUpload = (
   fileInputRef: React.RefObject<HTMLInputElement | null>,
@@ -13,13 +14,14 @@ export const useVideoUpload = (
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [isSelectingVideo, setIsSelectingVideo] = useState(false);
-  
+
   const blobUrlRef = useRef<string | null>(null);
 
   const processUploadedFile = async (file: File) => {
     playWaterDropSound();
-    
+
     setUploadProgress(0);
+    useInferenceStore.getState().setVideoLoading(true);
 
     const formData = new FormData();
     formData.append('file', file);
@@ -40,15 +42,10 @@ export const useVideoUpload = (
         try {
           const data = JSON.parse(xhr.responseText);
           setUploadProgress(100);
-          setTimeout(async () => {
-            setUploadProgress(null);
-            const baseUrl = getApiBaseUrl();
+          const baseUrl = getApiBaseUrl();
+          // Start inference immediately without artificial delay
+          (async () => {
             try {
-              await fetch(`${baseUrl}/video/update_expected/${data.session_id}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ count: expectedDucks })
-              }).catch(() => {});
               await fetch(`${baseUrl}/video/start/${data.session_id}`, { method: 'POST' });
             } catch (e) {
               console.error('Failed to auto-start video inference:', e);
@@ -57,18 +54,23 @@ export const useVideoUpload = (
               const streamUrl = `${baseUrl}/video/stream/${data.session_id}`;
               onVideoUploaded(streamUrl, file.name, data.session_id);
             }
-          }, 350);
+            setUploadProgress(null);
+            useInferenceStore.getState().setVideoLoading(false);
+          })();
         } catch (e) {
           setUploadProgress(null);
+          useInferenceStore.getState().setVideoLoading(false);
         }
       } else {
         setUploadProgress(null);
+        useInferenceStore.getState().setVideoLoading(false);
         console.error('Upload failed with status:', xhr.status);
       }
     };
 
     xhr.onerror = () => {
       setUploadProgress(null);
+      useInferenceStore.getState().setVideoLoading(false);
       console.error('Network error during video upload');
     };
 
@@ -116,6 +118,7 @@ export const useVideoUpload = (
           return;
         }
 
+        useInferenceStore.getState().setVideoLoading(true);
         const baseUrl = getApiBaseUrl();
         const res = await fetch(`${baseUrl}/video/inference/path`, {
           method: 'POST',
@@ -140,7 +143,7 @@ export const useVideoUpload = (
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ count: expectedDucks })
-          }).catch(() => {});
+          }).catch(() => { });
           await fetch(`${baseUrl}/video/start/${data.session_id}`, { method: 'POST' });
         } catch (e) {
           console.error('Failed to start inference on desktop upload:', e);
@@ -154,6 +157,7 @@ export const useVideoUpload = (
         console.error('Desktop video selection error:', err);
       } finally {
         setIsSelectingVideo(false);
+        useInferenceStore.getState().setVideoLoading(false);
       }
       return;
     }

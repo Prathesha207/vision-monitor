@@ -48,7 +48,7 @@ anomaly_smoothing_frames: 15
 tracker: "bytetrack.yaml"
 # frames a duck must be gone before a missing_alert thumbnail fires (once per episode)
 missing_patience: 20
-strict_count: true
+strict_count: false
 rebind_pos_weight: 0.5
 rebind_app_weight: 0.5
 rebind_threshold: 0.2     # lower = easier to reclaim a slot (fewer false MISSING)

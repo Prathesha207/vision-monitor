@@ -104,7 +104,6 @@
     ],
     "linux": {
       "desktopName": "vision-ai",
-      "syncDesktopName": true,
       "icon": "public/icon.png",
       "executableArgs": [
         "--no-sandbox"
@@ -113,9 +112,6 @@
         "AppImage",
         "deb"
       ],
-      "deb": {
-        "compression": "gz"
-      },
       "category": "Utility"
     },
     "win": {

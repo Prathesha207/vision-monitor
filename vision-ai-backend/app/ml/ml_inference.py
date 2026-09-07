@@ -52,6 +52,87 @@ class VideoInferenceService:
                     self.config_path = cand
                     break
 
+        self._shared_analyzer = None
+
+    def _get_or_create_analyzer(
+        self,
+        session_config_path: str,
+        expected_duck_count: int,
+        results_json_path: str,
+        thumbnail_dir: str,
+    ):
+        if self._shared_analyzer is None:
+            logger.info("Initializing DuckAnalyzer (loading YOLO weights into memory once)...")
+            analyzer = DuckAnalyzer(
+                session_config_path,
+                expected_duck_count=expected_duck_count
+            )
+            self._shared_analyzer = analyzer
+            return analyzer
+        else:
+            logger.info("Reusing in-memory DuckAnalyzer (instant session reset, no model reload)...")
+            analyzer = self._shared_analyzer
+            analyzer.expected = int(expected_duck_count)
+            analyzer.cfg["results_json_path"] = results_json_path
+            analyzer.cfg["thumbnail_dir"] = thumbnail_dir
+            analyzer.thumbnail_dir = thumbnail_dir
+            analyzer.frame_idx = 0
+            analyzer.diag = None
+            analyzer.anchor_locked = False
+            analyzer.warmup_best = None
+            analyzer.warmup_count = 0
+            if hasattr(analyzer, "tid_to_display") and isinstance(analyzer.tid_to_display, dict):
+                analyzer.tid_to_display.clear()
+            if hasattr(analyzer, "display_info") and isinstance(analyzer.display_info, dict):
+                analyzer.display_info.clear()
+            analyzer.next_display_id = 1
+            analyzer.num_anchor = 0
+            if hasattr(analyzer, "otid_to_display") and isinstance(analyzer.otid_to_display, dict):
+                analyzer.otid_to_display.clear()
+            if hasattr(analyzer, "other_info") and isinstance(analyzer.other_info, dict):
+                analyzer.other_info.clear()
+            analyzer.next_other_display = 1
+            analyzer.num_other_anchor = 0
+            if hasattr(analyzer, "prov_new") and isinstance(analyzer.prov_new, dict):
+                analyzer.prov_new.clear()
+            if hasattr(analyzer, "reclaim_candidates") and isinstance(analyzer.reclaim_candidates, dict):
+                analyzer.reclaim_candidates.clear()
+            if hasattr(analyzer, "confirmed_sent") and isinstance(analyzer.confirmed_sent, set):
+                analyzer.confirmed_sent.clear()
+            if hasattr(analyzer, "missing_active") and isinstance(analyzer.missing_active, set):
+                analyzer.missing_active.clear()
+            if hasattr(analyzer, "other_sent") and isinstance(analyzer.other_sent, set):
+                analyzer.other_sent.clear()
+            analyzer._excess_sent = False
+            if hasattr(analyzer, "count_history") and hasattr(analyzer.count_history, "clear"):
+                analyzer.count_history.clear()
+            analyzer._last_time = None
+            analyzer._hand_hold = 0
+            if hasattr(analyzer, "_prov_other") and isinstance(analyzer._prov_other, dict):
+                analyzer._prov_other.clear()
+            try:
+                if hasattr(analyzer.model, "predictor"):
+                    analyzer.model.predictor = None
+            except Exception:
+                pass
+
+            # Ensure MediaPipe hands is active and re-initialized if ever closed
+            if hasattr(analyzer, "hand_backend") and analyzer.hand_backend == "mediapipe":
+                if getattr(analyzer, "_mp_hands", None) is None or getattr(analyzer._mp_hands, "_graph", None) is None:
+                    try:
+                        import mediapipe as mp
+                        analyzer._mp_hands = mp.solutions.hands.Hands(
+                            static_image_mode=False,
+                            max_num_hands=2,
+                            min_detection_confidence=analyzer.hand_conf,
+                            min_tracking_confidence=analyzer.hand_track_conf,
+                        )
+                        logger.info("Re-initialized MediaPipe hands graph successfully.")
+                    except Exception as mp_err:
+                        logger.warning(f"Could not re-initialize MediaPipe: {mp_err}")
+
+            return analyzer
+
     def stop_all_sessions(self):
         for sid, session in self.sessions.items():
             if not session["stop_event"].is_set():
@@ -116,6 +197,16 @@ class VideoInferenceService:
         session = self.sessions.get(session_id)
         if not session:
             return
+
+        # Immediately yield pre-extracted frame 0 (if available) so the client's
+        # <img> tag gets an instant frame without waiting for ML processing
+        if session.get("last_frame_bytes"):
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n"
+                + session["last_frame_bytes"] +
+                b"\r\n"
+            )
 
         queue = session["queue"]
         try:
@@ -410,9 +501,11 @@ class VideoInferenceService:
                 with open(session_config_path, "w") as f:
                     yaml.dump(session_cfg, f)
 
-                analyzer = DuckAnalyzer(
+                analyzer = self._get_or_create_analyzer(
                     session_config_path, 
-                    expected_duck_count=session["expected_ducks"]
+                    expected_duck_count=session["expected_ducks"],
+                    results_json_path=results_json_path,
+                    thumbnail_dir=thumbnail_dir,
                 )
                 
                 session["analyzer"] = analyzer
@@ -529,23 +622,9 @@ class VideoInferenceService:
                     hand_detected = result.get("hand_detected", False)
                     new_thumbnails = result.get("thumbnails", [])
 
-                    # analyzer.py computes "reasons" internally but never puts
-                    # it in the returned dict, so we rebuild an equivalent
-                    # summary here from the fields it DOES return.
-                    reasons = []
-                    if hand_detected:
-                        reasons.append("hand_in_frame")
-                    if missing_ids:
-                        reasons.append("missing_ducks")
-                    if other_count > 0:
-                        reasons.append("other_species_present")
-                    if anchor_locked:
-                        detected_now = result.get("detected_duck_count", 0)
-                        expected_now = result.get("expected_duck_count", 0)
-                        if detected_now < expected_now:
-                            reasons.append("too_few_ducks")
-                        elif detected_now > expected_now:
-                            reasons.append("too_many_ducks")
+                    # analyzer_new.py already computes "reasons" with voting and shake-smoothing
+                    # over anomaly_smoothing_frames (self.count_history). Forward analyzer's own reasons.
+                    reasons = list(result.get("reasons", []))
 
                     # Write the fully annotated frame to the MP4 file
                     if out_writer:
@@ -565,8 +644,7 @@ class VideoInferenceService:
                     # also gated behind save_raw_frames.
                     is_anomaly_frame = (
                         result.get("status") == "ANOMALY" or
-                        other_count > 0 or
-                        (anchor_locked and result.get("detected_duck_count", 0) != result.get("expected_duck_count", 0))
+                        len(reasons) > 0
                     )
                     if is_anomaly_frame:
                         self._io_executor.submit(
@@ -658,8 +736,6 @@ class VideoInferenceService:
                 session["stats"]["status"] = "error"
                 session["stats"]["reasons"] = [str(e)]
             finally:
-                if analyzer:
-                    analyzer.close()
                 if out_writer:
                     out_writer.release()
                 if cap:

@@ -120,29 +120,28 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
 
   const badgeLabel = isMissing ? 'MISSED'
     : isOther ? 'ALERT'
-    : duck.statusEvent === 'hand_present' ? 'HAND'
-    : isNew ? 'NEW'
-    : isCountAnomaly ? 'ANOMALY'
-    : isProvisional ? 'WARM'
-    : 'OK';
+      : duck.statusEvent === 'hand_present' ? 'HAND'
+        : isNew ? 'NEW'
+          : isCountAnomaly ? 'ANOMALY'
+            : isProvisional ? 'WARM'
+              : 'OK';
 
   const barColorClasses = isMissing
     ? 'bg-amber-500/25 dark:bg-amber-950/60 border-amber-500/50 text-amber-900 dark:text-amber-200'
     : isNew
-    ? 'bg-cyan-500/25 dark:bg-cyan-950/60 border-cyan-500/50 text-cyan-900 dark:text-cyan-200'
-    : isAlert
-    ? 'bg-rose-500/25 dark:bg-rose-950/60 border-rose-500/50 text-rose-900 dark:text-rose-200'
-    : isProvisional
-    ? 'bg-amber-500/20 dark:bg-amber-950/50 border-amber-500/40 text-amber-800 dark:text-amber-300'
-    : 'bg-[var(--status-normal-bg)] border-[var(--status-normal-border)] text-[var(--status-normal-text)]';
+      ? 'bg-cyan-500/25 dark:bg-cyan-950/60 border-cyan-500/50 text-cyan-900 dark:text-cyan-200'
+      : isAlert
+        ? 'bg-rose-500/25 dark:bg-rose-950/60 border-rose-500/50 text-rose-900 dark:text-rose-200'
+        : isProvisional
+          ? 'bg-amber-500/20 dark:bg-amber-950/50 border-amber-500/40 text-amber-800 dark:text-amber-300'
+          : 'bg-[var(--status-normal-bg)] border-[var(--status-normal-border)] text-[var(--status-normal-text)]';
 
   return (
     <div
       onClick={handleClick}
       className={`flex flex-col h-full w-full rounded-md overflow-hidden shadow-2xs group cursor-pointer transition-colors min-h-0 select-none relative ${borderClasses}`}
-      title={`#${duck.id} ${duck.species} (${(duck.confidence * 100).toFixed(0)}%) - ${
-        isMissing ? 'MISSING' : isNew ? 'NEW DETECTION' : isAlert ? 'ANOMALY ALERT' : isCountMismatch ? 'COUNT MISMATCH' : 'NORMAL'
-      }`}
+      title={`#${duck.id} ${duck.species} (${(duck.confidence * 100).toFixed(0)}%) - ${isMissing ? 'MISSING' : isNew ? 'NEW DETECTION' : isAlert ? 'ANOMALY ALERT' : isCountMismatch ? 'COUNT MISMATCH' : 'NORMAL'
+        }`}
     >
       <div className="relative w-full flex-1 min-h-0 overflow-hidden bg-stone-950 flex items-center justify-center">
         <DetectionCropCanvas duck={duck} />
@@ -181,17 +180,16 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
 
       <div className={`flex items-center justify-between px-1 py-0.5 gap-1 border-t shrink-0 font-bold ${barColorClasses}`}>
         <div className="flex items-center gap-1 min-w-0 flex-nowrap whitespace-nowrap overflow-hidden">
-          <span className={`w-1.5 h-1.5 rounded-full shrink-0 flex-none self-center ${
-            isMissing ? 'bg-amber-500 animate-pulse'
-              : isNew ? 'bg-cyan-400 animate-pulse'
+          <span className={`w-1.5 h-1.5 rounded-full shrink-0 flex-none self-center ${isMissing ? 'bg-amber-500 animate-pulse'
+            : isNew ? 'bg-cyan-400 animate-pulse'
               : isAlert ? 'bg-[var(--status-anomaly-text)] shadow-xs animate-pulse ring-1 ring-[var(--status-anomaly-text)]/60'
-              : 'bg-[var(--status-normal-text)]'
-          }`} />
+                : 'bg-[var(--status-normal-text)]'
+            }`} />
           <span className={`${textSize} truncate font-mono font-bold leading-none select-none tracking-tight self-center`}>
             #{duck.id.padStart(2, '0')}
           </span>
         </div>
-        {(showBadge || isMissing || isAlert || isNew) && (
+        {/* {(showBadge || isMissing || isAlert || isNew) && (
           <span className={`text-[6.5px] px-1 py-0.2 rounded font-black shrink-0 uppercase leading-none self-center ${
             isMissing
               ? 'bg-amber-500 text-white shadow-xs'
@@ -203,7 +201,7 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
           }`}>
             {badgeLabel}
           </span>
-        )}
+        )} */}
       </div>
     </div>
   );
@@ -331,11 +329,10 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
         <button
           onClick={() => { playWaterDropSound(); setFilter('all'); }}
           title="Show all tracked ducks"
-          className={`flex-1 py-1 px-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
-            filter === 'all'
-              ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs'
-              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
-          }`}
+          className={`flex-1 py-1 px-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${filter === 'all'
+            ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs'
+            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
+            }`}
         >
           <span>All</span>
           <span className="text-[8.5px] px-1.5 py-0.2 rounded-full bg-black/20 font-mono">{sortedDucks.length}</span>
@@ -344,18 +341,16 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
         <button
           onClick={() => { playWaterDropSound(); setFilter('missed'); }}
           title="Missing ducks"
-          className={`flex-1 py-1 px-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
-            filter === 'missed'
-              ? 'bg-amber-500 text-white shadow-xs'
-              : missedCount > 0
+          className={`flex-1 py-1 px-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${filter === 'missed'
+            ? 'bg-amber-500 text-white shadow-xs'
+            : missedCount > 0
               ? 'text-amber-600 dark:text-amber-400 bg-amber-500/10 font-extrabold'
               : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
-          }`}
+            }`}
         >
           <span>Missed</span>
-          <span className={`text-[8.5px] px-1.5 py-0.2 rounded-full font-mono ${
-            missedCount > 0 ? 'bg-amber-500 text-white animate-pulse' : 'bg-black/20'
-          }`}>
+          <span className={`text-[8.5px] px-1.5 py-0.2 rounded-full font-mono ${missedCount > 0 ? 'bg-amber-500 text-white animate-pulse' : 'bg-black/20'
+            }`}>
             {missedCount}
           </span>
         </button>
@@ -363,18 +358,16 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
         <button
           onClick={() => { playWaterDropSound(); setFilter('alert'); }}
           title="Unknown / foreign species"
-          className={`flex-1 py-1 px-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
-            filter === 'alert'
-              ? 'bg-red-600 text-white shadow-xs'
-              : alertCount > 0
+          className={`flex-1 py-1 px-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${filter === 'alert'
+            ? 'bg-red-600 text-white shadow-xs'
+            : alertCount > 0
               ? 'text-red-600 bg-red-600/10 font-extrabold'
               : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
-          }`}
+            }`}
         >
           <span>Alert</span>
-          <span className={`text-[8.5px] px-1.5 py-0.2 rounded-full font-mono ${
-            alertCount > 0 ? 'bg-red-600 text-white' : 'bg-black/20'
-          }`}>
+          <span className={`text-[8.5px] px-1.5 py-0.2 rounded-full font-mono ${alertCount > 0 ? 'bg-red-600 text-white' : 'bg-black/20'
+            }`}>
             {alertCount}
           </span>
         </button>

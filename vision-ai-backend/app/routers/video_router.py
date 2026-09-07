@@ -60,50 +60,78 @@ async def upload_video(file: UploadFile = File(...), expected_ducks: int = Form(
         logger.error(f"Error saving uploaded file: {e}")
         return JSONResponse(status_code=500, content={"message": "Failed to save uploaded video."})
 
-    # Transcode to browser-safe H.264 baseline, regardless of source codec
+    # 1. First probe if OpenCV can directly read the raw uploaded video (instantaneous, <0.02s)
+    can_read_directly = False
+    frame0_bytes = None
+    frame_width = None
+    frame_height = None
     try:
-        import imageio_ffmpeg
-        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-        if ffmpeg_exe and not os.path.exists(ffmpeg_exe):
-            logger.warning(f"ffmpeg_exe path {ffmpeg_exe} does not exist. Falling back to raw video.")
-            ffmpeg_exe = None
+        import cv2
+        cap = cv2.VideoCapture(raw_save_path)
+        if cap.isOpened():
+            ret, frame0 = cap.read()
+            if ret and frame0 is not None:
+                can_read_directly = True
+                frame_width = int(frame0.shape[1])
+                frame_height = int(frame0.shape[0])
+                _, buf = cv2.imencode(".jpg", frame0, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                frame0_bytes = buf.tobytes()
+                logger.info(f"[UPLOAD] OpenCV directly read video ({frame_width}x{frame_height}), skipping heavy transcode.")
+        cap.release()
     except Exception as e:
-        logger.warning(f"Could not locate ffmpeg, falling back to raw video: {e}")
-        ffmpeg_exe = None
+        logger.warning(f"Direct OpenCV probe failed: {e}")
 
-    transcode_ok = False
-    if ffmpeg_exe:
-        def run_transcode():
-            return subprocess.run(
-                [
-                    ffmpeg_exe, "-y", "-i", raw_save_path,
-                    "-c:v", "libx264", "-profile:v", "baseline", "-level", "3.0",
-                    "-preset", "ultrafast",
-                    "-pix_fmt", "yuv420p",
-                    "-c:a", "aac", "-movflags", "+faststart",
-                    browser_video_path,
-                ],
-                capture_output=True, text=True, timeout=180,
-            )
+    effective_inference_path = raw_save_path
+    browser_video_path = raw_save_path
 
+    # 2. Only if OpenCV CANNOT open the raw file directly, fall back to ffmpeg transcode
+    if not can_read_directly:
         try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(None, run_transcode)
-            if result.returncode == 0 and os.path.exists(browser_video_path) and os.path.getsize(browser_video_path) > 1000:
-                transcode_ok = True
-                logger.info(f"[UPLOAD] Transcoded cleanly to H.264 MP4: {browser_video_path}")
-            else:
-                logger.warning(f"ffmpeg transcode failed; using raw upload: {result.stderr}")
-                browser_video_path = raw_save_path
-            
+            import imageio_ffmpeg
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+            if ffmpeg_exe and not os.path.exists(ffmpeg_exe):
+                logger.warning(f"ffmpeg_exe path {ffmpeg_exe} does not exist. Falling back to raw video.")
+                ffmpeg_exe = None
         except Exception as e:
-            logger.warning(f"ffmpeg execution failed; using raw upload: {e}")
-            browser_video_path = raw_save_path
-    else:
-        browser_video_path = raw_save_path
-    
-    # Prefer clean H.264 MP4 for OpenCV inference when available for maximum compatibility
-    effective_inference_path = browser_video_path if transcode_ok else raw_save_path
+            logger.warning(f"Could not locate ffmpeg: {e}")
+            ffmpeg_exe = None
+
+        if ffmpeg_exe:
+            def run_transcode():
+                return subprocess.run(
+                    [
+                        ffmpeg_exe, "-y", "-i", raw_save_path,
+                        "-c:v", "libx264", "-profile:v", "baseline", "-level", "3.0",
+                        "-preset", "ultrafast",
+                        "-pix_fmt", "yuv420p",
+                        "-c:a", "aac", "-movflags", "+faststart",
+                        browser_video_path,
+                    ],
+                    capture_output=True, text=True, timeout=180,
+                )
+
+            try:
+                loop = asyncio.get_running_loop()
+                result = await loop.run_in_executor(None, run_transcode)
+                if result.returncode == 0 and os.path.exists(browser_video_path) and os.path.getsize(browser_video_path) > 1000:
+                    effective_inference_path = browser_video_path
+                    try:
+                        import cv2
+                        cap = cv2.VideoCapture(browser_video_path)
+                        ret, frame0 = cap.read()
+                        if ret and frame0 is not None:
+                            frame_width = int(frame0.shape[1])
+                            frame_height = int(frame0.shape[0])
+                            _, buf = cv2.imencode(".jpg", frame0, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                            frame0_bytes = buf.tobytes()
+                        cap.release()
+                    except Exception:
+                        pass
+                    logger.info(f"[UPLOAD] Transcoded fallback cleanly to H.264 MP4: {browser_video_path}")
+                else:
+                    logger.warning(f"ffmpeg transcode failed; using raw upload: {result.stderr}")
+            except Exception as e:
+                logger.warning(f"ffmpeg execution failed; using raw upload: {e}")
 
     # Save path in session state so it's ready to start when user commands
     session = ml_inference_service.sessions.get(session_id)
@@ -112,21 +140,11 @@ async def upload_video(file: UploadFile = File(...), expected_ducks: int = Form(
         session["browser_video_path"] = browser_video_path
         session["status"] = "ready"
         session["stats"]["status"] = "ready"
-
-        # Pre-extract frame 0 for immediate canvas preview before inference starts
-        try:
-            import cv2
-            cap = cv2.VideoCapture(effective_inference_path)
-            ret, frame0 = cap.read()
-            if ret and frame0 is not None:
-                _, buf = cv2.imencode(".jpg", frame0, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                session["last_frame_bytes"] = buf.tobytes()
-                session["stats"]["video_width"] = int(frame0.shape[1])
-                session["stats"]["video_height"] = int(frame0.shape[0])
-                logger.info(f"[UPLOAD] Extracted frame 0 preview ({frame0.shape[1]}x{frame0.shape[0]})")
-            cap.release()
-        except Exception as e:
-            logger.warning(f"Could not pre-extract first frame from {effective_inference_path}: {e}")
+        if frame0_bytes:
+            session["last_frame_bytes"] = frame0_bytes
+        if frame_width and frame_height:
+            session["stats"]["video_width"] = frame_width
+            session["stats"]["video_height"] = frame_height
     
     return {"session_id": session_id, "status": "ready"}
 

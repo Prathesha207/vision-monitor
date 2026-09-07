@@ -60,6 +60,8 @@ export interface InferenceStats {
 
 interface InferenceStoreState {
   stats: InferenceStats;
+  isVideoLoading: boolean;
+  setVideoLoading: (loading: boolean) => void;
   setStats: (newStats: Partial<InferenceStats>) => void;
   replaceStats: (stats: InferenceStats) => void;
   resetStats: () => void;
@@ -90,6 +92,8 @@ const initialStats: InferenceStats = {
 
 export const useInferenceStore = create<InferenceStoreState>((set) => ({
   stats: initialStats,
+  isVideoLoading: false,
+  setVideoLoading: (loading) => set({ isVideoLoading: loading }),
   setStats: (newStats) => set((state) => {
     let mergedThumbnails = state.stats.thumbnails || [];
     if (Array.isArray(newStats.thumbnails) && newStats.thumbnails.length > 0) {

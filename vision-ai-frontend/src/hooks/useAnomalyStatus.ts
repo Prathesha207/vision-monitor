@@ -115,19 +115,14 @@ export function useAnomalyStatus({
     // before the backend's smoothing window confirms it.
     const isTooFew = !isWarmingUp && (backendReasons.includes('too_few_ducks') || backendReasons.includes('too_few'));
     const isTooMany = !isWarmingUp && (backendReasons.includes('too_many_ducks') || backendReasons.includes('too_many'));
-    const isCountMismatch = !isWarmingUp && (
-      backendReasons.length > 0
-        ? (isTooFew || isTooMany)
-        : (detectedCount !== expectedFromMl)
-    );
+    const isCountMismatch = !isWarmingUp && (isTooFew || isTooMany);
     const hasForeign = !isWarmingUp && (backendReasons.includes('other_species_present') || foreignCount > 0);
     const hasHand = backendStatus === 'HAND' || backendStats.hand_detected === true;
 
-    // Backend-aligned anomaly verdict
+    // Backend-aligned anomaly verdict: single source of truth from analyzer_new.py
     const isAnomaly = !isWarmingUp && (
       hasHand ||
       backendStatus === 'ANOMALY' ||
-      backendReasons.length > 0 ||
       isCountMismatch ||
       hasMissingDuck ||
       hasForeign

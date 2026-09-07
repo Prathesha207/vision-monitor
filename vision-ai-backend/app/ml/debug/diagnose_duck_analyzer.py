@@ -127,10 +127,18 @@ if hasattr(sys.stdout, "reconfigure"):
 def get_duck_analyzer_class():
     """
     Load DuckAnalyzer ALWAYS from local source file:
-    vision-ai-backend/app/ml/duck_analyzer/analyzer.py
+    vision-ai-backend/app/ml/duck_analyzer/analyzer_new.py
+
+    This MUST match what ml_inference.py / duck_inference_service.py
+    actually import in production ("from
+    app.ml.duck_analyzer.analyzer_new import DuckAnalyzer"). Pointing this
+    at the legacy analyzer.py silently diagnoses/runs a different analyzer
+    than the one that's really serving the app -- manual runs and app runs
+    will disagree on tracking/rebind/warmup behavior even on identical
+    frames, with no error to indicate why.
     """
     _script_dir = Path(__file__).resolve().parent
-    _local_analyzer_file = _script_dir.parent / "duck_analyzer" / "analyzer.py"
+    _local_analyzer_file = _script_dir.parent / "duck_analyzer" / "analyzer_new.py"
 
     if _local_analyzer_file.exists():
         import importlib.util
@@ -354,7 +362,10 @@ def run_diagnosis() -> None:
     print()
     print("[ local duck_analyzer source file ]")
     print("-" * 60)
-    _local_analyzer = Path(__file__).resolve().parent.parent / "duck_analyzer" / "analyzer.py"
+    # NOTE: production (ml_inference.py / duck_inference_service.py) imports
+    # analyzer_new.py, not the legacy analyzer.py -- check the file that is
+    # actually running, or this diagnosis silently reports on dead code.
+    _local_analyzer = Path(__file__).resolve().parent.parent / "duck_analyzer" / "analyzer_new.py"
     if _local_analyzer.exists():
         print(f"FOUND local source file: {_local_analyzer}")
         print(f"mtime: {os.path.getmtime(_local_analyzer)}")
@@ -1072,7 +1083,7 @@ def run_manual_inference(
         return 1
 
     # --------------------------------------------------------------
-    # Import real DuckAnalyzer (prioritizing local app/ml/duck_analyzer/analyzer.py)
+    # Import real DuckAnalyzer (prioritizing local app/ml/duck_analyzer/analyzer_new.py)
     # --------------------------------------------------------------
 
     try:

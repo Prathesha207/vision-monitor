@@ -153,7 +153,7 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, _fallbac
       }
 
       const isUnboundExtra = !isWarmingUp && !hasLockedId;
-      const isExcess = !isProvisional && (d.excess === true || isUnboundExtra);
+      const isExcess = !isProvisional && d.excess === true;
 
       let eventStatus: DuckEntity['statusEvent'] = undefined;
       if (isMissingDetection) {
@@ -177,10 +177,10 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, _fallbac
           : undefined;
 
       // 2. An individual duck is an anomaly if:
-      //    - Count was increased (under-count / too few ducks: all present duck boxes are RED per ML model)
+      //    - Count was decreased (under-count / too few ducks: all present duck boxes are RED per ML model)
       //    - It is flagged as excess (over-count: only excess duck(s) are RED)
       //    - The backend explicitly marked it (d.isAnomaly / d.is_anomaly / d.excess)
-      //    - It is an unbound extra duck, missing duck, unknown/foreign species, or added duck
+      //    - It is an unbound extra duck during an anomaly episode, missing duck, unknown/foreign species, or added duck
       const isAnomaly = !isProvisional && (
         isTooFewDucks ||
         isExcess ||
@@ -190,7 +190,7 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, _fallbac
         isMissingDetection ||
         addedIds.includes(displayId) ||
         addedIds.includes(Number(displayId)) ||
-        d.status === 'unbound' ||
+        (d.status === 'unbound' && (data.status === 'ANOMALY' || backendReasons.length > 0)) ||
         d.status === 'added'
       );
 

@@ -11,6 +11,7 @@ import {
 import { playWaterDropSound } from '../utils/audio';
 import { Badge } from './ui/Badge';
 import { NumberStepper } from './ui/NumberStepper';
+import { useInferenceStore } from '../store/inferenceStore';
 
 
 interface SourceSelectorProps {
@@ -64,6 +65,8 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
   isCameraConnected = true,
   cameraStartingState = 'ready',
 }) => {
+  const isVideoLoading = useInferenceStore((state) => state.isVideoLoading);
+
   const handleSourceClick = (targetType: StreamSourceType) => {
     playWaterDropSound();
     if (onRequestSwitchMode) {
@@ -88,8 +91,8 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
           <button
             onClick={() => handleSourceClick('uploaded-video')}
             className={`flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${sourceType === 'uploaded-video'
-                ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
+              ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs'
+              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
               }`}
           >
             <Video className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
@@ -99,8 +102,8 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
           <button
             onClick={() => handleSourceClick('oak-camera')}
             className={`flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${sourceType === 'oak-camera'
-                ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
+              ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs'
+              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
               }`}
           >
             <Camera className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
@@ -186,16 +189,36 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                 /* When Stopped / Paused: provide START INFERENCE */
                 <div className="flex items-center gap-1 sm:gap-1.5">
                   <button
+                    disabled={isStarting || isVideoLoading}
                     onClick={() => {
+                      if (isStarting || isVideoLoading) return;
                       playWaterDropSound();
                       if (onResumeInference) onResumeInference();
                       else if (onToggleRunning) onToggleRunning();
                     }}
-                    title="Start real-time YOLOv8 AI inference"
-                    className="h-8 sm:h-9 flex items-center gap-1 sm:gap-2 px-2.5 sm:px-5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] sm:text-xs shadow-sm hover:shadow-emerald-600/30 active:scale-95 cursor-pointer transition-all shrink-0"
+                    title={
+                      isVideoLoading
+                        ? "Video is uploading... please wait"
+                        : isStarting
+                        ? "Starting inference... please wait"
+                        : "Start real-time YOLOv8 AI inference"
+                    }
+                    className={`h-8 sm:h-9 flex items-center gap-1 sm:gap-2 px-2.5 sm:px-5 rounded-xl font-bold text-[11px] sm:text-xs shadow-sm transition-all shrink-0 ${
+                      isStarting || isVideoLoading
+                        ? "bg-emerald-950/80 text-emerald-400/80 border border-emerald-700/50 cursor-not-allowed opacity-80"
+                        : "bg-emerald-600 hover:bg-emerald-500 text-white hover:shadow-emerald-600/30 active:scale-95 cursor-pointer"
+                    }`}
                   >
-                    <Play className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-current" />
-                    <span className="whitespace-nowrap">START<span className="hidden sm:inline"> INFERENCE</span></span>
+                    {isStarting || isVideoLoading ? (
+                      <Loader2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-spin text-emerald-400" />
+                    ) : (
+                      <Play className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-current" />
+                    )}
+                    <span className="whitespace-nowrap">
+                      {isVideoLoading ? "UPLOADING..." : isStarting ? "STARTING..." : (
+                        <>START<span className="hidden sm:inline"> INFERENCE</span></>
+                      )}
+                    </span>
                   </button>
                 </div>
               )}

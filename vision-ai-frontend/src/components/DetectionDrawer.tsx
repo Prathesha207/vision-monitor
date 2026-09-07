@@ -53,7 +53,7 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
   const displayFps = mlStats.status !== 'idle' ? mlStats.fps : metrics.fps;
   const displayFrames = mlStats.status !== 'idle' ? mlStats.frames_processed : metrics.framesProcessed;
   const displayProgress = mlStats.status !== 'idle' ? mlStats.progress : 100;
-  
+
   // Calculate uptime strictly from frames / fps, defaulting to 30fps if unknown
   const fpsForTime = displayFps > 0 ? displayFps : 30;
   const computedUptime = displayFrames / fpsForTime;
@@ -146,15 +146,15 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
                 <Activity className="w-6 h-6 text-[var(--accent-pond)] animate-pulse" />
               </div>
               <p className="text-sm font-bold text-[var(--text-primary)]">
-                {anomalyStatus.message === 'NO CAMERA' 
-                  ? 'Camera Offline' 
-                  : isStandby 
-                    ? 'Stream Inactive' 
+                {anomalyStatus.message === 'NO CAMERA'
+                  ? 'Camera Offline'
+                  : isStandby
+                    ? 'Stream Inactive'
                     : 'Stream Active'}
               </p>
               <p className="text-xs mt-1 max-w-[230px] leading-relaxed text-[var(--text-secondary)]">
-                {anomalyStatus.subMessage || (isStandby 
-                  ? 'Connect an OAK camera or switch to video mode to begin live YOLOv8 anomaly evaluation.' 
+                {anomalyStatus.subMessage || (isStandby
+                  ? 'Connect an OAK camera or switch to video mode to begin live YOLOv8 anomaly evaluation.'
                   : 'Waiting for YOLOv8 to detect objects...')}
               </p>
 
@@ -225,16 +225,18 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
 
                 <div className="p-2 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] flex flex-col gap-1.5">
                   <div className="flex justify-between items-center">
-                    
-                    
+
+                    <Badge variant="normal" size="sm" dot className="mr-1 hidden xl:inline-flex">
+                      LIVE INFERENCE
+                    </Badge>
                     <div className="flex items-center gap-2">
-                      <Badge 
-                        variant={mlStats.anchor_locked ? 'active' : 'warning'} 
+                      <Badge
+                        variant={mlStats.anchor_locked ? 'active' : 'warning'}
                         size="sm"
                       >
                         {mlStats.anchor_locked ? 'Lock: YES' : 'Lock: WARMING'}
                       </Badge>
-                      
+
                       <div className="font-mono text-xs">
                         <span className="font-bold text-[var(--text-primary)]">{displayFps.toFixed(1)}</span>
                         <span className="text-[var(--text-secondary)] ml-1">fps</span>
@@ -244,8 +246,8 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
 
                   {/* Stream Progress Bar */}
                   <div className="h-1.5 w-full bg-[var(--btn-secondary-border)] rounded-full overflow-hidden relative">
-                    <div 
-                      className="h-full rounded-full bg-[var(--status-normal-text)] transition-all duration-300 ease-out" 
+                    <div
+                      className="h-full rounded-full bg-[var(--status-normal-text)] transition-all duration-300 ease-out"
                       style={{ width: `${displayProgress}%` }}
                     />
                   </div>
@@ -279,11 +281,10 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
                   {anomalyDucks.length} Alert{anomalyDucks.length !== 1 ? 's' : ''}
                 </span>
               )}
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${
-                anomalyStatus.isAnomaly && (anomalyStatus.difference !== 0 || anomalyStatus.type === 'OVER_COUNT' || anomalyStatus.type === 'UNDER_COUNT')
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${anomalyStatus.isAnomaly && (anomalyStatus.difference !== 0 || anomalyStatus.type === 'OVER_COUNT' || anomalyStatus.type === 'UNDER_COUNT')
                   ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
                   : 'bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border-[var(--border-color)]'
-              }`}>
+                }`}>
                 {ducks.length} Total
               </span>
             </div>

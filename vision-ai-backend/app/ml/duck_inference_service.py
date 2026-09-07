@@ -221,24 +221,10 @@ def run_inference(frame, session_id: str, expected_duck_count: int = 18,
     hand_detected = result.get("hand_detected", False)
 
     reasons = list(result.get("reasons", []))
-    if not reasons:
-        if hand_detected:
-            reasons.append("hand_in_frame")
-        if missing_ids:
-            reasons.append("missing_ducks")
-        if detected_others > 0:
-            reasons.append("other_species_present")
-        if anchor_locked:
-            expected_now = session.get("expected_duck_count", 0)
-            if detected_ducks < expected_now:
-                reasons.append("too_few_ducks")
-            elif detected_ducks > expected_now:
-                reasons.append("too_many_ducks")
 
     is_anomaly = (
         result.get("status") == "ANOMALY"
-        or detected_others > 0
-        or (anchor_locked and detected_ducks != session["expected_duck_count"])
+        or len(reasons) > 0
     )
 
     new_thumbnails = result.get("thumbnails", [])
