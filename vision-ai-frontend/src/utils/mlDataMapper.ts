@@ -23,6 +23,18 @@ export const resetBBoxCache = () => {
   lastKnownBBoxes.clear();
 };
 
+function computeIoU(b1: number[], b2: number[]): number {
+  const x1 = Math.max(b1[0], b2[0]);
+  const y1 = Math.max(b1[1], b2[1]);
+  const x2 = Math.min(b1[2], b2[2]);
+  const y2 = Math.min(b1[3], b2[3]);
+  const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+  const a1 = Math.max(0, b1[2] - b1[0]) * Math.max(0, b1[3] - b1[1]);
+  const a2 = Math.max(0, b2[2] - b2[0]) * Math.max(0, b2[3] - b2[1]);
+  const union = a1 + a2 - inter;
+  return union > 0 ? inter / union : 0;
+}
+
 export const mapDetectionsToDucks = (data: any, vw: number, vh: number, fallbackExpected?: number): DuckEntity[] => {
   const incomingDucks: DuckEntity[] = [];
   const addedIds = data.added_ids || [];
@@ -43,8 +55,9 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, fallback
       ? fallbackExpected
       : 0;
 
-  // Gather present duck numeric IDs
+  // Gather present duck numeric IDs and pre-collect locked duck bounding boxes
   const presentDuckNumericIds: number[] = [];
+  const lockedBoxes: number[][] = [];
   if (Array.isArray(data.detections)) {
     data.detections.forEach((det: any) => {
       const sp = String(det.class_name || det.species || '').toLowerCase();
@@ -53,6 +66,10 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, fallback
       const isPresent = !det.status || det.status === 'present';
       if (isDuck && hasId && isPresent) {
         presentDuckNumericIds.push(Number(det.id));
+      }
+      const b = det.bbox || det.box;
+      if (!isWarmingUp && hasId && Array.isArray(b) && b.length === 4) {
+        lockedBoxes.push(b);
       }
     });
     presentDuckNumericIds.sort((a, b) => a - b);
@@ -81,8 +98,21 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, fallback
     (Array.isArray(data.reasons) && (data.reasons.includes('too_few_ducks') || data.reasons.includes('too_few')))
   );
 
+  const seenIds = new Set<string>();
+
   if (Array.isArray(data.detections)) {
     data.detections.forEach((d: any, idx: number) => {
+      const rawBox = d.bbox || d.box;
+      const hasLockedId = d.id !== null && d.id !== undefined && Number(d.id) > 0;
+
+      // During active inference (not warming up), suppress duplicate unbound detections that overlap an already-locked duck
+      if (!isWarmingUp && !hasLockedId && Array.isArray(rawBox) && rawBox.length === 4) {
+        const isDuplicateOfLocked = lockedBoxes.some((lb) => computeIoU(rawBox, lb) >= 0.45);
+        if (isDuplicateOfLocked) {
+          return;
+        }
+      }
+
       let px = 0, py = 0, pw = 0, ph = 0;
       if (d.bbox && d.bbox.length === 4) {
         px = (d.bbox[0] / vw) * 100;
@@ -95,22 +125,22 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, fallback
         pw = ((d.box[2] - d.box[0]) / vw) * 100;
         ph = ((d.box[3] - d.box[1]) / vh) * 100;
       }
+
       const species = String(d.class_name || d.species || '').toLowerCase();
-      const isDuck = species === 'duck';
+      const isDuck = species === 'duck' || species === '';
       const isHand = species === 'hand';
-      // DuckAnalyzer emits id: -1 (not null) for every detection before the
-      // anchor locks -- see analyzer.py lines 819/1158. Multiple detections
-      // in the same frame all carry that same -1 during warmup, so without
-      // this check they'd all collapse to id "-1" and collide as identical
-      // React keys in the gallery grid, which leaves orphaned/duplicated
-      // DOM nodes behind across the ~30-100ms poll cycle instead of being
-      // cleanly replaced frame to frame.
-      const hasLockedId = d.id !== null && d.id !== undefined && Number(d.id) !== -1;
-      const isProvisional = d.provisional === true || isWarmingUp || !hasLockedId;
-      const rawId = hasLockedId ? String(d.id) : `prov-${idx + 1}`;
-      // Duck and other trackers use independent numeric ID spaces.
       const isOther = !isDuck && !isHand;
+
+      // Provisional ONLY applies during actual warmup phase — never on locked active inference
+      const isProvisional = isWarmingUp || d.provisional === true;
+      const rawId = hasLockedId ? String(d.id) : isWarmingUp ? `prov-${idx + 1}` : `extra-${idx + 1}`;
       const displayId = isOther ? `other-${rawId}` : rawId;
+
+      // Avoid rendering duplicate IDs in the same frame
+      if (seenIds.has(displayId)) {
+        return;
+      }
+      seenIds.add(displayId);
 
       const thumbObj = allThumbnails.slice().reverse().find((t: any) =>
         (String(t.id) === rawId || Number(t.id) === Number(rawId)) && (isOther ? t.event === 'other_present' : t.event !== 'other_present')
@@ -127,12 +157,14 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, fallback
           ph = cached.height;
         }
       }
-      const isExcess = !isProvisional && (d.excess === true || excessIdSet.has(Number(rawId)));
+
+      const isUnboundExtra = !isWarmingUp && !hasLockedId;
+      const isExcess = !isProvisional && (d.excess === true || excessIdSet.has(Number(rawId)) || isUnboundExtra);
 
       let eventStatus: DuckEntity['statusEvent'] = undefined;
       if (isMissingDetection) {
         eventStatus = 'missing';
-      } else if (!isProvisional && (isExcess || addedIds.includes(displayId) || addedIds.includes(Number(displayId)) || d.status === 'added')) {
+      } else if (!isProvisional && (isExcess || addedIds.includes(displayId) || addedIds.includes(Number(displayId)) || d.status === 'added' || isUnboundExtra)) {
         eventStatus = 'added';
       } else if (thumbObj?.event === 'confirmed' || thumbObj?.event === 'added') {
         eventStatus = 'confirmed';
@@ -154,7 +186,7 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, fallback
       //    - Count was increased (under-count / too few ducks: all present duck boxes are RED per ML model)
       //    - It is flagged as excess (over-count: only excess duck(s) are RED)
       //    - The backend explicitly marked it (d.isAnomaly / d.is_anomaly / d.excess)
-      //    - It is a missing duck, unknown/foreign species, unbound object, or added duck
+      //    - It is an unbound extra duck, missing duck, unknown/foreign species, or added duck
       const isAnomaly = !isProvisional && (
         isTooFewDucks ||
         isExcess ||
