@@ -88,17 +88,31 @@ export default function App() {
     return initialSession?.isRunning ?? false;
   });
   const [isStarting, setIsStarting] = useState<boolean>(false);
-  const [fps, setFps] = useState<number>(() => initialSession?.fps ?? 0);
-  const [framesProcessed, setFramesProcessed] = useState<number>(() => initialSession?.framesProcessed ?? 0);
-  const [uptimeSeconds, setUptimeSeconds] = useState<number>(() => initialSession?.uptimeSeconds ?? 0);
+  const [fps, setFps] = useState<number>(() => {
+    if (initialSession?.sourceType === 'oak-camera' || initialSession?.sourceType === 'webcam') return 0;
+    return initialSession?.fps ?? 0;
+  });
+  const [framesProcessed, setFramesProcessed] = useState<number>(() => {
+    if (initialSession?.sourceType === 'oak-camera' || initialSession?.sourceType === 'webcam') return 0;
+    return initialSession?.framesProcessed ?? 0;
+  });
+  const [uptimeSeconds, setUptimeSeconds] = useState<number>(() => {
+    if (initialSession?.sourceType === 'oak-camera' || initialSession?.sourceType === 'webcam') return 0;
+    return initialSession?.uptimeSeconds ?? 0;
+  });
   const [expectedDucks, setExpectedDucks] = useState<number>(() => initialSession?.expectedDucks ?? 18);
-  const [ducks, setDucks] = useState<import('./types').DuckEntity[]>(() => initialSession?.ducks ?? []);
+  const [ducks, setDucks] = useState<import('./types').DuckEntity[]>(() => {
+    if (initialSession?.sourceType === 'oak-camera' || initialSession?.sourceType === 'webcam') return [];
+    return initialSession?.ducks ?? [];
+  });
   const [lastCameraFrame, setLastCameraFrame] = useState<string | undefined>(() => initialSession?.lastCameraFrame);
 
   // Restore inference store stats from session on mount
   useEffect(() => {
     if (initialSession?.stats && initialSession.stats.status !== 'idle') {
-      useInferenceStore.getState().replaceStats(initialSession.stats);
+      if (initialSession.sourceType !== 'oak-camera' && initialSession.sourceType !== 'webcam') {
+        useInferenceStore.getState().replaceStats(initialSession.stats);
+      }
     }
   }, [initialSession]);
 
@@ -118,13 +132,14 @@ export default function App() {
 
   // Keep sessionStorage in sync with live inference state & results
   useEffect(() => {
+    const isCamera = sourceType === 'oak-camera' || sourceType === 'webcam';
     saveSessionState({
       isRunning,
       sourceType,
       expectedDucks,
-      ...(ducks.length > 0 ? { ducks } : {}),
-      ...(framesProcessed > 0 ? { framesProcessed, fps, uptimeSeconds } : {}),
-      stats: useInferenceStore.getState().stats,
+      ...(ducks.length > 0 && !isCamera ? { ducks } : {}),
+      ...(framesProcessed > 0 && !isCamera ? { framesProcessed, fps, uptimeSeconds } : {}),
+      stats: isCamera ? undefined : useInferenceStore.getState().stats,
     });
   }, [isRunning, sourceType, expectedDucks, ducks, framesProcessed, fps, uptimeSeconds]);
 
