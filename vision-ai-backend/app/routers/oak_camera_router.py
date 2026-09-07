@@ -5,6 +5,7 @@ from typing import Optional
 
 import cv2
 import numpy as np
+import depthai as dai
 from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
@@ -205,11 +206,43 @@ async def snapshot():
     return Response(content=buf.tobytes(), media_type="image/jpeg")
 
 
-# ==================== Health ====================
+# ==================== Health & Devices ====================
 
 @router.get("/health")
 def health():
     return oak_camera_service.health()
+
+
+@router.get("/devices")
+async def get_available_devices():
+    """Discover connected Luxonis OAK-D devices over USB and Network."""
+    devices = []
+    loop = asyncio.get_running_loop()
+    try:
+        raw_devices = await loop.run_in_executor(None, dai.Device.getAllAvailableDevices)
+        for d in raw_devices:
+            mxid = str(getattr(d, "mxid", "") or "")
+            name = str(getattr(d, "name", "") or "")
+            protocol = str(getattr(d, "protocol", "") or "")
+            state = str(getattr(d, "state", "") or "")
+            desc_name = ""
+            try:
+                desc = d.getXLinkDeviceDesc()
+                desc_name = str(getattr(desc, "name", "") or "")
+            except Exception:
+                pass
+            is_usb = "usb" in protocol.lower() or "usb" in name.lower() or "usb" in state.lower()
+            devices.append({
+                "mxid": mxid,
+                "name": desc_name or name or (f"OAK USB ({mxid[:8]})" if is_usb else f"OAK Network ({mxid[:8]})"),
+                "ip_or_id": mxid if is_usb else (desc_name or name or mxid),
+                "protocol": "USB" if is_usb else "TCP/IP",
+                "state": state,
+                "is_usb": is_usb,
+            })
+    except Exception as e:
+        logger.warning(f"[DEVICES] Failed to enumerate DepthAI devices: {e}")
+    return devices
 
 
 # ==================== Camera Controls ====================

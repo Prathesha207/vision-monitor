@@ -95,6 +95,15 @@ export const cameraService = {
     const res = await api.patch("/camera/inference-mode", { mode });
     return res.data;
   },
+
+  async getAvailableDevices() {
+    try {
+      const res = await api.get("/oak/devices");
+      return res.data || [];
+    } catch {
+      return [];
+    }
+  },
 };
 
 export default cameraService;
