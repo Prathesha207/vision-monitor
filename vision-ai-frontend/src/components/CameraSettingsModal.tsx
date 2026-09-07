@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { CameraConfig } from '../types';
 import {
   Camera,
@@ -37,125 +37,156 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
   const [discoveredDevices, setDiscoveredDevices] = useState<any[]>([]);
   const [savedCameras, setSavedCameras] = useState<any[]>([]);
   const [isScanning, setIsScanning] = useState(false);
+  const [connectionMode, setConnectionMode] = useState<'usb' | 'ip'>('usb');
+  const [ipAddressInput, setIpAddressInput] = useState<string>('');
 
-  // Click any IP or device chip: automatically insert and connect immediately
-  const handleSelectDeviceAndConnect = useCallback(async (ipOrId: string, name?: string) => {
-    playWaterDropSound();
-    const updated: CameraConfig = {
-      ...localConfig,
-      ipAddress: ipOrId,
-      ...(name ? { sourceName: name } : {}),
-      targetFps: localConfig.targetFps || 30,
-    };
-    setLocalConfig(updated);
-    setIsConnecting(true);
-    try {
-      if (onReconnect) {
-        await onReconnect(updated);
-      }
-    } finally {
-      setIsConnecting(false);
-    }
-  }, [localConfig, onReconnect]);
+  const onReconnectRef = useRef(onReconnect);
+  onReconnectRef.current = onReconnect;
 
-  // Connect helper - automatically sets IP/target and initiates connection
-  const handleConnect = useCallback(async (customConfig?: CameraConfig) => {
-    playWaterDropSound();
-    setIsConnecting(true);
-    const target = customConfig || localConfig;
-    try {
-      if (onReconnect) {
-        await onReconnect({
-          ...target,
-          targetFps: target.targetFps || 30,
-        });
-      }
-    } finally {
-      setIsConnecting(false);
-    }
-  }, [localConfig, onReconnect]);
+  const localConfigRef = useRef(localConfig);
+  localConfigRef.current = localConfig;
 
-  // Scan both DB registered cameras and physical DepthAI hardware devices
-  const scanDevices = useCallback(async (autoConnectIfUsb: boolean = false) => {
+  const hasAutoConnectedRef = useRef(false);
+
+  // USB Device discovered from physical hardware scan
+  const usbDevice = discoveredDevices.find((d: any) => d.is_usb);
+
+  // Scan hardware and DB devices (manual trigger or initial modal open)
+  const scanDevices = useCallback(async () => {
     setIsScanning(true);
     try {
-      // 1. Fetch DB configured cameras
-      const dbCameras = await cameraService.checkCamera().catch(() => []);
-      if (Array.isArray(dbCameras)) {
-        setSavedCameras(dbCameras);
-      }
-
-      // 2. Discover physical DepthAI hardware devices over USB or network
-      const hwDevices = await cameraService.getAvailableDevices().catch(() => []);
-      if (Array.isArray(hwDevices)) {
-        setDiscoveredDevices(hwDevices);
-
-        // Auto-detect physical USB camera if found
-        const usb = hwDevices.find((d: any) => d.is_usb);
-        if (usb) {
-          const usbTarget = usb.ip_or_id || 'usb';
-          const usbName = usb.name || 'OAK USB Camera';
-          setLocalConfig((prev) => {
-            if (!prev.ipAddress || prev.ipAddress === '127.0.0.1') {
-              return {
-                ...prev,
-                ipAddress: usbTarget,
-                sourceName: prev.sourceName === 'Mock OAK Camera' ? usbName : prev.sourceName,
-              };
-            }
-            return prev;
-          });
-
-          // Automatically connect to discovered USB camera if currently disconnected
-          if (autoConnectIfUsb && !config.connected) {
-            await handleSelectDeviceAndConnect(usbTarget, usbName);
-          }
-        }
-      }
+      const [dbCameras, hwDevices] = await Promise.all([
+        cameraService.checkCamera().catch(() => []),
+        cameraService.getAvailableDevices().catch(() => []),
+      ]);
+      if (Array.isArray(dbCameras)) setSavedCameras(dbCameras);
+      if (Array.isArray(hwDevices)) setDiscoveredDevices(hwDevices);
     } finally {
       setIsScanning(false);
     }
-  }, [config.connected, onReconnect, handleSelectDeviceAndConnect]);
+  }, []);
+
+  // Connect USB directly
+  const handleConnectUsb = useCallback(async () => {
+    playWaterDropSound();
+    setIsConnecting(true);
+    const usbTarget = usbDevice?.ip_or_id || 'usb';
+    const usbName = usbDevice?.name || 'OAK USB Camera';
+    const updated: CameraConfig = {
+      ...localConfigRef.current,
+      ipAddress: usbTarget,
+      sourceName: usbName,
+      targetFps: localConfigRef.current.targetFps || 30,
+    };
+    setLocalConfig(updated);
+    try {
+      if (onReconnectRef.current) {
+        await onReconnectRef.current(updated);
+      }
+    } finally {
+      setIsConnecting(false);
+    }
+  }, [usbDevice]);
+
+  // Connect IP directly
+  const handleConnectIp = useCallback(async (ipToConnect?: string) => {
+    const targetIp = (ipToConnect !== undefined ? ipToConnect : ipAddressInput).trim();
+    if (!targetIp) return;
+    playWaterDropSound();
+    setIsConnecting(true);
+    const updated: CameraConfig = {
+      ...localConfigRef.current,
+      ipAddress: targetIp,
+      sourceName: `OAK PoE (${targetIp})`,
+      targetFps: localConfigRef.current.targetFps || 30,
+    };
+    setLocalConfig(updated);
+    try {
+      if (onReconnectRef.current) {
+        await onReconnectRef.current(updated);
+      }
+    } finally {
+      setIsConnecting(false);
+    }
+  }, [ipAddressInput]);
 
   useEffect(() => {
-    if (isOpen) {
-      setLocalConfig({
-        ...config,
-        targetFps: config.targetFps || 30,
-      });
+    if (!isOpen) {
+      hasAutoConnectedRef.current = false;
+      return;
+    }
 
-      // Always load latest camera config from DB on modal open
-      cameraService.checkCamera().then((cameras) => {
-        if (Array.isArray(cameras) && cameras.length > 0) {
-          setSavedCameras(cameras);
-          const active = cameras.find((c: any) => c.is_enabled) || cameras[0];
-          if (active) {
-            setLocalConfig((prev) => ({
-              ...prev,
-              id: active.id,
-              sourceName: active.name || prev.sourceName,
-              ipAddress: active.ip_address || '',
-              resolution: (active.resolution as any) || prev.resolution || '1920x1080',
-              targetFps: active.fps || 30,
-              rotationAngle: active.rotation_angle ?? prev.rotationAngle,
-              controlMode: (active.control_mode as any) ?? prev.controlMode,
-              exposure: active.exposure ?? prev.exposure,
-              gain: active.gain ?? prev.gain,
-              iso: active.gain ?? prev.iso,
-              focus: active.focus ?? prev.focus,
-              brightness: active.brightness ?? prev.brightness,
-              contrast: active.contrast ?? prev.contrast,
-              autoFocus: active.auto_focus ?? prev.autoFocus,
-              autoExposure: active.auto_exposure ?? prev.autoExposure,
-            }));
+    // Initialize local config from props
+    setLocalConfig({
+      ...config,
+      targetFps: config.targetFps || 30,
+    });
+
+    const isUsb = !config.ipAddress || config.ipAddress.toLowerCase().includes('usb');
+    setConnectionMode(isUsb ? 'usb' : 'ip');
+    setIpAddressInput(isUsb ? '' : config.ipAddress || '');
+
+    // 1. Fetch saved cameras from database
+    cameraService.checkCamera().then((cameras) => {
+      if (Array.isArray(cameras) && cameras.length > 0) {
+        setSavedCameras(cameras);
+        const active = cameras.find((c: any) => c.is_enabled) || cameras[0];
+        if (active) {
+          setLocalConfig((prev) => ({
+            ...prev,
+            id: active.id,
+            sourceName: active.name || prev.sourceName,
+            ipAddress: active.ip_address || prev.ipAddress,
+            resolution: (active.resolution as any) || prev.resolution || '1920x1080',
+            targetFps: active.fps || 30,
+            rotationAngle: active.rotation_angle ?? prev.rotationAngle,
+            controlMode: (active.control_mode as any) ?? prev.controlMode,
+            exposure: active.exposure ?? prev.exposure,
+            gain: active.gain ?? prev.gain,
+            iso: active.gain ?? prev.iso,
+            focus: active.focus ?? prev.focus,
+            brightness: active.brightness ?? prev.brightness,
+            contrast: active.contrast ?? prev.contrast,
+            autoFocus: active.auto_focus ?? prev.autoFocus,
+            autoExposure: active.auto_exposure ?? prev.autoExposure,
+          }));
+          if (active.ip_address && !active.ip_address.toLowerCase().includes('usb')) {
+            setIpAddressInput(active.ip_address);
           }
         }
-      }).catch(() => {});
+      }
+    }).catch(() => {});
 
-      // Scan hardware devices and auto-connect if physical USB camera is plugged in
-      scanDevices(true);
-    }
-  }, [config, isOpen, scanDevices]);
+    // 2. Hardware scan once per modal open
+    cameraService.getAvailableDevices().then(async (hwDevices) => {
+      if (Array.isArray(hwDevices)) {
+        setDiscoveredDevices(hwDevices);
+        const usb = hwDevices.find((d: any) => d.is_usb);
+        // Automatically connect to discovered USB camera once if not yet connected
+        if (usb && !config.connected && !hasAutoConnectedRef.current) {
+          hasAutoConnectedRef.current = true;
+          const usbTarget = usb.ip_or_id || 'usb';
+          const usbName = usb.name || 'OAK USB Camera';
+          const updated: CameraConfig = {
+            ...localConfigRef.current,
+            ipAddress: usbTarget,
+            sourceName: usbName,
+            targetFps: localConfigRef.current.targetFps || 30,
+          };
+          setLocalConfig(updated);
+          setConnectionMode('usb');
+          setIsConnecting(true);
+          try {
+            if (onReconnectRef.current) {
+              await onReconnectRef.current(updated);
+            }
+          } finally {
+            setIsConnecting(false);
+          }
+        }
+      }
+    }).catch(() => {});
+  }, [isOpen]);
 
   const handleSave = () => {
     playWaterDropSound();
@@ -171,50 +202,6 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
       accentColor: 'var(--accent-pond)',
     };
   };
-
-  // Available camera targets (discovered + registered + presets)
-  const usbDevice = discoveredDevices.find((d: any) => d.is_usb);
-  const availableTargets = useMemo(() => {
-    const list: { name: string; ip: string; isUsb?: boolean; isOnline?: boolean }[] = [];
-    const seen = new Set<string>();
-
-    // 1. Discovered hardware devices
-    discoveredDevices.forEach((d: any) => {
-      const ip = d.ip_or_id || (d.is_usb ? 'usb' : '');
-      if (ip && !seen.has(ip)) {
-        seen.add(ip);
-        list.push({
-          name: d.name || (d.is_usb ? 'USB OAK Camera' : 'Network OAK'),
-          ip,
-          isUsb: d.is_usb,
-          isOnline: true,
-        });
-      }
-    });
-
-    // 2. Saved cameras from database
-    savedCameras.forEach((c: any) => {
-      if (c.ip_address && !seen.has(c.ip_address)) {
-        seen.add(c.ip_address);
-        list.push({
-          name: c.name || `Camera #${c.id}`,
-          ip: c.ip_address,
-          isUsb: c.ip_address.toLowerCase().includes('usb'),
-          isOnline: c.is_enabled,
-        });
-      }
-    });
-
-    // 3. Fallback common presets
-    if (!seen.has('192.168.1.100')) {
-      list.push({ name: 'Default OAK PoE', ip: '192.168.1.100', isUsb: false });
-    }
-    if (!seen.has('127.0.0.1')) {
-      list.push({ name: 'Local Mock', ip: '127.0.0.1', isUsb: false });
-    }
-
-    return list;
-  }, [discoveredDevices, savedCameras]);
 
   return (
     <Modal
@@ -352,7 +339,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
                   <div className="w-7 h-7 rounded-xl bg-[var(--accent-pond-subtle)] border border-[var(--border-color)] flex items-center justify-center text-[var(--accent-pond)] shadow-2xs">
-                    {localConfig.ipAddress?.toLowerCase().includes('usb') ? (
+                    {connectionMode === 'usb' ? (
                       <Usb className="w-4 h-4" />
                     ) : (
                       <Wifi className="w-4 h-4" />
@@ -363,14 +350,11 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                       <span className="text-xs font-bold text-[var(--text-primary)]">
                         Camera Connection
                       </span>
-                      {localConfig.ipAddress?.toLowerCase().includes('usb') && (
-                        <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--accent-pond)]/30">
-                          USB MODE
-                        </span>
-                      )}
                     </div>
                     <span className="text-[10px] text-[var(--text-muted)]">
-                      Direct USB OAK device or network PoE / IP stream
+                      {connectionMode === 'usb'
+                        ? 'Direct USB OAK Camera (Plug & Play)'
+                        : 'Network PoE / IP OAK Camera Stream'}
                     </span>
                   </div>
                 </div>
@@ -401,7 +385,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                   {/* Re-scan button */}
                   <button
                     type="button"
-                    onClick={() => scanDevices(false)}
+                    onClick={() => scanDevices()}
                     disabled={isScanning}
                     title="Scan hardware and network for connected cameras"
                     className="p-1.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-secondary)] hover:text-[var(--accent-pond)] hover:border-[var(--accent-pond)] transition-all cursor-pointer shadow-2xs"
@@ -411,130 +395,165 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                 </div>
               </div>
 
-              {/* Automatic USB Camera Quick-Connect Banner if USB device is detected */}
-              {usbDevice && (
-                <div
-                  onClick={() => handleSelectDeviceAndConnect(usbDevice.ip_or_id || 'usb', usbDevice.name)}
-                  className="p-3 rounded-xl border border-[var(--accent-pond)]/50 bg-[var(--accent-pond-subtle)] flex items-center justify-between gap-3 cursor-pointer hover:border-[var(--accent-pond)] hover:shadow-xs transition-all group"
+              {/* Mode Selection: Exactly 2 clean options — USB Camera or IP Camera */}
+              <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    playWaterDropSound();
+                    setConnectionMode('usb');
+                  }}
+                  className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                    connectionMode === 'usb'
+                      ? 'bg-[var(--accent-pond)] text-white shadow-xs'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-card-subtle)]'
+                  }`}
                 >
+                  <Usb className="w-3.5 h-3.5" />
+                  <span>USB Camera</span>
+                  {usbDevice && (
+                    <span className={`w-1.5 h-1.5 rounded-full ${connectionMode === 'usb' ? 'bg-white' : 'bg-emerald-400'}`} />
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    playWaterDropSound();
+                    setConnectionMode('ip');
+                  }}
+                  className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                    connectionMode === 'ip'
+                      ? 'bg-[var(--accent-pond)] text-white shadow-xs'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-card-subtle)]'
+                  }`}
+                >
+                  <Wifi className="w-3.5 h-3.5" />
+                  <span>IP Camera</span>
+                </button>
+              </div>
+
+              {/* USB Camera Panel: Auto-connect or 1-click connect without IP entry */}
+              {connectionMode === 'usb' && (
+                <div className="p-3 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-7 h-7 rounded-lg bg-[var(--accent-pond)] text-white flex items-center justify-center shrink-0 shadow-2xs">
+                    <div className="w-8 h-8 rounded-lg bg-[var(--accent-pond-subtle)] border border-[var(--border-color)] flex items-center justify-center text-[var(--accent-pond)] shrink-0">
                       <Usb className="w-4 h-4" />
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold text-[var(--text-primary)] truncate">
-                          {usbDevice.name || 'USB OAK Camera'}
+                          {usbDevice?.name || 'Direct USB OAK Camera'}
                         </span>
-                        <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-[var(--accent-pond)] text-white">
-                          USB READY
-                        </span>
+                        {usbDevice ? (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                            DETECTED
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-[var(--bg-card-subtle)] text-[var(--text-muted)] border border-[var(--border-color)]">
+                            READY
+                          </span>
+                        )}
                       </div>
-                      <span className="text-[10px] text-[var(--text-secondary)] block truncate">
-                        Physical device detected &bull; Click to automatically connect
+                      <span className="text-[10px] text-[var(--text-muted)] block truncate">
+                        {usbDevice
+                          ? 'Physical device ready • Click connect to start'
+                          : 'Connect OAK device via USB 3.0 port'}
                       </span>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--accent-pond)] text-white shrink-0 group-hover:scale-105 transition-transform flex items-center gap-1 shadow-xs"
+
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={isConnecting}
+                    onClick={handleConnectUsb}
                   >
-                    <span>Auto Connect</span>
-                    <ArrowRight className="w-3 h-3" />
-                  </button>
+                    {isConnecting ? (
+                      <span className="flex items-center gap-1.5">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Connecting...
+                      </span>
+                    ) : localConfig.connected && localConfig.ipAddress?.toLowerCase().includes('usb') ? (
+                      'Reconnect USB'
+                    ) : (
+                      'Connect USB'
+                    )}
+                  </Button>
                 </div>
               )}
 
-              {/* Discovered / Available IP & Device Chips (Click to insert & connect immediately!) */}
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5 block">
-                  Available Targets (Click to insert &amp; connect):
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {/* USB Camera Option */}
-                  <button
-                    type="button"
-                    onClick={() => handleSelectDeviceAndConnect(usbDevice?.ip_or_id || 'usb', 'OAK USB Camera')}
-                    title="Insert 'usb' and connect directly via USB"
-                    className={`px-2.5 py-1.5 rounded-xl text-xs font-medium border flex items-center gap-1.5 transition-all cursor-pointer ${
-                      localConfig.ipAddress === 'usb' || localConfig.ipAddress === usbDevice?.ip_or_id
-                        ? 'bg-[var(--accent-pond)] text-white border-transparent shadow-xs font-bold'
-                        : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-primary)] hover:border-[var(--accent-pond)] hover:bg-[var(--accent-pond-subtle)]'
-                    }`}
-                  >
-                    <Usb className="w-3.5 h-3.5" />
-                    <span>USB Camera</span>
-                    {usbDevice && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 ml-0.5" />
-                    )}
-                  </button>
-
-                  {/* Discovered / Saved Targets */}
-                  {availableTargets.map((item, idx) => {
-                    const isCurrent = localConfig.ipAddress === item.ip;
-                    return (
-                      <button
-                        key={`cam-target-${idx}-${item.ip}`}
-                        type="button"
-                        onClick={() => handleSelectDeviceAndConnect(item.ip, item.name)}
-                        title={`Click to insert ${item.ip} and connect immediately`}
-                        className={`px-2.5 py-1.5 rounded-xl text-xs font-medium border flex items-center gap-1.5 transition-all cursor-pointer ${
-                          isCurrent
-                            ? 'bg-[var(--accent-pond)] text-white border-transparent shadow-xs font-bold'
-                            : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-primary)] hover:border-[var(--accent-pond)] hover:bg-[var(--accent-pond-subtle)]'
-                        }`}
-                      >
-                        {item.isUsb ? <Usb className="w-3.5 h-3.5" /> : <Wifi className="w-3.5 h-3.5" />}
-                        <span>{item.name}</span>
-                        <span className="font-mono text-[10px] opacity-75">({item.ip})</span>
-                        {item.isOnline && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 ml-0.5" />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Target Input with Connect Button */}
-              <div className="flex items-center gap-2 pt-2 border-t border-[var(--border-color)]/70">
-                <div className="relative flex-1">
-                  <input
-                    type="text"
-                    placeholder="e.g. 192.168.1.100 or usb"
-                    value={localConfig.ipAddress}
-                    onChange={(e) => setLocalConfig({ ...localConfig, ipAddress: e.target.value })}
-                    className="w-full pl-3 pr-7 py-2 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] text-xs font-mono font-medium text-[var(--text-primary)] focus:outline-hidden focus:border-[var(--accent-pond)] focus:ring-1 focus:ring-[var(--accent-pond)] transition-all"
-                  />
-                  {localConfig.ipAddress && (
-                    <button
-                      type="button"
-                      onClick={() => setLocalConfig({ ...localConfig, ipAddress: '' })}
-                      title="Clear address"
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)] text-xs font-bold cursor-pointer"
+              {/* IP Camera Panel: Allows user to enter IP and connect */}
+              {connectionMode === 'ip' && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        placeholder="Enter IP address (e.g. 192.168.1.100)"
+                        value={ipAddressInput}
+                        onChange={(e) => setIpAddressInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleConnectIp();
+                          }
+                        }}
+                        className="w-full pl-3 pr-7 py-2 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] text-xs font-mono font-medium text-[var(--text-primary)] focus:outline-hidden focus:border-[var(--accent-pond)] focus:ring-1 focus:ring-[var(--accent-pond)] transition-all"
+                      />
+                      {ipAddressInput && (
+                        <button
+                          type="button"
+                          onClick={() => setIpAddressInput('')}
+                          title="Clear IP"
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)] text-xs font-bold cursor-pointer"
+                        >
+                          &times;
+                        </button>
+                      )}
+                    </div>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      disabled={isConnecting || !ipAddressInput.trim()}
+                      onClick={() => handleConnectIp()}
                     >
-                      &times;
-                    </button>
+                      {isConnecting ? (
+                        <span className="flex items-center gap-1.5">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Connecting...
+                        </span>
+                      ) : localConfig.connected && localConfig.ipAddress === ipAddressInput.trim() ? (
+                        'Reconnect'
+                      ) : (
+                        'Connect'
+                      )}
+                    </Button>
+                  </div>
+
+                  {/* Saved network camera presets from DB if configured */}
+                  {savedCameras.filter((c) => c.ip_address && !c.ip_address.toLowerCase().includes('usb')).length > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] text-[var(--text-muted)] font-medium">Saved:</span>
+                      {savedCameras
+                        .filter((c) => c.ip_address && !c.ip_address.toLowerCase().includes('usb'))
+                        .map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => {
+                              setIpAddressInput(c.ip_address);
+                              handleConnectIp(c.ip_address);
+                            }}
+                            className="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-[var(--bg-card)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--accent-pond)] hover:border-[var(--accent-pond)] transition-all cursor-pointer"
+                          >
+                            {c.name ? `${c.name} (${c.ip_address})` : c.ip_address}
+                          </button>
+                        ))}
+                    </div>
                   )}
                 </div>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  disabled={isConnecting}
-                  onClick={() => handleConnect()}
-                >
-                  {isConnecting ? (
-                    <span className="flex items-center gap-1.5">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      Connecting...
-                    </span>
-                  ) : localConfig.connected ? (
-                    'Reconnect'
-                  ) : (
-                    'Connect'
-                  )}
-                </Button>
-              </div>
+              )}
 
               {/* Theme Colored Connection Progress Bar */}
               {isConnecting && (
@@ -552,7 +571,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                   <div className="flex items-center justify-between text-[11px] font-semibold text-[var(--accent-pond)]">
                     <span className="flex items-center gap-1.5">
                       <Loader2 className="w-3 h-3 animate-spin text-[var(--accent-pond)]" />
-                      Connecting to {localConfig.ipAddress || 'USB Camera'}...
+                      Connecting to {connectionMode === 'usb' ? 'USB Camera' : ipAddressInput || 'IP Camera'}...
                     </span>
                     <span className="font-mono text-[10px] opacity-75">Configuring pipeline</span>
                   </div>

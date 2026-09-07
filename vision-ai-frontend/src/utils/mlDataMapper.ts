@@ -15,6 +15,11 @@ import { useInferenceStore } from '../store/inferenceStore';
  *      detection with a still-null id got force-marked provisional and
  *      then filtered out of activeDucks -- even once the backend itself
  *      had already stopped calling it provisional.
+ *   3. too_many_ducks / too_few_ducks / "excess" being re-derived here from
+ *      the RAW per-frame duck count instead of read from what the backend
+ *      already decided (its shake-smoothed `reasons` array and its
+ *      per-detection `excess` flag) -- so a single noisy frame could flag an
+ *      anomaly a beat before (or in cases the) backend itself ever would.
  */
 // Persistent cache of last known valid bounding box coordinates for each duck ID
 const lastKnownBBoxes = new Map<string, { x: number; y: number; width: number; height: number }>();
@@ -35,7 +40,7 @@ function computeIoU(b1: number[], b2: number[]): number {
   return union > 0 ? inter / union : 0;
 }
 
-export const mapDetectionsToDucks = (data: any, vw: number, vh: number, fallbackExpected?: number): DuckEntity[] => {
+export const mapDetectionsToDucks = (data: any, vw: number, vh: number, _fallbackExpected?: number): DuckEntity[] => {
   const incomingDucks: DuckEntity[] = [];
   const addedIds = data.added_ids || [];
   const missingIds = data.missing_ids || [];
@@ -48,55 +53,44 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, fallback
     : [];
   const allThumbnails = rawDataThumbs.length >= storeThumbs.length ? rawDataThumbs : storeThumbs;
 
-  const effectiveExpected =
-    typeof data.expected_duck_count === 'number' && data.expected_duck_count > 0
-      ? data.expected_duck_count
-      : typeof fallbackExpected === 'number' && fallbackExpected > 0
-      ? fallbackExpected
-      : 0;
+  // BUG FIX: analyzer_new.py votes on `too_many_ducks` / `too_few_ducks` over a
+  // shake-smoothing window (self.count_history / anomaly_smoothing_frames) and
+  // only publishes those verdicts once confirmed, via the top-level `reasons`
+  // array it already sends us (see FIX Issue 4 / _finish()). The previous
+  // version of this file recomputed "too many" / "too few" itself from the
+  // RAW per-frame present-duck count -- i.e. it re-derived an anomaly verdict
+  // instead of translating the backend's, so a single noisy frame (a brief
+  // double-detection or a momentary occlusion) could flag an anomaly before
+  // the backend's own smoothing had confirmed one. That's the same class of
+  // bug this rewrite's docstring says was already fixed once (bogus red
+  // boxes from a naive count mismatch) -- it just crept back in here.
+  const backendReasons: string[] = Array.isArray(data.reasons) ? data.reasons : [];
+  const isTooFewDucks = !isWarmingUp && backendReasons.includes('too_few_ducks');
 
-  // Gather present duck numeric IDs and pre-collect locked duck bounding boxes
-  const presentDuckNumericIds: number[] = [];
+  // Pre-collect locked DUCK bounding boxes only (used below purely to
+  // de-duplicate stray unbound duck detections that overlap an already-locked
+  // duck). BUG FIX: this used to collect boxes from ANY detection with a
+  // positive id -- including "other_toys" objects, which also get positive
+  // ids from the backend -- so an unbound duck overlapping an other-object's
+  // box could get wrongly suppressed as a "duplicate". Now gated to species duck.
   const lockedBoxes: number[][] = [];
   if (Array.isArray(data.detections)) {
     data.detections.forEach((det: any) => {
       const sp = String(det.class_name || det.species || '').toLowerCase();
       const isDuck = sp === '' || sp === 'duck';
       const hasId = det.id !== null && det.id !== undefined && Number(det.id) > 0;
-      const isPresent = !det.status || det.status === 'present';
-      if (isDuck && hasId && isPresent) {
-        presentDuckNumericIds.push(Number(det.id));
-      }
       const b = det.bbox || det.box;
-      if (!isWarmingUp && hasId && Array.isArray(b) && b.length === 4) {
+      if (!isWarmingUp && isDuck && hasId && Array.isArray(b) && b.length === 4) {
         lockedBoxes.push(b);
       }
     });
-    presentDuckNumericIds.sort((a, b) => a - b);
   }
 
-  const detectedCount =
-    typeof data.detected_duck_count === 'number' && data.detected_duck_count > 0
-      ? data.detected_duck_count
-      : presentDuckNumericIds.length;
-
-  // 1. Over-count / Too Many Ducks (e.g. expected 17, 18 present):
-  //    Per ML analyzer: highest-numbered present duck(s) beyond expected (Duck #18) are excess (RED),
-  //    while ducks 1..17 remain normal (GREEN).
-  const excessIdSet = new Set<number>();
-  const isTooManyDucks = !isWarmingUp && effectiveExpected > 0 && presentDuckNumericIds.length > effectiveExpected;
-  if (isTooManyDucks) {
-    presentDuckNumericIds.slice(effectiveExpected).forEach((id: number) => excessIdSet.add(id));
-  }
-
-  // 2. Under-count / Too Few Ducks (e.g. expected 19, 18 present):
-  //    Per ML analyzer (analyzer_new.py): when too_few_ducks occurs, excess_ids is empty, and
-  //    this_box_color = box_color = RED (all detected present duck boxes take anomaly color RED).
-  const isTooFewDucks = !isWarmingUp && effectiveExpected > 0 && (
-    (detectedCount > 0 && detectedCount < effectiveExpected) ||
-    (presentDuckNumericIds.length > 0 && presentDuckNumericIds.length < effectiveExpected) ||
-    (Array.isArray(data.reasons) && (data.reasons.includes('too_few_ducks') || data.reasons.includes('too_few')))
-  );
+  // Note: over-count coloring (which specific duck id(s) are "excess", e.g.
+  // expected 17 / 18 present -> #18 red, #1-17 green) is NOT computed here at
+  // all -- the backend already tags each present duck detection with its own
+  // `excess` boolean (see analyzer_new.py's `this_box_color` / `is_excess`
+  // logic), and that's read directly below via `d.excess`.
 
   const seenIds = new Set<string>();
 
@@ -159,7 +153,7 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, fallback
       }
 
       const isUnboundExtra = !isWarmingUp && !hasLockedId;
-      const isExcess = !isProvisional && (d.excess === true || excessIdSet.has(Number(rawId)) || isUnboundExtra);
+      const isExcess = !isProvisional && (d.excess === true || isUnboundExtra);
 
       let eventStatus: DuckEntity['statusEvent'] = undefined;
       if (isMissingDetection) {
@@ -203,7 +197,14 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, fallback
       incomingDucks.push({
         id: displayId,
         species: isHand ? 'Hand' : isDuck ? 'Duck' : 'Unknown',
-        confidence: d.confidence || d.conf || (isMissingDetection ? 0.0 : 0.9),
+        confidence:
+          typeof d.confidence === 'number'
+            ? d.confidence
+            : typeof d.conf === 'number'
+            ? d.conf
+            : isMissingDetection
+            ? 0.0
+            : 0.9,
         x: px,
         y: py,
         width: pw,

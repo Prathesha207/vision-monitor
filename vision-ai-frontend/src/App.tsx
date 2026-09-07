@@ -524,15 +524,8 @@ export default function App() {
         await fetch(`${getApiBaseUrl()}/video/stop/${video.videoSessionId}`, { method: 'POST' });
       } catch {}
     }
-    // Clear the video pipeline state so the upload card shows again
-    video.setCustomVideoUrl(undefined);
-    video.setLocalPreviewUrl(undefined);
-    video.setVideoSessionId(null);
-    video.setCustomVideoName(undefined);
-    // Clear persisted session so a refresh after reset shows the upload card, not auto-resume
-    clearSessionState();
-    showToast('info', 'Video reset • Upload a new video to begin');
-    addLog('Video cleared • Ready for a new upload.', 'info');
+    showToast('info', 'Video playback reset to beginning');
+    addLog('Video playback reset to frame 0 • Ready for inference.', 'info');
   };
 
   // Wrap toggle/stop/resume to pass startVideoInference

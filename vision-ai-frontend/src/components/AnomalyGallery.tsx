@@ -3,6 +3,29 @@ import { Sparkles, EyeOff } from 'lucide-react';
 import { DuckEntity, AnomalyStatus } from '../types';
 import { playWaterDropSound, playDuckQuackSound } from '../utils/audio';
 
+// ---------------------------------------------------------------------- //
+// Shared per-duck status checks. These MUST stay in one place: the card
+// component, the tab badge counts, and the tab filters all need to agree
+// on which bucket a duck falls into, or the counts/tabs and the actual
+// card colors drift apart (see isCountAnomalyDuck below for the bug that
+// caused).
+// ---------------------------------------------------------------------- //
+const isMissingDuck = (d: DuckEntity) => !d.provisional && d.statusEvent === 'missing';
+const isNewDuck = (d: DuckEntity) => !d.provisional && d.statusEvent === 'added';
+const isOtherDuck = (d: DuckEntity) =>
+  !d.provisional && (d.statusEvent === 'other_present' || (d.species !== 'Duck' && d.species !== 'Hand'));
+// BUG FIX: mlDataMapper.ts sets `isAnomaly: true` straight from the backend
+// on EVERY present duck during a too_few_ducks episode (matching the
+// backend's own this_box_color=RED-for-all-boxes behavior in that case) --
+// and those ducks have no special statusEvent (not missing/added/other).
+// This file previously never read duck.isAnomaly at all, so that whole
+// episode rendered as plain "OK" green cards here while BoundingBoxOverlay
+// correctly showed every box red on the same frame. This catches any duck
+// the backend flagged anomalous that isn't already covered by one of the
+// three named buckets above.
+const isCountAnomalyDuck = (d: DuckEntity) =>
+  !d.provisional && !isMissingDuck(d) && !isNewDuck(d) && !isOtherDuck(d) && d.isAnomaly === true;
+
 interface DetectionCropCanvasProps {
   duck: DuckEntity;
 }
@@ -54,10 +77,11 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
   onToggleMissing,
 }) => {
   const isProvisional = duck.provisional === true;
-  const isMissing = !isProvisional && duck.statusEvent === 'missing';
-  const isNew = !isProvisional && duck.statusEvent === 'added';
-  const isOther = !isProvisional && (duck.statusEvent === 'other_present' || (duck.species !== 'Duck' && duck.species !== 'Hand'));
-  const isAlert = !isProvisional && isOther;
+  const isMissing = isMissingDuck(duck);
+  const isNew = isNewDuck(duck);
+  const isOther = isOtherDuck(duck);
+  const isCountAnomaly = isCountAnomalyDuck(duck);
+  const isAlert = !isProvisional && (isOther || isCountAnomaly);
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -98,7 +122,7 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
     : isOther ? 'ALERT'
     : duck.statusEvent === 'hand_present' ? 'HAND'
     : isNew ? 'NEW'
-    : isAlert ? 'ALERT'
+    : isCountAnomaly ? 'ANOMALY'
     : isProvisional ? 'WARM'
     : 'OK';
 
@@ -260,12 +284,19 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
 
   // Missed = ducks that disappeared from the scene (excluding provisional warmup)
   const missedCount = useMemo(() => sortedDucks.filter((d) => !d.provisional && d.statusEvent === 'missing').length, [sortedDucks]);
-  // Alert = only unknown/foreign species (excluding provisional warmup)
-  const alertCount = useMemo(() => sortedDucks.filter((d) => !d.provisional && (d.statusEvent === 'other_present' || (d.species !== 'Duck' && d.species !== 'Hand' && d.x >= 0))).length, [sortedDucks]);
+  // Alert = unknown/foreign species OR any other duck the backend flagged
+  // anomalous that isn't already a missing/new card (e.g. every present duck
+  // during a too_few_ducks episode). Was previously only the foreign-species
+  // half of this, so the Alert tab and its count silently missed count-
+  // mismatch anomalies that were red on the video overlay.
+  const alertCount = useMemo(
+    () => sortedDucks.filter((d) => isOtherDuck(d) || isCountAnomalyDuck(d)).length,
+    [sortedDucks]
+  );
 
   const filteredDucks = useMemo(() => {
     if (filter === 'missed') return sortedDucks.filter((d) => !d.provisional && d.statusEvent === 'missing');
-    if (filter === 'alert') return sortedDucks.filter((d) => !d.provisional && (d.statusEvent === 'other_present' || (d.species !== 'Duck' && d.species !== 'Hand' && d.x >= 0)));
+    if (filter === 'alert') return sortedDucks.filter((d) => isOtherDuck(d) || isCountAnomalyDuck(d));
     // 'all' always includes every duck — missing cards stay in their ID position, just flagged.
     return sortedDucks;
   }, [sortedDucks, filter]);

@@ -271,9 +271,10 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                 onLoad={(e) => {
                   const tgt = e.target as HTMLImageElement;
                   if (tgt.naturalWidth && tgt.naturalHeight) {
-                    setVideoAspect(tgt.naturalWidth / tgt.naturalHeight);
+                    const aspect = tgt.naturalWidth / tgt.naturalHeight;
+                    setVideoAspect((prev) => (prev !== aspect ? aspect : prev));
                   }
-                  setIsFirstFrameLoaded(true);
+                  setIsFirstFrameLoaded((prev) => (!prev ? true : prev));
                 }}
                 onError={() => {
                   console.warn('[DetectionCanvas] Camera stream frame interrupted, retrying...');

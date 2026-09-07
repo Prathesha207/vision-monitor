@@ -82,6 +82,9 @@ export function useAnomalyStatus({
       };
     }
 
+    const backendReasons: string[] = Array.isArray(backendStats.reasons) ? backendStats.reasons : [];
+    const isWarmingUp = backendStatus === 'WARMING' || backendStats.anchor_locked === false;
+
     // The backend count is the count for the current inference frame. Do not
     // fall back when it is zero: doing so can reuse gallery cards from the
     // prior frame and make the status disagree with the displayed count.
@@ -98,21 +101,37 @@ export function useAnomalyStatus({
       ? backendForeign
       : ducks.filter((duck) => duck.species === 'Unknown' && !duck.provisional).length;
     const missingIds = Array.isArray(backendStats.missing_ids) ? backendStats.missing_ids : [];
-    const hasMissingDuck = missingIds.length > 0 || ducks.some((duck) =>
-      !duck.provisional && duck.statusEvent === 'missing'
+    const hasMissingDuck = !isWarmingUp && (
+      backendReasons.includes('missing_duck') ||
+      missingIds.length > 0 ||
+      ducks.some((duck) => !duck.provisional && duck.statusEvent === 'missing')
     );
     const difference = detectedCount - expectedFromMl;
     const foreignSpecies = foreignCount > 0 ? ['Unknown'] : [];
 
-    const isCountMismatch = detectedCount !== expectedFromMl;
-    const hasForeign = foreignCount > 0;
+    // BUG FIX: Trust backend-smoothed verdicts from analyzer_new.py (reasons / status)
+    // rather than re-computing raw count mismatches per single frame. A momentary
+    // single-frame occlusion or detection glitch must not trigger an instant alarm
+    // before the backend's smoothing window confirms it.
+    const isTooFew = !isWarmingUp && (backendReasons.includes('too_few_ducks') || backendReasons.includes('too_few'));
+    const isTooMany = !isWarmingUp && (backendReasons.includes('too_many_ducks') || backendReasons.includes('too_many'));
+    const isCountMismatch = !isWarmingUp && (
+      backendReasons.length > 0
+        ? (isTooFew || isTooMany)
+        : (detectedCount !== expectedFromMl)
+    );
+    const hasForeign = !isWarmingUp && (backendReasons.includes('other_species_present') || foreignCount > 0);
     const hasHand = backendStatus === 'HAND' || backendStats.hand_detected === true;
 
-    // This is the sole client verdict. A bare/stale backend status is not
-    // enough: current-frame evidence must support it. This keeps every UI
-    // surface in agreement when status packets and detection packets arrive
-    // at slightly different times.
-    const isAnomaly = hasHand || isCountMismatch || hasMissingDuck || hasForeign;
+    // Backend-aligned anomaly verdict
+    const isAnomaly = !isWarmingUp && (
+      hasHand ||
+      backendStatus === 'ANOMALY' ||
+      backendReasons.length > 0 ||
+      isCountMismatch ||
+      hasMissingDuck ||
+      hasForeign
+    );
     let message = hasHand ? 'HAND DETECTED' : isAnomaly ? 'ANOMALY' : 'NORMAL';
     let subMessage = `${detectedCount} ducks detected in target area. Count matches expected (${expectedFromMl}).`;
     let type: AnomalyStatus['type'] = 'NONE';
@@ -129,15 +148,15 @@ export function useAnomalyStatus({
         type = 'FOREIGN_SPECIES';
         subMessage = `Duck count normal (${detectedCount}/${expectedFromMl}), but ${foreignCount} non-duck detected.`;
       } else if (isCountMismatch) {
-        if (difference > 0) {
+        if (isTooMany || difference > 0) {
           type = 'OVER_COUNT';
           const addedIds = backendStats.added_ids || [];
           const added = addedIds.length > 0 ? ` (Added: ${addedIds.join(', ')})` : '';
-          subMessage = `+${difference} above expected count (${detectedCount} detected, ${expectedFromMl} expected)${added}`;
+          subMessage = `+${Math.max(1, difference)} above expected count (${detectedCount} detected, ${expectedFromMl} expected)${added}`;
         } else {
           type = 'UNDER_COUNT';
           const missing = missingIds.length > 0 ? ` (Missing: ${missingIds.join(', ')})` : '';
-          subMessage = `${Math.abs(difference)} missing ducks (${detectedCount} detected, ${expectedFromMl} expected)${missing}`;
+          subMessage = `${Math.abs(difference) || 1} missing ducks (${detectedCount} detected, ${expectedFromMl} expected)${missing}`;
         }
       } else if (hasMissingDuck) {
         type = 'MISSING_DUCK';
