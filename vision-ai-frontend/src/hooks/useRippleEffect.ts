@@ -92,14 +92,26 @@ export const useRippleEffect = (
 
     // Only hit-test ducks that are currently visible to the user on the screen.
     // Clicking on the video canvas should NEVER secretly select an invisible normal duck!
-    const clickedDuck = ducks.find(
-      (d) =>
-        (showAllBoxes || d.provisional || d.isAnomaly || d.statusEvent === 'missing' || isSceneAnomaly) &&
+    const clickedDuck = ducks.find((d) => {
+      if (d.species === 'Hand' || d.handDetected) return false;
+      const isMissing = d.statusEvent === 'missing';
+      const isAnomalyDuck =
+        !d.provisional &&
+        (d.isAnomaly ||
+          isMissing ||
+          d.species !== 'Duck' ||
+          d.statusEvent === 'added' ||
+          d.statusEvent === 'other_present');
+      const isVisible = showAllBoxes || isAnomalyDuck;
+
+      return (
+        isVisible &&
         xPercent >= d.x &&
         xPercent <= d.x + d.width &&
         yPercent >= d.y &&
         yPercent <= d.y + d.height
-    );
+      );
+    });
 
     if (clickedDuck) {
       playDuckQuackSound();

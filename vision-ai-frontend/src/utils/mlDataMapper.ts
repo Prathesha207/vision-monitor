@@ -23,7 +23,7 @@ export const resetBBoxCache = () => {
   lastKnownBBoxes.clear();
 };
 
-export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEntity[] => {
+export const mapDetectionsToDucks = (data: any, vw: number, vh: number, fallbackExpected?: number): DuckEntity[] => {
   const incomingDucks: DuckEntity[] = [];
   const addedIds = data.added_ids || [];
   const missingIds = data.missing_ids || [];
@@ -35,6 +35,51 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEnt
     ? useInferenceStore.getState().stats.thumbnails
     : [];
   const allThumbnails = rawDataThumbs.length >= storeThumbs.length ? rawDataThumbs : storeThumbs;
+
+  const effectiveExpected =
+    typeof data.expected_duck_count === 'number' && data.expected_duck_count > 0
+      ? data.expected_duck_count
+      : typeof fallbackExpected === 'number' && fallbackExpected > 0
+      ? fallbackExpected
+      : 0;
+
+  // Gather present duck numeric IDs
+  const presentDuckNumericIds: number[] = [];
+  if (Array.isArray(data.detections)) {
+    data.detections.forEach((det: any) => {
+      const sp = String(det.class_name || det.species || '').toLowerCase();
+      const isDuck = sp === '' || sp === 'duck';
+      const hasId = det.id !== null && det.id !== undefined && Number(det.id) > 0;
+      const isPresent = !det.status || det.status === 'present';
+      if (isDuck && hasId && isPresent) {
+        presentDuckNumericIds.push(Number(det.id));
+      }
+    });
+    presentDuckNumericIds.sort((a, b) => a - b);
+  }
+
+  const detectedCount =
+    typeof data.detected_duck_count === 'number' && data.detected_duck_count > 0
+      ? data.detected_duck_count
+      : presentDuckNumericIds.length;
+
+  // 1. Over-count / Too Many Ducks (e.g. expected 17, 18 present):
+  //    Per ML analyzer: highest-numbered present duck(s) beyond expected (Duck #18) are excess (RED),
+  //    while ducks 1..17 remain normal (GREEN).
+  const excessIdSet = new Set<number>();
+  const isTooManyDucks = !isWarmingUp && effectiveExpected > 0 && presentDuckNumericIds.length > effectiveExpected;
+  if (isTooManyDucks) {
+    presentDuckNumericIds.slice(effectiveExpected).forEach((id: number) => excessIdSet.add(id));
+  }
+
+  // 2. Under-count / Too Few Ducks (e.g. expected 19, 18 present):
+  //    Per ML analyzer (analyzer_new.py): when too_few_ducks occurs, excess_ids is empty, and
+  //    this_box_color = box_color = RED (all detected present duck boxes take anomaly color RED).
+  const isTooFewDucks = !isWarmingUp && effectiveExpected > 0 && (
+    (detectedCount > 0 && detectedCount < effectiveExpected) ||
+    (presentDuckNumericIds.length > 0 && presentDuckNumericIds.length < effectiveExpected) ||
+    (Array.isArray(data.reasons) && (data.reasons.includes('too_few_ducks') || data.reasons.includes('too_few')))
+  );
 
   if (Array.isArray(data.detections)) {
     data.detections.forEach((d: any, idx: number) => {
@@ -82,10 +127,12 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEnt
           ph = cached.height;
         }
       }
+      const isExcess = !isProvisional && (d.excess === true || excessIdSet.has(Number(rawId)));
+
       let eventStatus: DuckEntity['statusEvent'] = undefined;
       if (isMissingDetection) {
         eventStatus = 'missing';
-      } else if (!isProvisional && (d.excess === true || addedIds.includes(displayId) || addedIds.includes(Number(displayId)) || d.status === 'added')) {
+      } else if (!isProvisional && (isExcess || addedIds.includes(displayId) || addedIds.includes(Number(displayId)) || d.status === 'added')) {
         eventStatus = 'added';
       } else if (thumbObj?.event === 'confirmed' || thumbObj?.event === 'added') {
         eventStatus = 'confirmed';
@@ -103,20 +150,22 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEnt
           ? d.excess
           : undefined;
 
-      // 2. An individual duck is an anomaly ONLY if the ML model explicitly marked it,
-      //    or if it is an unknown species, unbound object, missing duck, or added/excess duck.
-      //    CRITICAL: Never mark normal ducks as anomalies just because of an overall scene anomaly (e.g. count mismatch).
-      const isAnomaly = backendIsAnomaly !== undefined ? backendIsAnomaly : (
-        !isProvisional && (
-          isOther ||
-          isHand ||
-          isMissingDetection ||
-          d.excess === true ||
-          addedIds.includes(displayId) ||
-          addedIds.includes(Number(displayId)) ||
-          d.status === 'unbound' ||
-          d.status === 'added'
-        )
+      // 2. An individual duck is an anomaly if:
+      //    - Count was increased (under-count / too few ducks: all present duck boxes are RED per ML model)
+      //    - It is flagged as excess (over-count: only excess duck(s) are RED)
+      //    - The backend explicitly marked it (d.isAnomaly / d.is_anomaly / d.excess)
+      //    - It is a missing duck, unknown/foreign species, unbound object, or added duck
+      const isAnomaly = !isProvisional && (
+        isTooFewDucks ||
+        isExcess ||
+        (backendIsAnomaly !== undefined ? backendIsAnomaly : false) ||
+        isOther ||
+        isHand ||
+        isMissingDetection ||
+        addedIds.includes(displayId) ||
+        addedIds.includes(Number(displayId)) ||
+        d.status === 'unbound' ||
+        d.status === 'added'
       );
 
       incomingDucks.push({

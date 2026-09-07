@@ -31,16 +31,28 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
         .filter((duck) => {
           if (duck.species === 'Hand' || duck.handDetected) return false;
           const isMissing = duck.statusEvent === 'missing';
-          const isAnomalyDuck = duck.provisional || duck.isAnomaly || isMissing || isSceneAnomaly || isCountMismatch;
-          // In "Anomalies Only" mode, show anomaly ducks or all ducks if the scene has an anomaly (such as count mismatch)
+          // In "Anomalies Only" mode (showAllBoxes === false), ONLY show anomalous ducks (excess duck, missing duck, foreign toy, etc.)
+          const isAnomalyDuck =
+            !duck.provisional &&
+            (duck.isAnomaly ||
+              isMissing ||
+              duck.species !== 'Duck' ||
+              duck.statusEvent === 'added' ||
+              duck.statusEvent === 'other_present');
           const isVisible = showAllBoxes || isAnomalyDuck;
           return isVisible && Number.isFinite(duck.x) && Number.isFinite(duck.y) && Number.isFinite(duck.width) && Number.isFinite(duck.height) && duck.width > 0 && duck.height > 0;
         })
         .map((duck, idx) => {
           const isProvisional = duck.provisional;
           const isMissing = duck.statusEvent === 'missing';
-          // Only actual anomalous ducks (foreign species, added toy, or explicit anomaly flag) are red
-          const isIndividualAnomaly = !isProvisional && !isMissing && (duck.isAnomaly || (duck.species !== 'Duck' && duck.species !== 'Hand'));
+          // Only actual anomalous ducks (foreign species, added/excess toy, or explicit anomaly flag) are red
+          const isIndividualAnomaly =
+            !isProvisional &&
+            !isMissing &&
+            (duck.isAnomaly ||
+              duck.species !== 'Duck' ||
+              duck.statusEvent === 'added' ||
+              duck.statusEvent === 'other_present');
           const isSelected = duck.id === selectedDuckId;
           
           // Default: Normal detected duck (Clean Emerald Green)

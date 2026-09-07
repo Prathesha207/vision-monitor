@@ -309,7 +309,7 @@ export default function App() {
 
           const vw = data.video_width || DEFAULT_VIDEO_WIDTH;
           const vh = data.video_height || DEFAULT_VIDEO_HEIGHT;
-          const incomingDucks = mapDetectionsToDucks(data, vw, vh);
+          const incomingDucks = mapDetectionsToDucks(data, vw, vh, expectedDucks);
           if (data.status !== 'HAND' && !data.hand_detected && incomingDucks.length > 0) {
             setDucks(incomingDucks);
           }

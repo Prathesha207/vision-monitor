@@ -84,7 +84,7 @@ export function useInferenceLoop({
 
               const vw = data.video_width || DEFAULT_VIDEO_WIDTH;
               const vh = data.video_height || DEFAULT_VIDEO_HEIGHT;
-              const incomingDucks = mapDetectionsToDucks(data, vw, vh);
+              const incomingDucks = mapDetectionsToDucks(data, vw, vh, expectedDucks);
               if (data.status !== "HAND" && !data.hand_detected) {
                 setDucks(incomingDucks);
               }
@@ -143,7 +143,7 @@ export function useInferenceLoop({
 
           const vw = data.video_width || DEFAULT_VIDEO_WIDTH;
           const vh = data.video_height || DEFAULT_VIDEO_HEIGHT;
-          const incomingDucks = mapDetectionsToDucks(data, vw, vh);
+          const incomingDucks = mapDetectionsToDucks(data, vw, vh, expectedDucks);
 
           // Render exactly what the ML model sends — 1:1 mapping
           if (data.status !== "HAND" && !data.hand_detected) {
@@ -227,7 +227,7 @@ export function useInferenceLoop({
           }
           const vw = data.video_width || DEFAULT_VIDEO_WIDTH;
           const vh = data.video_height || DEFAULT_VIDEO_HEIGHT;
-          const incomingDucks = mapDetectionsToDucks(data, vw, vh);
+          const incomingDucks = mapDetectionsToDucks(data, vw, vh, expectedDucks);
           if (data.status !== "HAND" && !data.hand_detected) {
             setDucks(incomingDucks);
           }
