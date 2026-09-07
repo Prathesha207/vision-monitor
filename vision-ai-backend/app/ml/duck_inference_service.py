@@ -277,28 +277,42 @@ def get_session_status(session_id: str) -> Optional[Dict[str, Any]]:
 
 
 def update_expected_ducks(session_id: str, count: int) -> None:
-    session = _sessions.get(session_id)
-    if not session:
-        _sessions[session_id] = {"expected_duck_count": count}
-        return
-    session["expected_duck_count"] = count
-    analyzer = session.get("analyzer")
-    if analyzer:
-        analyzer.set_expected_duck_count(count)
+    with _sessions_lock:
+        session = _sessions.get(session_id)
+        if not session:
+            _sessions[session_id] = {
+                "expected_duck_count": count,
+                "last_active": time.time()
+            }
+            return
+        session["expected_duck_count"] = count
+        session["last_active"] = time.time()
+        analyzer = session.get("analyzer")
+        if analyzer:
+            analyzer.set_expected_duck_count(count)
 
 
 def clear_session(session_id: str) -> None:
     with _sessions_lock:
         session = _sessions.pop(session_id, None)
-    if session:
-        analyzer = session.get("analyzer")
-        if analyzer and hasattr(analyzer, "close"):
-            analyzer.close()
-        # NEW: release the cross-kind GPU claim this session took at
-        # creation time, so video-upload inference (or training) can start
-        # once the last camera session is gone.
-        if session.get("inference_claimed"):
-            app_state.exit_inference("camera")
+        
+        if session:
+            analyzer = session.get("analyzer")
+            if analyzer and hasattr(analyzer, "close"):
+                analyzer.close()
+            # NEW: release the cross-kind GPU claim this session took at
+            # creation time, so video-upload inference (or training) can start
+            # once the last camera session is gone.
+            if session.get("inference_claimed"):
+                app_state.exit_inference("camera")
+            
+            # Preserve expected_duck_count for the next run (e.g. start_inference)
+            if "expected_duck_count" in session:
+                if session_id not in _sessions:
+                    _sessions[session_id] = {
+                        "expected_duck_count": session["expected_duck_count"],
+                        "last_active": time.time()
+                    }
 
 
 def reset_session_for_next_video(session_id: str) -> None:

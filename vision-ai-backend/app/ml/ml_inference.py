@@ -10,15 +10,15 @@ import cv2
 
 import concurrent.futures
 
-# try:
-#     from duck_analyzer import DuckAnalyzer
-# except ImportError:
-#     try:
-#         from app.ml.duck_analyzer.analyzer import DuckAnalyzer
-#     except ImportError:
-#         DuckAnalyzer = None
+try:
+    from duck_analyzer import DuckAnalyzer
+except ImportError:
+    try:
+        from app.ml.duck_analyzer.analyzer import DuckAnalyzer
+    except ImportError:
+        DuckAnalyzer = None
 
-from app.ml.duck_analyzer.analyzer_new import DuckAnalyzer
+# from app.ml.duck_analyzer.analyzer import DuckAnalyzer
 
 from app.ml import app_state
 
@@ -622,7 +622,7 @@ class VideoInferenceService:
                     hand_detected = result.get("hand_detected", False)
                     new_thumbnails = result.get("thumbnails", [])
 
-                    # analyzer_new.py already computes "reasons" with voting and shake-smoothing
+                    # analyzer.py already computes "reasons" with voting and shake-smoothing
                     # over anomaly_smoothing_frames (self.count_history). Forward analyzer's own reasons.
                     reasons = list(result.get("reasons", []))
 

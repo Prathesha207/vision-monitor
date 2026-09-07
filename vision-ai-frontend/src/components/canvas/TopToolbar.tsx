@@ -11,6 +11,7 @@ interface TopToolbarProps {
   showAllBoxes: boolean;
   onToggleShowAllBoxes: () => void;
   isRecording: boolean;
+  recordingDuration?: number;
   onToggleRecording: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
@@ -33,6 +34,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   showAllBoxes,
   onToggleShowAllBoxes,
   isRecording,
+  recordingDuration = 0,
   onToggleRecording,
   isFullscreen,
   onToggleFullscreen,
@@ -184,7 +186,9 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           }`}
         >
           <div className={`w-2.5 h-2.5 rounded-full ${isRecording ? 'bg-red-500' : 'bg-red-500/50'}`} />
-          {isRecording ? 'RECORDING' : 'RECORD'}
+          {isRecording 
+            ? `RECORDING (${Math.floor(recordingDuration / 60)}:${(recordingDuration % 60).toString().padStart(2, '0')})`
+            : 'RECORD'}
         </button>
       )}
 

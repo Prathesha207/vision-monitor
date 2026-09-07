@@ -53,7 +53,7 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, _fallbac
     : [];
   const allThumbnails = rawDataThumbs.length >= storeThumbs.length ? rawDataThumbs : storeThumbs;
 
-  // BUG FIX: analyzer_new.py votes on `too_many_ducks` / `too_few_ducks` over a
+  // BUG FIX: analyzer.py votes on `too_many_ducks` / `too_few_ducks` over a
   // shake-smoothing window (self.count_history / anomaly_smoothing_frames) and
   // only publishes those verdicts once confirmed, via the top-level `reasons`
   // array it already sends us (see FIX Issue 4 / _finish()). The previous
@@ -89,7 +89,7 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, _fallbac
   // Note: over-count coloring (which specific duck id(s) are "excess", e.g.
   // expected 17 / 18 present -> #18 red, #1-17 green) is NOT computed here at
   // all -- the backend already tags each present duck detection with its own
-  // `excess` boolean (see analyzer_new.py's `this_box_color` / `is_excess`
+  // `excess` boolean (see analyzer.py's `this_box_color` / `is_excess`
   // logic), and that's read directly below via `d.excess`.
 
   const seenIds = new Set<string>();
@@ -125,9 +125,8 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, _fallbac
       const isHand = species === 'hand';
       const isOther = !isDuck && !isHand;
 
-      // Provisional ONLY applies during actual warmup phase — never on locked active inference.
-      // Trust the backend's explicit flag, rather than overriding it.
-      const isProvisional = d.provisional === true;
+      // Provisional ONLY applies during actual warmup phase — never on locked active inference
+      const isProvisional = isWarmingUp || d.provisional === true;
       const rawId = hasLockedId ? String(d.id) : isWarmingUp ? `prov-${idx + 1}` : `extra-${idx + 1}`;
       const displayId = isOther ? `other-${rawId}` : rawId;
 
@@ -172,10 +171,10 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, _fallbac
         typeof d.isAnomaly === 'boolean'
           ? d.isAnomaly
           : typeof d.is_anomaly === 'boolean'
-          ? d.is_anomaly
-          : typeof d.excess === 'boolean'
-          ? d.excess
-          : undefined;
+            ? d.is_anomaly
+            : typeof d.excess === 'boolean'
+              ? d.excess
+              : undefined;
 
       // 2. An individual duck is an anomaly if:
       //    - Count was decreased (under-count / too few ducks: all present duck boxes are RED per ML model)
@@ -202,10 +201,10 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, _fallbac
           typeof d.confidence === 'number'
             ? d.confidence
             : typeof d.conf === 'number'
-            ? d.conf
-            : isMissingDetection
-            ? 0.0
-            : 0.9,
+              ? d.conf
+              : isMissingDetection
+                ? 0.0
+                : 0.9,
         x: px,
         y: py,
         width: pw,

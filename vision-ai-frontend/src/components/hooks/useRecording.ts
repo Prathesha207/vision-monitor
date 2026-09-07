@@ -4,11 +4,14 @@ export function useRecording() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
   const [recordedFile, setRecordedFile] = useState<File | null>(null);
+  const [recordingDuration, setRecordingDuration] = useState(0);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const animationFrameRef = useRef<number | null>(null);
   const hiddenCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const startTimeRef = useRef<number | null>(null);
+  const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const startRecording = useCallback((imgElement: HTMLImageElement, width: number, height: number) => {
     if (isRecording) return;
@@ -62,6 +65,10 @@ export function useRecording() {
         cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
       }
+      if (durationIntervalRef.current) {
+        clearInterval(durationIntervalRef.current);
+        durationIntervalRef.current = null;
+      }
       stream.getTracks().forEach(track => track.stop());
 
       const blob = new Blob(chunksRef.current, { type: selectedMimeType });
@@ -83,6 +90,13 @@ export function useRecording() {
     setIsRecording(true);
     setRecordedVideoUrl(null);
     setRecordedFile(null);
+    setRecordingDuration(0);
+    startTimeRef.current = Date.now();
+    durationIntervalRef.current = setInterval(() => {
+      if (startTimeRef.current) {
+        setRecordingDuration(Math.floor((Date.now() - startTimeRef.current) / 1000));
+      }
+    }, 1000);
 
     let lastTime = performance.now();
     const drawLoop = (time: number) => {
@@ -123,5 +137,13 @@ export function useRecording() {
     setRecordedFile(null);
   }, [recordedVideoUrl]);
 
-  return { isRecording, recordedVideoUrl, recordedFile, startRecording, stopRecording, clearRecording };
+  return {
+    isRecording,
+    recordedVideoUrl,
+    recordedFile,
+    recordingDuration,
+    startRecording,
+    stopRecording,
+    clearRecording
+  };
 }

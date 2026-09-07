@@ -41,7 +41,22 @@ async def start_camera(payload: Optional[StartCameraPayload] = None, db: Session
         camera = camera_service.get_camera_config(db)
 
     if not camera or not camera.ip_address:
-        return {"status": "error", "message": "Camera not configured"}
+        try:
+            device_info = oak_camera_service._resolve_device_info("usb")
+            mxid = str(getattr(device_info, "mxid", "") or "")
+            if not mxid:
+                mxid = "usb"
+            
+            if not camera:
+                from app.schemas.camera_schema import CameraCreate
+                new_cam = CameraCreate(name="Auto USB Camera", ip_address=mxid, control_mode="auto")
+                camera = camera_service.create_camera(db, new_cam)
+            else:
+                from app.schemas.camera_schema import CameraUpdate
+                camera = camera_service.update_camera_partial(db, camera.id, CameraUpdate(ip_address=mxid))
+        except Exception as e:
+            return {"status": "error", "message": f"No camera connected: {str(e)}"}
+
     result = await oak_camera_service.start(camera)
     return result
 

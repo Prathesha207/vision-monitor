@@ -109,18 +109,18 @@ export function useAnomalyStatus({
     const difference = detectedCount - expectedFromMl;
     const foreignSpecies = foreignCount > 0 ? ['Unknown'] : [];
 
-    // BUG FIX: Trust backend-smoothed verdicts from analyzer_new.py (reasons / status)
+    // BUG FIX: Trust backend-smoothed verdicts from analyzer.py (reasons / status)
     // rather than re-computing raw count mismatches per single frame. A momentary
     // single-frame occlusion or detection glitch must not trigger an instant alarm
     // before the backend's smoothing window confirms it.
-    const isTooFew = backendReasons.includes('too_few_ducks') || backendReasons.includes('too_few');
-    const isTooMany = backendReasons.includes('too_many_ducks') || backendReasons.includes('too_many');
-    const isCountMismatch = isTooFew || isTooMany;
-    const hasForeign = backendReasons.includes('other_species_present') || foreignCount > 0;
+    const isTooFew = !isWarmingUp && (backendReasons.includes('too_few_ducks') || backendReasons.includes('too_few'));
+    const isTooMany = !isWarmingUp && (backendReasons.includes('too_many_ducks') || backendReasons.includes('too_many'));
+    const isCountMismatch = !isWarmingUp && (isTooFew || isTooMany);
+    const hasForeign = !isWarmingUp && (backendReasons.includes('other_species_present') || foreignCount > 0);
     const hasHand = backendStatus === 'HAND' || backendStats.hand_detected === true;
 
-    // Backend-aligned anomaly verdict: single source of truth from analyzer_new.py
-    const isAnomaly = (
+    // Backend-aligned anomaly verdict: single source of truth from analyzer.py
+    const isAnomaly = !isWarmingUp && (
       hasHand ||
       backendStatus === 'ANOMALY' ||
       isCountMismatch ||

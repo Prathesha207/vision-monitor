@@ -116,6 +116,7 @@ class OakCameraService:
 
     async def connect(self, ip: str) -> bool:
         loop = asyncio.get_running_loop()
+        self._last_connection_error = None
         for attempt in range(2):
             try:
                 logger.info(f"[DEVICE] Connecting to {ip} (attempt {attempt + 1}/2)")
@@ -147,7 +148,9 @@ class OakCameraService:
                     "error"
                 )
                 self.is_connected = False
+                self._last_connection_error = err_str
                 return False
+        self._last_connection_error = "Failed after retries"
         return False
 
     @staticmethod

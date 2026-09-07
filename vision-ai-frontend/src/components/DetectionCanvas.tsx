@@ -106,7 +106,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   const [isFirstFrameLoaded, setIsFirstFrameLoaded] = useState<boolean>(false);
   const [streamCacheBuster, setStreamCacheBuster] = useState<number>(Date.now());
 
-  const { isRecording, recordedFile, startRecording, stopRecording, clearRecording } = useRecording();
+  const { isRecording, recordedFile, recordingDuration, startRecording, stopRecording, clearRecording } = useRecording();
   const backendStats = useInferenceStore((state) => state.stats);
 
   const isVideoSource = sourceType === 'uploaded-video' || sourceType === 'sample-pond';
@@ -342,6 +342,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
           showAllBoxes={showAllBoxes}
           onToggleShowAllBoxes={() => { playWaterDropSound(); setShowAllBoxes(!showAllBoxes); }}
           isRecording={isRecording}
+          recordingDuration={recordingDuration}
           onToggleRecording={() => {
             if (isRecording) {
               playWaterDropSound();

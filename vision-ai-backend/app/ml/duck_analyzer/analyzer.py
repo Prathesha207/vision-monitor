@@ -483,6 +483,12 @@ class DuckAnalyzer:
         self.confirmed_sent = set()
         self.missing_active = set()
         self.other_sent = set()
+        # NEW: fires once per "too many ducks" episode -- sends thumbnails for
+        # EVERY currently-present duck (not just the new one) so the frontend
+        # can show the whole tray at the moment an excess duck is detected.
+        # Resets to False once the count drops back to <= expected, so the
+        # next excess episode fires again.
+        self._excess_sent = False
 
         self.count_history = deque(maxlen=self.smooth_n)
         self._last_time = None
@@ -1024,6 +1030,28 @@ class DuckAnalyzer:
             if smoothed > self.expected:
                 reasons.append("too_many_ducks")
 
+        # ---- NEW: excess-duck identification + one-time full-tray thumbnails ----
+        # When there are MORE ducks present than expected, mark the highest-
+        # numbered present id(s) beyond `expected` as "excess" (e.g. expected=17,
+        # 18 present -> id 18 is excess, ids 1-17 are normal). On the frame this
+        # episode is confirmed, emit a thumbnail for EVERY currently-present
+        # duck (not just the excess one) so the frontend gets the whole tray at
+        # once, each tagged with whether it's the excess one.
+        excess_ids = set()
+        if "too_many_ducks" in reasons and self.expected is not None:
+            sorted_present_ids = sorted(present_display.keys())
+            if len(sorted_present_ids) > self.expected:
+                excess_ids = set(sorted_present_ids[self.expected:])
+            if not self._excess_sent:
+                self._excess_sent = True
+                for did in sorted_present_ids:
+                    crop = self.display_info[did].get("last_crop")
+                    t = self._emit_thumbnail("excess_check", did, "duck", crop)
+                    t["excess"] = did in excess_ids
+                    thumbnails.append(t)
+        else:
+            self._excess_sent = False
+
         # ---- added thumbnails (once each) ----
         for did in added_ids_this_frame:
             if did not in self.confirmed_sent:
@@ -1148,10 +1176,17 @@ class DuckAnalyzer:
         detections = []
         for did, (xyxy, cf) in present_display.items():
             x1, y1, x2, y2 = [int(v) for v in xyxy]
+            is_excess = did in excess_ids
+            # NEW: while an excess-duck episode is active, colour PER DUCK --
+            # the excess id(s) red, every other present duck green -- instead
+            # of the usual "all boxes take the overall anomaly colour". Any
+            # other reason (missing_duck, too_few_ducks, other_species) still
+            # uses the original uniform box_color, unchanged.
+            this_box_color = (RED if is_excess else GREEN) if excess_ids else box_color
             detections.append({"bbox": [x1, y1, x2, y2], "id": int(did),
                                "species": "duck", "confidence": round(float(cf), 4),
-                               "status": "present"})
-            draw_box(annotated, xyxy, f"#{did} {int(cf * 100)}%", box_color)
+                               "status": "present", "excess": is_excess})
+            draw_box(annotated, xyxy, f"#{did} {int(cf * 100)}%", this_box_color)
 
         for xyxy, cf in unbound:
             x1, y1, x2, y2 = [int(v) for v in xyxy]
