@@ -10,13 +10,18 @@ import cv2
 
 import concurrent.futures
 
-try:
-    from duck_analyzer import DuckAnalyzer
-except ImportError:
-    try:
-        from app.ml.duck_analyzer.analyzer import DuckAnalyzer
-    except ImportError:
-        DuckAnalyzer = None
+# try:
+#     from duck_analyzer import DuckAnalyzer
+# except ImportError:
+#     try:
+#         from app.ml.duck_analyzer.analyzer import DuckAnalyzer
+#     except ImportError:
+#         DuckAnalyzer = None
+
+from app.ml.duck_analyzer.analyzer_new import DuckAnalyzer
+
+from app.ml import app_state
+
 
 from app.ml import app_state  # shared GPU mutual-exclusion flag with training_service.py
                                # AND with duck_camera_inference.py (video vs camera)

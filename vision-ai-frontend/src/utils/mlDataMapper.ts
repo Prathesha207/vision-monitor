@@ -85,7 +85,7 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEnt
       let eventStatus: DuckEntity['statusEvent'] = undefined;
       if (isMissingDetection) {
         eventStatus = 'missing';
-      } else if (!isProvisional && (addedIds.includes(displayId) || addedIds.includes(Number(displayId)) || d.status === 'added')) {
+      } else if (!isProvisional && (d.excess === true || addedIds.includes(displayId) || addedIds.includes(Number(displayId)) || d.status === 'added')) {
         eventStatus = 'added';
       } else if (thumbObj?.event === 'confirmed' || thumbObj?.event === 'added') {
         eventStatus = 'confirmed';
@@ -93,20 +93,30 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number): DuckEnt
         eventStatus = 'other_present';
       }
 
-      // Warming up / provisional detections are NEVER anomalies or errors!
-      const backendIsAnomaly = typeof d.isAnomaly === 'boolean' ? d.isAnomaly : undefined;
-      const isCountMismatch = !isWarmingUp && data.expected_duck_count > 0 && data.detected_duck_count !== data.expected_duck_count;
-      const isSceneAnomaly = !isWarmingUp && (data.status === 'ANOMALY' || data.is_anomaly_frame === true || isCountMismatch);
+      // 1. Check if backend/ML explicitly flagged this duck (isAnomaly, is_anomaly, or excess)
+      const backendIsAnomaly =
+        typeof d.isAnomaly === 'boolean'
+          ? d.isAnomaly
+          : typeof d.is_anomaly === 'boolean'
+          ? d.is_anomaly
+          : typeof d.excess === 'boolean'
+          ? d.excess
+          : undefined;
 
-      const isAnomaly = backendIsAnomaly ?? (
-        isOther || isHand || isSceneAnomaly ||
-        (!isProvisional && (
+      // 2. An individual duck is an anomaly ONLY if the ML model explicitly marked it,
+      //    or if it is an unknown species, unbound object, missing duck, or added/excess duck.
+      //    CRITICAL: Never mark normal ducks as anomalies just because of an overall scene anomaly (e.g. count mismatch).
+      const isAnomaly = backendIsAnomaly !== undefined ? backendIsAnomaly : (
+        !isProvisional && (
+          isOther ||
+          isHand ||
           isMissingDetection ||
+          d.excess === true ||
           addedIds.includes(displayId) ||
           addedIds.includes(Number(displayId)) ||
           d.status === 'unbound' ||
           d.status === 'added'
-        ))
+        )
       );
 
       incomingDucks.push({
