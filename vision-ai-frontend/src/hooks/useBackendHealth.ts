@@ -3,14 +3,36 @@ import { getApiBaseUrl } from '../lib/api';
 import { HEALTH_POLL_INTERVAL_MS } from '../utils/constants';
 
 export const INITIALIZED_STORAGE_KEY = 'vision_monitor_initialized';
+// Session key: survives Ctrl+R refresh but clears when the window/tab is actually closed
+const SESSION_INITIALIZED_KEY = 'vision_monitor_session_initialized';
 
 export function useBackendHealth() {
-  // Read persisted initialization state (true if setup was completed in previous session)
-  const isPreviouslyInitialized =
-    typeof window !== 'undefined' && localStorage.getItem(INITIALIZED_STORAGE_KEY) === 'true';
+  // Read from sessionStorage on first mount so page refreshes don't drop back to LandingScreen.
+  // sessionStorage is cleared automatically when the browser tab / Electron window closes,
+  // so a genuine new launch always shows LandingScreen.
+  const [systemInitialized, setSystemInitializedState] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem(SESSION_INITIALIZED_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [isBackendConnected, setIsBackendConnected] = useState<boolean>(false);
 
-  const [systemInitialized, setSystemInitialized] = useState<boolean>(isPreviouslyInitialized);
-  const [isBackendConnected, setIsBackendConnected] = useState<boolean>(true);
+  // Keep sessionStorage in sync whenever the state changes
+  const setSystemInitialized = (value: boolean | ((prev: boolean) => boolean)) => {
+    setSystemInitializedState(prev => {
+      const next = typeof value === 'function' ? value(prev) : value;
+      try {
+        if (next) {
+          sessionStorage.setItem(SESSION_INITIALIZED_KEY, 'true');
+        } else {
+          sessionStorage.removeItem(SESSION_INITIALIZED_KEY);
+        }
+      } catch { }
+      return next;
+    });
+  };
 
   // Background health polling to keep status up to date
   useEffect(() => {
@@ -20,10 +42,6 @@ export function useBackendHealth() {
         const res = await fetch(`${getApiBaseUrl()}/health`, { method: 'GET', cache: 'no-store' });
         if (isMounted) {
           setIsBackendConnected(res.ok);
-          // If setup was previously completed and backend is healthy, ensure workspace is entered
-          if (res.ok && localStorage.getItem(INITIALIZED_STORAGE_KEY) === 'true') {
-            setSystemInitialized(true);
-          }
         }
       } catch {
         if (isMounted) setIsBackendConnected(false);
@@ -39,11 +57,6 @@ export function useBackendHealth() {
   }, []);
 
   const handleInitializeSystem = () => {
-    try {
-      localStorage.setItem(INITIALIZED_STORAGE_KEY, 'true');
-    } catch (e) {
-      console.warn('Could not persist initialization state:', e);
-    }
     setSystemInitialized(true);
   };
 

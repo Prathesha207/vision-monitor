@@ -6,10 +6,11 @@ import { useRecording } from './hooks/useRecording';
 import { playWaterDropSound } from '../utils/audio';
 import { cameraService } from './service/cameraService';
 
-import { Video, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 // Extracted Canvas Components
 import { BoundingBoxOverlay } from './canvas/BoundingBoxOverlay';
+import { VideoUploadCard } from './canvas/VideoUploadCard';
 import { CameraOfflineCard } from './canvas/CameraOfflineCard';
 import { CameraStandbyCard } from './canvas/CameraStandbyCard';
 import { TopToolbar } from './canvas/TopToolbar';
@@ -115,7 +116,12 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   const isCameraOffline = isCameraSource && !isCameraConnected;
 
   const effectiveFramesProcessed = framesProcessed || backendStats?.frames_processed || 0;
-  const hasInferenceResult = effectiveFramesProcessed > 0 && ducks.length > 0;
+  const hasInferenceResult = (effectiveFramesProcessed > 0 || ducks.length > 0) && ducks.length > 0;
+
+  const isOverlayShowing =
+    Boolean(isStarting) ||
+    Boolean(isCameraSource && isCameraConnected && cameraStartingState !== 'ready') ||
+    Boolean(isVideoSource && hasActiveVideo && isRunning && !isFirstFrameLoaded);
   
   const isHandPresent = 
     backendStats?.status === 'HAND' || 
@@ -170,10 +176,10 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   useEffect(() => {
     if (isRunning) {
       setIsFirstFrameLoaded(false);
-      // Safety timeout: ensure loading overlay never gets stuck if img.onLoad does not fire
+      // Fallback timeout: ensure overlay stays visible while stream connects and frames buffer
       const timer = setTimeout(() => {
         setIsFirstFrameLoaded(true);
-      }, 800);
+      }, 15000);
       return () => clearTimeout(timer);
     }
   }, [isRunning]);
@@ -213,56 +219,13 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
     >
       <input type="file" ref={fileInputRef} onChange={handleFileInputChange} accept="video/*" className="hidden" />
 
-      {/* Video Source Standby View */}
-      {isWaitingForVideo && uploadProgress === null && (
-        <div
-          onClick={handleSelectVideoAndStart}
-          className="absolute inset-0 w-full h-full flex flex-col items-center justify-center text-center p-6 select-none z-10 cursor-pointer"
-          style={{ backgroundColor: 'var(--bg-card)' }}
-        >
-          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mb-3 sm:mb-4 text-emerald-400 shadow-md">
-            <Video className="w-7 h-7 sm:w-8 sm:h-8" />
-          </div>
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold mb-2.5 shadow-sm">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            VIDEO INFERENCE STANDBY
-          </div>
-          <h3 className="text-base sm:text-lg lg:text-xl font-bold text-[var(--text-primary)] mb-1">
-            Video Source Standby
-          </h3>
-          <p className="text-xs sm:text-sm text-[var(--text-secondary)] max-w-md mb-2 leading-relaxed font-medium">
-            Click <span className="font-bold text-emerald-400">START INFERENCE</span> above to select a video file and begin analysis.
-          </p>
-          {isSelectingVideo && (
-            <div className="flex items-center gap-2 mt-3 text-xs sm:text-sm text-emerald-400 font-medium">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span>Opening video...</span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Video Uploading & Initializing Indicator */}
-      {isWaitingForVideo && uploadProgress !== null && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/80 backdrop-blur-xs p-6 select-none">
-          <div className="w-full max-w-xs flex flex-col items-center">
-            <div className="flex items-center justify-between w-full text-xs text-[var(--text-secondary)] mb-2 font-medium">
-              <span className="flex items-center gap-2 text-emerald-400">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Uploading & Initializing...
-              </span>
-              <span className="font-bold font-mono text-emerald-400">
-                {Math.round(uploadProgress)}%
-              </span>
-            </div>
-            <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-emerald-500 transition-all duration-150 rounded-full"
-                style={{ width: `${uploadProgress}%` }}
-              />
-            </div>
-          </div>
-        </div>
+      {/* Video Upload Card (Image 1 design, simple non-interactive display) */}
+      {isWaitingForVideo && (
+        <VideoUploadCard
+          uploadProgress={uploadProgress}
+          isSelectingVideo={isSelectingVideo}
+          isBackendConnected={isBackendConnected}
+        />
       )}
 
       {isCameraSource && !isCameraConnected && (
@@ -338,7 +301,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
             <canvas ref={canvasRef} className="absolute inset-0 z-10 h-full w-full pointer-events-none rounded" />
 
             {/* AI Bounding Boxes: Shown in INFERENCE mode or always for video upload */}
-            {(isRunning || hasInferenceResult) && (feedMode === 'inference' || !isCameraSource) && ducks.length > 0 && (
+            {!isOverlayShowing && (isRunning || hasInferenceResult) && (feedMode === 'inference' || !isCameraSource) && ducks.length > 0 && (
               <BoundingBoxOverlay
                 ducks={ducks}
                 selectedDuckId={selectedDuckId}
@@ -351,7 +314,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
             )}
 
             {/* Hand detected warning border: Shown in INFERENCE mode or always for video upload */}
-            {(feedMode === 'inference' || !isCameraSource) && isHandPresent && (
+            {!isOverlayShowing && (feedMode === 'inference' || !isCameraSource) && isHandPresent && (
               <div className="absolute inset-0 z-30 pointer-events-none border-4 border-amber-500/80 rounded" />
             )}
           </div>
@@ -369,39 +332,41 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
         isCameraConnected={isCameraConnected}
       />
 
-      <TopToolbar
-        isRunning={isRunning}
-        hasActiveVideo={hasActiveVideo}
-        feedMode={feedMode}
-        onFeedModeChange={onFeedModeChange}
-        showAllBoxes={showAllBoxes}
-        onToggleShowAllBoxes={() => { playWaterDropSound(); setShowAllBoxes(!showAllBoxes); }}
-        isRecording={isRecording}
-        onToggleRecording={() => {
-          if (isRecording) {
-            playWaterDropSound();
-            stopRecording();
-          } else {
-            playWaterDropSound();
-            if (cameraImgRef.current) {
-              startRecording(cameraImgRef.current, videoDimensions?.width || 1920, videoDimensions?.height || 1080);
+      {!isOverlayShowing && (
+        <TopToolbar
+          isRunning={isRunning}
+          hasActiveVideo={hasActiveVideo}
+          feedMode={feedMode}
+          onFeedModeChange={onFeedModeChange}
+          showAllBoxes={showAllBoxes}
+          onToggleShowAllBoxes={() => { playWaterDropSound(); setShowAllBoxes(!showAllBoxes); }}
+          isRecording={isRecording}
+          onToggleRecording={() => {
+            if (isRecording) {
+              playWaterDropSound();
+              stopRecording();
+            } else {
+              playWaterDropSound();
+              if (cameraImgRef.current) {
+                startRecording(cameraImgRef.current, videoDimensions?.width || 1920, videoDimensions?.height || 1080);
+              }
             }
-          }
-        }}
-        isFullscreen={isFullscreen}
-        onToggleFullscreen={toggleFullscreen}
-        showHUD={showHUD}
-        onToggleHUD={() => { playWaterDropSound(); setShowHUD(!showHUD); }}
-        backendStatus={backendStats?.status}
-        isCameraSource={isCameraSource}
-        isVideoSource={isVideoSource}
-        anomalyStatus={anomalyStatus}
-        isStreaming={isStreaming}
-        isFirstFrameLoaded={isFirstFrameLoaded}
-        framesProcessed={effectiveFramesProcessed}
-      />
+          }}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={toggleFullscreen}
+          showHUD={showHUD}
+          onToggleHUD={() => { playWaterDropSound(); setShowHUD(!showHUD); }}
+          backendStatus={backendStats?.status}
+          isCameraSource={isCameraSource}
+          isVideoSource={isVideoSource}
+          anomalyStatus={anomalyStatus}
+          isStreaming={isStreaming}
+          isFirstFrameLoaded={isFirstFrameLoaded}
+          framesProcessed={effectiveFramesProcessed}
+        />
+      )}
 
-      {showHUD && !isCameraOffline && (isRunning || isStarting || hasInferenceResult) && (
+      {!isOverlayShowing && showHUD && !isCameraOffline && (isRunning || isStarting || hasInferenceResult) && (
         <StatusBar
           anomalyStatus={anomalyStatus}
           fps={fps}

@@ -51,8 +51,8 @@ export const cameraService = {
     return await this.createCamera(data);
   },
 
-  async start() {
-    const res = await api.post("/oak/start");
+  async start(payload?: { camera_id?: number; ip_address?: string }) {
+    const res = await api.post("/oak/start", payload || {});
     return res.data;
   },
 

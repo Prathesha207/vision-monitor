@@ -50,9 +50,6 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
             if (mountedRef.current) {
               setHealthStatus('ready');
               setHealthMessage('AI Engine ready');
-              if (typeof window !== 'undefined' && localStorage.getItem('vision_monitor_initialized') === 'true') {
-                onInitialize();
-              }
             }
             return;
           } else if (data.status === 'starting') {
@@ -111,7 +108,7 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
 
   return (
     <div className="relative w-screen h-screen max-h-screen overflow-hidden bg-[var(--bg-page)] text-[var(--text-primary)] flex items-center justify-center p-4 sm:p-6 select-none transition-colors duration-300">
-      <div className="absolute inset-0 pointer-events-none opacity-30 dark:opacity-20 bg-[radial-gradient(#3D6A52_1px,transparent_1px)] [background-size:28px_28px]" />
+      <div className="absolute inset-0 pointer-events-none opacity-25 dark:opacity-20 bg-[radial-gradient(var(--accent-pond)_0.8px,transparent_0.8px)] [background-size:24px_24px]" />
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-[var(--accent-pond)]/10 blur-3xl pointer-events-none" />
 
       <div className="relative z-10 w-full max-w-lg mx-auto flex flex-col items-center text-center animate-in fade-in zoom-in-95 duration-500 ease-out">
@@ -128,10 +125,10 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
           )}
           <span className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-[var(--bg-page)] shadow-xs ${
             healthStatus === 'ready'
-              ? 'bg-emerald-500'
+              ? 'bg-[var(--status-normal-text)]'
               : healthStatus === 'error'
-              ? 'bg-amber-500'
-              : 'bg-cyan-500 animate-pulse'
+              ? 'bg-[var(--status-warn-text)]'
+              : 'bg-[var(--accent-pond)] animate-pulse'
           }`} />
         </div>
 
@@ -160,22 +157,22 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
           </div>
           <span className="text-[var(--border-color)]">&bull;</span>
           <div className="flex items-center gap-1.5">
-            <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <ShieldCheck className="w-4 h-4 text-[var(--status-normal-text)]" />
             <span>Anomaly Safeguards</span>
           </div>
         </div>
 
         {/* Backend Status Indicator */}
-        <div className="flex items-center gap-2 mb-6 px-3.5 py-1.5 rounded-full bg-[var(--bg-card)] border border-[var(--border-color)] text-xs">
+        <div className="flex items-center gap-2 mb-6 px-3.5 py-1.5 rounded-full bg-[var(--bg-card)] border border-[var(--border-color)] text-xs shadow-2xs">
           {healthStatus === 'ready' ? (
             <>
-              <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              <span className="font-semibold text-emerald-600 dark:text-emerald-400">Backend Connected</span>
+              <span className="w-2 h-2 rounded-full bg-[var(--status-normal-text)] animate-pulse" />
+              <span className="font-semibold text-[var(--status-normal-text)]">Backend Connected</span>
             </>
           ) : healthStatus === 'error' ? (
             <>
-              <span className="w-2 h-2 rounded-full bg-rose-500" />
-              <span className="font-semibold text-rose-500">Backend Offline</span>
+              <span className="w-2 h-2 rounded-full bg-[var(--status-anomaly-text)]" />
+              <span className="font-semibold text-[var(--status-anomaly-text)]">Backend Offline</span>
             </>
           ) : (
             <>
@@ -197,14 +194,14 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
             </button>
             <button
               onClick={() => setDetailsVisible(!detailsVisible)}
-              className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] underline transition-colors"
+              className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] underline transition-colors cursor-pointer"
             >
               {detailsVisible ? 'Hide diagnostic details' : 'View diagnostic details'}
             </button>
             {detailsVisible && (
               <div className="mt-2 p-3 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-xl text-left text-xs text-[var(--text-secondary)] w-full space-y-1">
                 <p className="font-semibold text-[var(--text-primary)]">Backend did not respond on local port.</p>
-                <p>Ensure backend is started: <code className="bg-[var(--bg-page)] px-1 rounded">./run_dev_linux.sh</code></p>
+                <p>Ensure backend is started: <code className="bg-[var(--bg-page)] px-1 rounded font-mono">uvicorn app.main:app --reload --port 8000</code></p>
               </div>
             )}
           </div>
@@ -223,7 +220,7 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
             {healthStatus === 'ready' ? (
               <>
                 <Zap className="w-5 h-5 fill-current" />
-                <span>Initialize System</span>
+                <span>Start System</span>
                 <ArrowRight className={`w-5 h-5 transition-transform duration-200 ${isHovered ? 'translate-x-1' : ''}`} />
               </>
             ) : (
@@ -237,7 +234,7 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
 
         <p className="text-[11px] text-[var(--text-muted)] mt-4">
           {healthStatus === 'ready'
-            ? 'Click to enter the monitoring workspace'
+            ? 'Click Start System to enter the monitoring workspace'
             : 'Connecting to local inference engine before launching'}
         </p>
       </div>

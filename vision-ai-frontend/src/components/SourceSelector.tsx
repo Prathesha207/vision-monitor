@@ -1,9 +1,9 @@
 import React from 'react';
 import { StreamSourceType } from '../types';
-import { 
-  Video, 
-  Camera, 
-  Play, 
+import {
+  Video,
+  Camera,
+  Play,
   Square,
   RotateCcw,
   Loader2
@@ -82,28 +82,26 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
   return (
     <div className="w-full flex-shrink-0">
       <div className="flex flex-row items-center justify-between gap-1.5 sm:gap-4 p-1.5 sm:p-3 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] shadow-sm">
-        
+
         {/* Source Toggle Pills */}
         <div className="flex bg-[var(--bg-card-subtle)] p-0.5 sm:p-1 rounded-xl border border-[var(--border-color)] flex-shrink-0">
           <button
             onClick={() => handleSourceClick('uploaded-video')}
-            className={`flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              sourceType === 'uploaded-video'
+            className={`flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${sourceType === 'uploaded-video'
                 ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs'
                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
-            }`}
+              }`}
           >
             <Video className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             <span>Video<span className="hidden sm:inline"> File</span></span>
           </button>
-          
+
           <button
             onClick={() => handleSourceClick('oak-camera')}
-            className={`flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              sourceType === 'oak-camera'
+            className={`flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${sourceType === 'oak-camera'
                 ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs'
                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
-            }`}
+              }`}
           >
             <Camera className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             <span>OAK<span className="hidden sm:inline"> Camera</span></span>
@@ -121,13 +119,13 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                 <span className="hidden sm:inline">Expected Ducks:</span>
               </span>
             </div>
-            <NumberStepper 
-              value={expectedDucks} 
+            <NumberStepper
+              value={expectedDucks}
               onChange={(val) => {
                 playWaterDropSound();
                 onExpectedDucksChange(val);
               }}
-              min={1} 
+              min={1}
               max={50}
             />
           </div>
@@ -168,9 +166,9 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
               ) : isRunning ? (
                 /* When Running: provide STOP INFERENCE button */
                 <div className="flex items-center gap-1 sm:gap-2">
-                  <Badge variant="normal" size="sm" dot className="mr-1 hidden xl:inline-flex">
+                  {/* <Badge variant="normal" size="sm" dot className="mr-1 hidden xl:inline-flex">
                     LIVE INFERENCE
-                  </Badge>
+                  </Badge> */}
                   <button
                     onClick={() => {
                       playWaterDropSound();

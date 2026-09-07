@@ -4,17 +4,19 @@ import {
   Camera,
   Check,
   Cpu,
-  Wifi
+  Wifi,
+  Loader2
 } from 'lucide-react';
 import { playWaterDropSound } from '../utils/audio';
 import { Modal, Button } from './ui';
+import { cameraService } from './service/cameraService';
 
 interface CameraSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   config: CameraConfig;
   onSaveConfig: (newConfig: CameraConfig) => void;
-  onReconnect: () => void;
+  onReconnect: (configToConnect?: CameraConfig) => Promise<void> | void;
 }
 
 export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
@@ -26,12 +28,61 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
 }) => {
   const [localConfig, setLocalConfig] = useState<CameraConfig>({ ...config });
   const [activeTab, setActiveTab] = useState<'stream' | 'image' | 'oak'>('stream');
+  const [isConnecting, setIsConnecting] = useState(false);
 
   React.useEffect(() => {
     if (isOpen) {
-      setLocalConfig({ ...config });
+      // First populate with active local config
+      setLocalConfig({
+        ...config,
+        targetFps: config.targetFps || 30,
+      });
+
+      // Always fetch freshest camera configuration from database so modal reflects latest DB update
+      cameraService.checkCamera().then((cameras) => {
+        if (Array.isArray(cameras) && cameras.length > 0) {
+          const active = cameras.find((c: any) => c.is_enabled) || cameras[0];
+          if (active) {
+            setLocalConfig((prev) => ({
+              ...prev,
+              id: active.id,
+              sourceName: active.name || prev.sourceName,
+              ipAddress: active.ip_address || '',
+              resolution: (active.resolution as any) || prev.resolution || '1920x1080',
+              targetFps: active.fps || 30,
+              rotationAngle: active.rotation_angle ?? prev.rotationAngle,
+              controlMode: (active.control_mode as any) ?? prev.controlMode,
+              exposure: active.exposure ?? prev.exposure,
+              gain: active.gain ?? prev.gain,
+              iso: active.gain ?? prev.iso,
+              focus: active.focus ?? prev.focus,
+              brightness: active.brightness ?? prev.brightness,
+              contrast: active.contrast ?? prev.contrast,
+              autoFocus: active.auto_focus ?? prev.autoFocus,
+              autoExposure: active.auto_exposure ?? prev.autoExposure,
+            }));
+          }
+        }
+      }).catch((err) => {
+        console.warn('Failed to load latest camera config from database on modal open:', err);
+      });
     }
   }, [config, isOpen]);
+
+  const handleConnect = async () => {
+    playWaterDropSound();
+    setIsConnecting(true);
+    try {
+      if (onReconnect) {
+        await onReconnect({
+          ...localConfig,
+          targetFps: localConfig.targetFps || 30,
+        });
+      }
+    } finally {
+      setIsConnecting(false);
+    }
+  };
 
   const handleSave = () => {
     playWaterDropSound();
@@ -174,12 +225,19 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                 <Button
                   variant="primary"
                   size="sm"
-                  onClick={() => {
-                    playWaterDropSound();
-                    onReconnect();
-                  }}
+                  disabled={isConnecting}
+                  onClick={handleConnect}
                 >
-                  Reconnect
+                  {isConnecting ? (
+                    <span className="flex items-center gap-1.5">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Connecting...
+                    </span>
+                  ) : localConfig.connected ? (
+                    'Reconnect'
+                  ) : (
+                    'Connect'
+                  )}
                 </Button>
               </div>
             </div>

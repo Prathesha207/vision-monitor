@@ -21,6 +21,7 @@ interface HeaderProps {
   onOpenHelp: () => void;
   fps?: number;
   anomalyDetected?: boolean;
+  onExitToLanding?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -29,6 +30,7 @@ export const Header: React.FC<HeaderProps> = ({
   cameraConfig,
   onOpenSettings,
   onOpenHelp,
+  onExitToLanding,
 }) => {
   const [backendConnected, setBackendConnected] = useState<boolean>(false);
 
@@ -67,7 +69,16 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="w-full max-w-[1720px] 2xl:max-w-[1920px] mx-auto px-3 sm:px-5 lg:px-6 py-2 sm:py-2.5 flex items-center justify-between gap-2 sm:gap-3">
         
         {/* 1. Left: Brand Title with PRO badge */}
-        <div className="flex items-center gap-2 sm:gap-2.5 shrink-0 min-w-0">
+        <div 
+          onClick={() => {
+            if (onExitToLanding) {
+              playWaterDropSound();
+              onExitToLanding();
+            }
+          }}
+          className={`flex items-center gap-2 sm:gap-2.5 shrink-0 min-w-0 ${onExitToLanding ? 'cursor-pointer hover:opacity-85 transition-opacity' : ''}`}
+          title={onExitToLanding ? 'Return to Landing Screen' : undefined}
+        >
           <div className="relative flex items-center justify-center w-7 sm:w-8 h-7 sm:h-8 rounded-xl bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--border-color)] shrink-0">
             <Bot className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
             <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-[var(--accent-pond)] rounded-full border-2 border-[var(--bg-card)]" />

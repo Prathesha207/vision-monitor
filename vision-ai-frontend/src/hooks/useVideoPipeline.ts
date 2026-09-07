@@ -3,6 +3,7 @@ import type { StreamSourceType, LogEntry } from '../types';
 import { getApiBaseUrl } from '../lib/api';
 import { useInferenceStore } from '../store/inferenceStore';
 import { resetBBoxCache } from '../utils/mlDataMapper';
+import { loadSessionState, saveSessionState } from '../utils/sessionPersistence';
 
 export function useVideoPipeline({
   showToast,
@@ -31,13 +32,19 @@ export function useVideoPipeline({
   setSourceType: (type: StreamSourceType) => void;
   setIsStarting: (starting: boolean) => void;
 }) {
-  const [customVideoUrl, setCustomVideoUrl] = useState<string | undefined>();
-  const [localPreviewUrl, setLocalPreviewUrl] = useState<string | undefined>();
-  const [videoSessionId, setVideoSessionId] = useState<string | null>(null);
-  const [customVideoName, setCustomVideoName] = useState<string | undefined>();
+  const _session = loadSessionState();
+  const [customVideoUrl, setCustomVideoUrl] = useState<string | undefined>(_session?.customVideoUrl);
+  const [localPreviewUrl, setLocalPreviewUrl] = useState<string | undefined>(_session?.customVideoUrl);
+  const [videoSessionId, setVideoSessionId] = useState<string | null>(_session?.videoSessionId ?? null);
+  const [customVideoName, setCustomVideoName] = useState<string | undefined>(_session?.customVideoName);
   const [autoStartRecordedInference, setAutoStartRecordedInference] = useState(false);
   const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number } | null>(null);
   const [initialUploadFile, setInitialUploadFile] = useState<File | undefined>();
+
+  // Persist video session state on every change so Ctrl+R can reconnect
+  useEffect(() => {
+    saveSessionState({ videoSessionId: videoSessionId ?? null, customVideoUrl, customVideoName });
+  }, [videoSessionId, customVideoUrl, customVideoName]);
 
   // Custom uploaded video handler (Directly in video canvas)
   const handleVideoUploaded = (url: string, name: string, sessionId?: string) => {

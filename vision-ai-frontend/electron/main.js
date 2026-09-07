@@ -27,6 +27,7 @@ let mainWindow = null
 let splashWindow = null
 let backendProcess = null
 let isQuitting = false
+let isInferenceRunning = false  // tracks renderer inference state for close guard
 
 app.on("second-instance", () => {
   if (mainWindow) {
@@ -260,6 +261,30 @@ function createWindow() {
     console.error("RENDER PROCESS GONE:", details)
   })
 
+  // Desktop-app close guard: show a native dialog if inference is running
+  mainWindow.on("close", async (event) => {
+    if (isQuitting) return  // already confirmed, let it close
+    if (isInferenceRunning) {
+      event.preventDefault()
+      const { response } = await dialog.showMessageBox(mainWindow, {
+        type: "warning",
+        buttons: ["Keep Running", "Stop & Close"],
+        defaultId: 0,
+        cancelId: 0,
+        title: "Inference Is Running",
+        message: "Inference is currently active.",
+        detail: "Closing now will stop the inference session. Do you want to continue?",
+      })
+      if (response === 1) {
+        // User confirmed: stop backend and quit
+        isQuitting = true
+        await stopBackend()
+        app.quit()
+      }
+      // response === 0: user clicked "Keep Running" — do nothing, window stays open
+    }
+  })
+
   mainWindow.on("closed", () => {
     console.log("Main window closed")
   })
@@ -459,6 +484,12 @@ ipcMain.handle("write-log", (_event, message) => {
   const timestamp = new Date().toISOString()
   const line = `[${timestamp}] ${message}\n`
   fs.appendFileSync(logFilePath, line, "utf8")
+})
+
+// Renderer calls this to keep the main process aware of inference state
+// so the close-guard dialog can be shown correctly
+ipcMain.on("set-inference-running", (_event, running) => {
+  isInferenceRunning = !!running
 })
 
 ipcMain.handle("select-folder", async () => {

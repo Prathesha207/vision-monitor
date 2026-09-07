@@ -39,35 +39,52 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
         .map((duck, idx) => {
           const isProvisional = duck.provisional;
           const isMissing = duck.statusEvent === 'missing';
-          const isAnomaly = !isProvisional && (duck.isAnomaly || isMissing || isSceneAnomaly || isCountMismatch);
+          // Only actual anomalous ducks (foreign species, added toy, or explicit anomaly flag) are red
+          const isIndividualAnomaly = !isProvisional && !isMissing && (duck.isAnomaly || (duck.species !== 'Duck' && duck.species !== 'Hand'));
           const isSelected = duck.id === selectedDuckId;
           
-          let borderColor = 'border-emerald-400/80 bg-emerald-500/5';
+          // Default: Normal detected duck (Clean Emerald Green)
+          let borderColor = isSelected ? 'border-emerald-400' : 'border-emerald-400/80';
+          let bgColor = isSelected ? 'bg-emerald-500/30' : 'bg-emerald-500/5';
           let bracketColor = 'border-emerald-300';
-          let tagStyle = 'bg-black/75 text-emerald-300 border border-emerald-500/30';
+          let tagStyle = isSelected
+            ? 'bg-emerald-950/95 text-emerald-200 border border-emerald-400 font-bold shadow-xs'
+            : 'bg-black/75 text-emerald-300 border border-emerald-500/30';
           let confColor = 'text-emerald-400';
 
           if (isMissing) {
-            // Missing duck: RED dashed bounding box with alert tag
-            borderColor = 'border-2 border-dashed border-rose-500 bg-rose-500/20 animate-pulse';
-            bracketColor = 'border-rose-400';
-            tagStyle = 'bg-rose-950/90 text-rose-200 border border-rose-500/80 font-bold shadow-xs';
-            confColor = 'text-rose-300 font-bold';
+            // Missing duck: YELLOW / AMBER dashed bounding box with alert tag
+            borderColor = isSelected ? 'border-dashed border-amber-400' : 'border-dashed border-amber-500';
+            bgColor = isSelected ? 'bg-amber-500/35 animate-pulse' : 'bg-amber-500/15 animate-pulse';
+            bracketColor = 'border-amber-400';
+            tagStyle = 'bg-amber-950/90 text-amber-200 border border-amber-500/80 font-bold shadow-xs';
+            confColor = 'text-amber-300 font-bold';
           } else if (isProvisional) {
-            borderColor = 'border-amber-400/90 bg-amber-500/10';
+            // Provisional / Warming up duck: Amber/Yellow
+            borderColor = isSelected ? 'border-amber-300' : 'border-amber-400/90';
+            bgColor = isSelected ? 'bg-amber-500/30' : 'bg-amber-500/10';
             bracketColor = 'border-amber-300';
             tagStyle = 'bg-amber-950/90 text-amber-200 border border-amber-500/50';
             confColor = 'text-amber-300 font-bold';
-          } else if (isAnomaly) {
-            // Count mismatch, added duck, foreign species, or scene anomaly: RED bounding box
-            borderColor = 'border-2 border-rose-500 bg-rose-500/15 shadow-sm shadow-rose-500/30';
+          } else if (isIndividualAnomaly) {
+            // Individual Anomaly (foreign object, unexpected toy, anomaly flag): Red / Rose
+            borderColor = isSelected ? 'border-rose-400' : 'border-rose-500';
+            bgColor = isSelected ? 'bg-rose-500/30' : 'bg-rose-500/10';
             bracketColor = 'border-rose-400';
             tagStyle = 'bg-rose-950/90 text-rose-200 border border-rose-500/80 font-bold shadow-xs';
             confColor = 'text-rose-300 font-bold';
           }
 
+          let extraHighlight = '';
           if (isSelected) {
-            borderColor += ' ring-2 ring-white shadow-md';
+            // No extra large white border: use same color screen and opacity
+            if (isIndividualAnomaly) {
+              extraHighlight = 'shadow-[0_0_12px_rgba(244,63,94,0.35)]';
+            } else if (isMissing || isProvisional) {
+              extraHighlight = 'shadow-[0_0_12px_rgba(245,158,11,0.35)]';
+            } else {
+              extraHighlight = 'shadow-[0_0_12px_rgba(52,211,153,0.35)]';
+            }
           }
 
           return (
@@ -95,7 +112,7 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
                 width: `${duck.width}%`,
                 height: `${duck.height}%`,
               }}
-              className={`absolute border rounded pointer-events-auto cursor-pointer ${borderColor}`}
+              className={`absolute border rounded pointer-events-auto cursor-pointer transition-colors duration-150 ${borderColor} ${bgColor} ${extraHighlight}`}
             >
               <span className={`absolute -top-0.5 -left-0.5 w-1.5 h-1.5 border-t-2 border-l-2 ${bracketColor}`} />
               <span className={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 border-t-2 border-r-2 ${bracketColor}`} />
@@ -107,12 +124,12 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
               >
                 <span>
                   {isMissing ? (
-                    <span className="font-black text-rose-200">
+                    <span className="font-black text-amber-200">
                       #{duck.id} MISSING
                     </span>
                   ) : isProvisional ? (
                     'WARMING_UP'
-                  ) : isAnomaly ? (
+                  ) : isIndividualAnomaly ? (
                     <span className="font-black text-rose-200">
                       {duck.species === 'Duck' ? `#${duck.id}` : duck.species}
                     </span>

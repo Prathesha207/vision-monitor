@@ -19,19 +19,21 @@ export const CameraStandbyCard: React.FC<CameraStandbyCardProps> = ({
       className="absolute inset-0 w-full h-full flex flex-col items-center justify-center text-center p-6 rounded-3xl z-10 select-none"
       style={{ backgroundColor: 'var(--bg-card)' }}
     >
-      <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center mb-3 sm:mb-4 text-sky-400 shadow-md">
-        <Camera className="w-7 h-7 sm:w-8 sm:h-8" />
+      {/* Standalone Icon matching Image 1 style - NO box */}
+      <div className="text-[var(--accent-pond)] mb-2 sm:mb-3 shrink-0">
+        <Camera className="w-10 h-10 sm:w-12 sm:h-12 lg:w-14 lg:h-14 stroke-[1.75]" />
       </div>
 
-      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold mb-2.5 shadow-sm">
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+      {/* Status Badge: theme style, not a round pill */}
+      <div className="inline-flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1 rounded-lg bg-[var(--status-normal-bg)] border border-[var(--status-normal-border)] text-[var(--status-normal-text)] text-[10px] sm:text-xs font-mono font-semibold mb-2.5 shadow-xs">
+        <span className="w-1.5 h-1.5 rounded-full bg-[var(--status-normal-text)] animate-pulse" />
         OAK-D CAMERA CONNECTED
       </div>
 
-      <h3 className="text-base sm:text-lg lg:text-xl font-bold text-[var(--text-primary)] mb-1">
+      <h3 className="text-lg sm:text-xl lg:text-2xl font-bold text-[var(--text-primary)] mb-1 sm:mb-2 shrink-0">
         Camera Feed in Standby
       </h3>
-      <p className="text-xs sm:text-sm text-[var(--text-secondary)] max-w-md mb-5 leading-relaxed font-medium">
+      <p className="text-xs sm:text-sm lg:text-base text-[var(--text-secondary)] max-w-md mb-5 leading-relaxed font-medium">
         Hardware connection is active. Start the camera stream to view live video, record sessions, or run real-time AI inference.
       </p>
 
@@ -44,7 +46,7 @@ export const CameraStandbyCard: React.FC<CameraStandbyCardProps> = ({
               playWaterDropSound();
               onStartStream();
             }}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-sm transition-all cursor-pointer active:scale-95"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[var(--btn-primary-bg)] hover:bg-[var(--btn-primary-hover)] text-[var(--btn-primary-text)] font-bold text-xs shadow-xs transition-all cursor-pointer active:scale-95"
           >
             <Play className="w-3.5 h-3.5 fill-current" />
             <span>Start Camera Stream</span>

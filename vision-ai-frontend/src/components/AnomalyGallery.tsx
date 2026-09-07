@@ -76,26 +76,22 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
   let borderClasses = 'border border-[var(--border-color)] bg-[var(--bg-card)] hover:border-[var(--accent-pond)]';
   if (isMissing) {
     borderClasses = isSelected
-      ? 'border-2 border-dashed border-rose-500 ring-2 ring-rose-400/50 bg-rose-500/10'
-      : 'border-2 border-dashed border-rose-500 dark:border-rose-400 bg-rose-500/10 hover:border-rose-500';
+      ? 'border border-dashed border-amber-400 bg-amber-500/25 shadow-[0_0_8px_rgba(245,158,11,0.3)]'
+      : 'border border-dashed border-amber-500 dark:border-amber-400 bg-amber-500/10 hover:border-amber-500';
   } else if (isNew) {
     borderClasses = isSelected
-      ? 'border-2 border-cyan-500 ring-2 ring-cyan-400/50 bg-cyan-500/10'
-      : 'border-2 border-cyan-500/70 dark:border-cyan-400/70 bg-cyan-500/10 hover:border-cyan-400';
+      ? 'border border-cyan-400 bg-cyan-500/25 shadow-[0_0_8px_rgba(6,182,212,0.3)]'
+      : 'border border-cyan-500/70 dark:border-cyan-400/70 bg-cyan-500/10 hover:border-cyan-400';
   } else if (isAlert) {
     borderClasses = isSelected
-      ? 'border-2 border-rose-500 ring-2 ring-rose-500/40 bg-rose-500/10'
-      : 'border-2 border-rose-500 bg-rose-500/10 hover:border-rose-400 hover:shadow-xs';
+      ? 'border border-rose-400 bg-rose-500/25 shadow-[0_0_8px_rgba(244,63,94,0.3)]'
+      : 'border border-rose-500 bg-rose-500/10 hover:border-rose-400 hover:shadow-xs';
   } else if (isProvisional) {
     borderClasses = isSelected
-      ? 'border-2 border-amber-400 ring-2 ring-amber-400/40 bg-amber-500/10'
-      : 'border-2 border-amber-400/60 bg-amber-500/10 hover:border-amber-400';
-  } else if (isCountMismatch) {
-    borderClasses = isSelected
-      ? 'border-2 border-rose-500 ring-2 ring-rose-500/40 bg-rose-500/10'
-      : 'border-2 border-rose-500/60 dark:border-rose-500/50 bg-rose-500/10 hover:border-rose-500 hover:shadow-xs';
+      ? 'border border-amber-400 bg-amber-500/25 shadow-[0_0_8px_rgba(245,158,11,0.3)]'
+      : 'border border-amber-400/60 bg-amber-500/10 hover:border-amber-400';
   } else if (isSelected) {
-    borderClasses = 'border-2 border-[var(--accent-pond)] ring-2 ring-[var(--accent-pond-subtle)] bg-[var(--bg-card)]';
+    borderClasses = 'border border-[var(--accent-pond)] bg-[var(--accent-pond-subtle)] shadow-[0_0_8px_rgba(52,211,153,0.3)]';
   }
 
   const badgeLabel = isMissing ? 'MISSED'
@@ -104,7 +100,6 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
     : isNew ? 'NEW'
     : isAlert ? 'ALERT'
     : isProvisional ? 'WARM'
-    : isCountMismatch ? 'DIFF'
     : 'OK';
 
   const barColorClasses = isMissing
@@ -115,8 +110,6 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
     ? 'bg-rose-500/25 dark:bg-rose-950/60 border-rose-500/50 text-rose-900 dark:text-rose-200'
     : isProvisional
     ? 'bg-amber-500/20 dark:bg-amber-950/50 border-amber-500/40 text-amber-800 dark:text-amber-300'
-    : isCountMismatch
-    ? 'bg-rose-500/20 dark:bg-rose-950/60 border-rose-500/40 text-rose-700 dark:text-rose-300'
     : 'bg-[var(--status-normal-bg)] border-[var(--status-normal-border)] text-[var(--status-normal-text)]';
 
   return (
@@ -165,10 +158,9 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
       <div className={`flex items-center justify-between px-1 py-0.5 gap-1 border-t shrink-0 font-bold ${barColorClasses}`}>
         <div className="flex items-center gap-1 min-w-0 flex-nowrap whitespace-nowrap overflow-hidden">
           <span className={`w-1.5 h-1.5 rounded-full shrink-0 flex-none self-center ${
-            isMissing ? 'bg-rose-500 animate-pulse'
+            isMissing ? 'bg-amber-500 animate-pulse'
               : isNew ? 'bg-cyan-400 animate-pulse'
               : isAlert ? 'bg-[var(--status-anomaly-text)] shadow-xs animate-pulse ring-1 ring-[var(--status-anomaly-text)]/60'
-              : isCountMismatch ? 'bg-rose-500 shadow-xs ring-1 ring-rose-400/50'
               : 'bg-[var(--status-normal-text)]'
           }`} />
           <span className={`${textSize} truncate font-mono font-bold leading-none select-none tracking-tight self-center`}>
@@ -178,13 +170,11 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
         {(showBadge || isMissing || isAlert || isNew) && (
           <span className={`text-[6.5px] px-1 py-0.2 rounded font-black shrink-0 uppercase leading-none self-center ${
             isMissing
-              ? 'bg-rose-600 text-white shadow-xs'
+              ? 'bg-amber-500 text-white shadow-xs'
               : isNew
               ? 'bg-cyan-500 text-white shadow-xs'
               : isAlert
               ? 'bg-rose-600 text-white shadow-xs'
-              : isCountMismatch
-              ? 'bg-rose-500/25 text-rose-700 dark:text-rose-300 border border-rose-500/30'
               : 'text-[var(--status-normal-text)]'
           }`}>
             {badgeLabel}
@@ -251,6 +241,9 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
     const seen = new Set<string>();
     const validDucks = ducks.filter((d) => {
       if (d.species === 'Hand' || d.handDetected) return false;
+      // Provisional ducks are warmup-phase transients with prov-N IDs.
+      // They have no stable identity and must never appear as gallery cards.
+      if (d.provisional === true) return false;
       if (seen.has(d.id)) return false;
       seen.add(d.id);
       return true;
@@ -322,15 +315,15 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
           title="Missing ducks"
           className={`flex-1 py-1 px-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
             filter === 'missed'
-              ? 'bg-rose-600 text-white shadow-xs'
+              ? 'bg-amber-500 text-white shadow-xs'
               : missedCount > 0
-              ? 'text-rose-600 dark:text-rose-400 bg-rose-500/10 font-extrabold'
+              ? 'text-amber-600 dark:text-amber-400 bg-amber-500/10 font-extrabold'
               : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
           }`}
         >
           <span>Missed</span>
           <span className={`text-[8.5px] px-1.5 py-0.2 rounded-full font-mono ${
-            missedCount > 0 ? 'bg-rose-600 text-white animate-pulse' : 'bg-black/20'
+            missedCount > 0 ? 'bg-amber-500 text-white animate-pulse' : 'bg-black/20'
           }`}>
             {missedCount}
           </span>

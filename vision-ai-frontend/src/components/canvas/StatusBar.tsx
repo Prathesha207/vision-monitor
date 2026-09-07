@@ -22,7 +22,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   return (
     <div className="absolute bottom-3 left-1/2 transform -translate-x-1/2 z-30 pointer-events-auto animate-in fade-in slide-in-from-bottom-2 duration-300 max-w-[calc(100%-24px)]">
       <div className="flex items-center gap-3 sm:gap-5 px-3.5 sm:px-5 py-2 rounded-xl bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--border-color)] shadow-lg text-[var(--text-primary)]">
-        
+
         {/* Expected Ducks */}
         <div className="flex flex-col items-center">
           <span className="text-[9.5px] text-[var(--text-secondary)] uppercase tracking-wider font-semibold">
@@ -78,13 +78,12 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           </span>
           <div className="mt-0.5">
             <span
-              className={`text-base sm:text-lg font-black ${
-                anomalyStatus.difference > 0
-                  ? 'text-[var(--status-anomaly-text)]'
-                  : anomalyStatus.difference < 0
+              className={`text-base sm:text-lg font-black ${anomalyStatus.difference > 0
+                ? 'text-[var(--status-anomaly-text)]'
+                : anomalyStatus.difference < 0
                   ? 'text-[var(--status-warn-text)]'
                   : 'text-[var(--status-normal-text)]'
-              }`}
+                }`}
             >
               {anomalyStatus.difference > 0 ? `+${anomalyStatus.difference}` : anomalyStatus.difference}
             </span>
@@ -128,17 +127,17 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           </div>
         </div>
 
-        <div className="hidden sm:block h-6 w-[1px] bg-[var(--border-color)]" />
+        {/* <div className="hidden sm:block h-6 w-[1px] bg-[var(--border-color)]" /> */}
 
         {/* FPS */}
-        <div className="hidden sm:flex flex-col items-center">
+        {/* <div className="hidden sm:flex flex-col items-center">
           <span className="text-[9.5px] text-[var(--text-secondary)] uppercase tracking-wider font-semibold">
             FPS
           </span>
           <span className="text-base sm:text-lg font-mono font-bold text-[var(--text-primary)] mt-0.5">
             {displayFps.toFixed(1)}
           </span>
-        </div>
+        </div> */}
       </div>
     </div>
   );
