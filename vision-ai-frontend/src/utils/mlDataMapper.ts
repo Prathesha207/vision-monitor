@@ -125,8 +125,9 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, _fallbac
       const isHand = species === 'hand';
       const isOther = !isDuck && !isHand;
 
-      // Provisional ONLY applies during actual warmup phase — never on locked active inference
-      const isProvisional = isWarmingUp || d.provisional === true;
+      // Provisional ONLY applies during actual warmup phase — never on locked active inference.
+      // Trust the backend's explicit flag, rather than overriding it.
+      const isProvisional = d.provisional === true;
       const rawId = hasLockedId ? String(d.id) : isWarmingUp ? `prov-${idx + 1}` : `extra-${idx + 1}`;
       const displayId = isOther ? `other-${rawId}` : rawId;
 
