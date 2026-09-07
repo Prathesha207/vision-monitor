@@ -263,9 +263,6 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
     const seen = new Set<string>();
     const validDucks = ducks.filter((d) => {
       if (d.species === 'Hand' || d.handDetected) return false;
-      // Provisional ducks are warmup-phase transients with prov-N IDs.
-      // They have no stable identity and must never appear as gallery cards.
-      if (d.provisional === true) return false;
       if (seen.has(d.id)) return false;
       seen.add(d.id);
       return true;

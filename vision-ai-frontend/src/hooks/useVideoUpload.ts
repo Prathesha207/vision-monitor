@@ -43,13 +43,9 @@ export const useVideoUpload = (
           const data = JSON.parse(xhr.responseText);
           setUploadProgress(100);
           const baseUrl = getApiBaseUrl();
-          // Start inference immediately without artificial delay
+          // Inference is no longer auto-started on upload.
+          // User must explicitly click "Start Inference"
           (async () => {
-            try {
-              await fetch(`${baseUrl}/video/start/${data.session_id}`, { method: 'POST' });
-            } catch (e) {
-              console.error('Failed to auto-start video inference:', e);
-            }
             if (onVideoUploaded) {
               const streamUrl = `${baseUrl}/video/stream/${data.session_id}`;
               onVideoUploaded(streamUrl, file.name, data.session_id);
@@ -137,17 +133,8 @@ export const useVideoUpload = (
         const data = await res.json();
         const filename = data.video_name || filePath.split(/[/\\]/).pop() || 'video.mp4';
 
-        // Automatically start inference on selected video
-        try {
-          await fetch(`${baseUrl}/video/update_expected/${data.session_id}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ count: expectedDucks })
-          }).catch(() => { });
-          await fetch(`${baseUrl}/video/start/${data.session_id}`, { method: 'POST' });
-        } catch (e) {
-          console.error('Failed to start inference on desktop upload:', e);
-        }
+        // Inference is no longer auto-started on upload.
+        // User must explicitly click "Start Inference"
 
         if (onVideoUploaded) {
           const streamUrl = `${baseUrl}/video/stream/${data.session_id}`;

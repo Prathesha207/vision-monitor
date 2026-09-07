@@ -169,7 +169,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
       )}
 
       {/* Recording Button (Camera Only) */}
-      {isCameraSource && (
+      {isCameraSource && !isRunning && (
         <button
           disabled={!isStreaming && !isRecording}
           onClick={() => {

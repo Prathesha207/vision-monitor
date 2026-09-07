@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { useInferenceStore } from '../../store/inferenceStore';
 
 export function useRecording() {
   const [isRecording, setIsRecording] = useState(false);
@@ -12,6 +13,12 @@ export function useRecording() {
   const hiddenCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const startTimeRef = useRef<number | null>(null);
   const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const setIsRecordingStore = useInferenceStore((state) => state.setIsRecording);
+
+  useEffect(() => {
+    setIsRecordingStore(isRecording);
+  }, [isRecording, setIsRecordingStore]);
 
   const startRecording = useCallback((imgElement: HTMLImageElement, width: number, height: number) => {
     if (isRecording) return;

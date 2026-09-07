@@ -452,6 +452,8 @@ export default function App() {
     };
   }, [anomalyFinal.activeDucks, inference.fps, inference.framesProcessed, inference.uptimeSeconds]);
 
+  const isRecording = useInferenceStore((state) => state.isRecording);
+
   // ─── 12. Misc Handlers ────────────────────────────────────────────
   const handleRestart = () => {
     playWaterDropSound();
@@ -692,6 +694,7 @@ export default function App() {
           onRequestSwitchMode={handleRequestSwitchMode}
           isRunning={isRunning}
           isStarting={isStarting}
+          isRecording={isRecording}
           onToggleRunning={handleToggleRunning}
           onStopInference={handleStopInference}
           onResumeInference={handleResumeInference}
@@ -762,17 +765,19 @@ export default function App() {
             />
           </main>
 
-          <DetectionDrawer
-            isOpen={drawerOpen}
-            onToggle={() => setDrawerOpen(!drawerOpen)}
-            anomalyStatus={anomalyFinal.anomalyStatus}
-            ducks={anomalyFinal.activeDucks}
-            metrics={metrics}
-            selectedDuckId={selectedDuckId}
-            onSelectDuck={setSelectedDuckId}
-            isStandby={isStandby}
-            logs={logs}
-          />
+          {(isRunning || inference.framesProcessed > 0 || (anomalyFinal.anomalyStatus.detectedCount ?? 0) > 0) && (
+            <DetectionDrawer
+              isOpen={drawerOpen}
+              onToggle={() => setDrawerOpen(!drawerOpen)}
+              anomalyStatus={anomalyFinal.anomalyStatus}
+              ducks={anomalyFinal.activeDucks}
+              metrics={metrics}
+              selectedDuckId={selectedDuckId}
+              onSelectDuck={setSelectedDuckId}
+              isStandby={isStandby}
+              logs={logs}
+            />
+          )}
         </div>
       </div>
 

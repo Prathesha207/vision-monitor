@@ -30,6 +30,7 @@ interface SourceSelectorProps {
   onResetCamera?: () => void;
   isRunning?: boolean;
   isStarting?: boolean;
+  isRecording?: boolean;
   onToggleRunning?: () => void;
   onStopInference?: () => void;
   onResumeInference?: () => void;
@@ -55,6 +56,7 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
   onResetCamera,
   isRunning = false,
   isStarting = false,
+  isRecording = false,
   onToggleRunning,
   onStopInference,
   onResumeInference,
