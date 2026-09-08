@@ -256,21 +256,6 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                 </button>
               )}
 
-              {/* Return to live camera feed button when camera recording is loaded */}
-              {isCameraMode && cameraRecordSessionId && (
-                <button
-                  onClick={() => {
-                    playWaterDropSound();
-                    onClearCameraRecord?.();
-                  }}
-                  title="Clear recorded clip and return to live camera"
-                  className="h-8 sm:h-9 flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-100 hover:text-white border border-slate-600/80 text-[11px] sm:text-xs font-semibold shadow-xs active:scale-95 cursor-pointer transition-all shrink-0"
-                >
-                  <RotateCcw className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                  <span className="hidden sm:inline">LIVE FEED</span>
-                </button>
-              )}
-
               {/* Unified RESET button */}
               {(isVideoMode && hasActiveVideo) && (
                 <button

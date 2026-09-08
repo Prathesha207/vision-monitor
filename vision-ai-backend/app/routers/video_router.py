@@ -74,25 +74,31 @@ async def upload_video(
         return JSONResponse(status_code=500, content={"message": "Failed to save uploaded video."})
 
     # 1. First probe if OpenCV can directly read the raw uploaded video (instantaneous, <0.02s)
+    # Camera recordings (WebM) lack container duration/frame-count headers in OpenCV,
+    # so they MUST be transcoded to MP4 to ensure total_frames > 0 and accurate progress calculation.
     can_read_directly = False
     frame0_bytes = None
     frame_width = None
     frame_height = None
-    try:
-        import cv2
-        cap = cv2.VideoCapture(raw_save_path)
-        if cap.isOpened():
-            ret, frame0 = cap.read()
-            if ret and frame0 is not None:
-                can_read_directly = True
-                frame_width = int(frame0.shape[1])
-                frame_height = int(frame0.shape[0])
-                _, buf = cv2.imencode(".jpg", frame0, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                frame0_bytes = buf.tobytes()
-                logger.info(f"[UPLOAD] OpenCV directly read video ({frame_width}x{frame_height}), skipping heavy transcode.")
-        cap.release()
-    except Exception as e:
-        logger.warning(f"Direct OpenCV probe failed: {e}")
+    is_webm = raw_save_path.lower().endswith(".webm")
+
+    if not is_camera_rec and not is_webm:
+        try:
+            import cv2
+            cap = cv2.VideoCapture(raw_save_path)
+            if cap.isOpened():
+                total_cnt = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+                ret, frame0 = cap.read()
+                if ret and frame0 is not None and total_cnt > 0:
+                    can_read_directly = True
+                    frame_width = int(frame0.shape[1])
+                    frame_height = int(frame0.shape[0])
+                    _, buf = cv2.imencode(".jpg", frame0, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                    frame0_bytes = buf.tobytes()
+                    logger.info(f"[UPLOAD] OpenCV directly read video ({frame_width}x{frame_height}, {total_cnt} frames), skipping heavy transcode.")
+            cap.release()
+        except Exception as e:
+            logger.warning(f"Direct OpenCV probe failed: {e}")
 
     effective_inference_path = raw_save_path
     browser_video_path = raw_save_path if can_read_directly else os.path.join(session_dir, "source.mp4")

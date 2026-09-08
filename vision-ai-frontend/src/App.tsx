@@ -838,6 +838,7 @@ export default function App() {
             onSelectDuck={setSelectedDuckId}
             isStandby={isStandby}
             logs={logs}
+            isCameraSource={isCameraSource}
           />
         </div>
       </div>

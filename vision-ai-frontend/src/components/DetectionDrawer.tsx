@@ -25,6 +25,7 @@ interface DetectionDrawerProps {
   onSelectDuck: (id: string | null) => void;
   isStandby?: boolean;
   logs?: LogEntry[];
+  isCameraSource?: boolean;
 }
 
 export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
@@ -37,6 +38,7 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
   onSelectDuck,
   isStandby = false,
   logs = [],
+  isCameraSource = false,
 }) => {
   const mlStats = useInferenceStore((state) => state.stats);
 
@@ -227,7 +229,7 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
                   <div className="flex justify-between items-center">
 
                     <Badge variant="normal" size="sm" dot className="mr-1 hidden xl:inline-flex">
-                      LIVE INFERENCE
+                      {isCameraSource ? 'LIVE CAMERA' : 'VIDEO INFERENCE'}
                     </Badge>
                     <div className="flex items-center gap-2">
                       <Badge
@@ -244,18 +246,33 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
                     </div>
                   </div>
 
-                  {/* Stream Progress Bar */}
-                  <div className="h-1.5 w-full bg-[var(--btn-secondary-border)] rounded-full overflow-hidden relative">
-                    <div
-                      className="h-full rounded-full bg-[var(--status-normal-text)] transition-all duration-300 ease-out"
-                      style={{ width: `${displayProgress}%` }}
-                    />
-                  </div>
-
-                  <div className="flex justify-between items-center font-mono text-[10px] text-[var(--text-secondary)]">
-                    <span>{displayFrames.toLocaleString()} frames</span>
-                    <span>{formatTime(computedUptime)}</span>
-                  </div>
+                  {/* Progress: Real Progress Bar for Video, Live Status for Infinite Camera */}
+                  {isCameraSource ? (
+                    <div className="flex justify-between items-center text-[10px] text-[var(--text-secondary)] pt-0.5">
+                      <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-bold">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        Live Continuous Feed
+                      </span>
+                      <span className="font-mono">{displayFrames.toLocaleString()} frames</span>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <div className="flex justify-between items-center text-[10px] text-[var(--text-secondary)]">
+                        <span>Processing Progress</span>
+                        <span className="font-mono font-bold text-[var(--accent-pond)]">{Math.round(displayProgress)}%</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-[var(--btn-secondary-border)] rounded-full overflow-hidden relative">
+                        <div
+                          className="h-full rounded-full bg-[var(--accent-pond)] transition-all duration-300 ease-out"
+                          style={{ width: `${Math.max(0, Math.min(100, displayProgress))}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between items-center font-mono text-[10px] text-[var(--text-secondary)]">
+                        <span>{displayFrames.toLocaleString()} frames</span>
+                        <span>{formatTime(computedUptime)}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

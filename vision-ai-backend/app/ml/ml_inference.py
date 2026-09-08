@@ -529,8 +529,19 @@ class VideoInferenceService:
                     if not cap.isOpened():
                         raise ValueError(f"Could not open video file: {temp_file_path}")
 
-                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                session["stats"]["total_frames"] = total_frames
+                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+                if total_frames <= 0:
+                    try:
+                        import imageio_ffmpeg
+                        meta = imageio_ffmpeg.read_frames(temp_file_path)
+                        # Estimate total frames from duration and fps
+                        duration = meta.get("duration", 0) if isinstance(meta, dict) else 0
+                        fps_meta = meta.get("fps", 30) if isinstance(meta, dict) else 30
+                        if duration > 0 and fps_meta > 0:
+                            total_frames = int(duration * fps_meta)
+                    except Exception:
+                        pass
+                session["stats"]["total_frames"] = max(1, total_frames)
                 
                 # Setup VideoWriter to save annotated output
                 video_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
@@ -719,6 +730,10 @@ class VideoInferenceService:
                 if session["stop_event"].is_set() and self._is_current_run(session_id, run_seq):
                     session["status"] = "stopped"
                     session["stats"]["status"] = "stopped"
+                elif self._is_current_run(session_id, run_seq):
+                    session["status"] = "completed"
+                    session["stats"]["status"] = "completed"
+                    session["stats"]["progress"] = 100.0
 
                 # analyzer.py does not write results.json itself -- that path
                 # was being set on session_cfg but nothing ever wrote to it.

@@ -75,16 +75,25 @@ export function useVideoPipeline({
     const isRecordedStream = Boolean(isCameraRecording);
 
     if (isRecordedStream) {
-      if (sessionId) setCameraRecordSessionId(sessionId);
-      setCameraRecordUrl(url);
-      setCameraRecordName(name);
+      if (sessionId) {
+        setVideoSessionId(sessionId);
+      }
+      setLocalPreviewUrl(url);
+      setCustomVideoUrl(url);
+      setCustomVideoName(name);
+      setSourceType('uploaded-video');
+      setCameraRecordSessionId(null);
+      setCameraRecordUrl(undefined);
+      setCameraRecordName(undefined);
       setIsRunning(false);
       setDucks([]);
+      setFramesProcessed(0);
+      setFps(0);
       useInferenceStore.getState().resetStats();
       resetBBoxCache();
-      showToast('success', 'Camera recording ready for inference in Camera area');
-      addLog('Camera recording ready for inference in Camera area. Click Start Inference.', 'success');
-      return; // Short-circuit: never switch to uploaded-video area!
+      showToast('success', 'Camera recording saved. Click Start Inference to run with progress.');
+      addLog(`Recorded video ready: "${name}". Click Start Inference to run with progress.`, 'success');
+      return;
     }
 
     // If online camera is currently active, block upload with alert as per requirement (unless it's a recorded stream)

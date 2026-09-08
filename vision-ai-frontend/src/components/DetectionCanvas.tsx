@@ -314,28 +314,6 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
 
             <canvas ref={canvasRef} className="absolute inset-0 z-10 h-full w-full pointer-events-none rounded" />
 
-            {/* Camera Recording indicator banner */}
-            {hasCameraRecording && (
-              <div className="absolute top-2 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/85 backdrop-blur-md border border-amber-500/60 shadow-lg text-xs font-semibold text-white pointer-events-auto">
-                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
-                <span className="truncate max-w-[180px] sm:max-w-[280px]">Recording: {cameraRecordName || 'Camera Clip'}</span>
-                {onClearCameraRecord && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      playWaterDropSound();
-                      onClearCameraRecord();
-                    }}
-                    className="ml-1.5 px-2 py-0.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 hover:text-white text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap"
-                    title="Return to live camera"
-                  >
-                    Return to Live Camera
-                  </button>
-                )}
-              </div>
-            )}
-
             {/* AI Bounding Boxes: Shown in INFERENCE mode or always for video upload / camera recording */}
             {!isOverlayShowing && (isRunning || hasInferenceResult) && (feedMode === 'inference' || !isCameraSource || hasCameraRecording) && ducks.length > 0 && (
               <BoundingBoxOverlay
