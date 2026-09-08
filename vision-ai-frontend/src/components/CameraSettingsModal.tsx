@@ -275,7 +275,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
               : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
               }`}
           >
-            {tab === 'stream' ? 'Cameras & Connection' : tab === 'image' ? 'Image Adjustments' }
+            {tab === 'stream' ? 'Cameras & Connection' : tab === 'image' ? 'Image Adjustments' : 'OAK DepthAI VPU'}
           </button>
         ))}
       </div>
