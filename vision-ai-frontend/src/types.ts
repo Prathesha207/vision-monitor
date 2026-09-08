@@ -42,6 +42,7 @@ export interface CameraConfig {
   sourceName: string;
   resolution: '1920x1080' | '1280x720';
   targetFps: number;
+  recordingFormat?: 'AVI' | 'MP4' | 'FFV1';
   rotationAngle?: number;
   controlMode?: 'auto' | 'manual';
   exposure: number; // 0 - 100

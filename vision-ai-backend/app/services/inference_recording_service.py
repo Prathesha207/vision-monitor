@@ -169,6 +169,9 @@ class InferenceRecorder:
         fps: int,                    # kept for API compatibility; not used for timestamps
         status: str = "PENDING",
         video_name: str = "",
+        recording_format: str = "FFV1",
+        record_raw: bool = False,
+        record_processed: bool = True,
     ):
         self._width  = width
         self._height = height
@@ -187,10 +190,25 @@ class InferenceRecorder:
         date_folder = now.strftime("%Y-%m-%d")
         _sid_safe   = session_id.replace("/", "_").replace(":", "-").replace(" ", "_")
 
-        fmt        = "FFV1"
-        codec_name = "ffv1"
-        pix_fmt    = "yuv420p"
-        _ext       = ".mkv"
+        fmt = (recording_format or "FFV1").upper()
+        options = {}
+        if fmt in ("MP4", "H264", "LIBX264"):
+            fmt        = "MP4"
+            codec_name = "libx264"
+            pix_fmt    = "yuv420p"
+            _ext       = ".mp4"
+            options    = {"preset": "ultrafast", "crf": "18"}
+        elif fmt in ("MJPEG", "AVI"):
+            fmt        = "MJPEG"
+            codec_name = "mjpeg"
+            pix_fmt    = "yuvj420p"
+            _ext       = ".avi"
+        else:  # Default: FFV1
+            fmt        = "FFV1"
+            codec_name = "ffv1"
+            pix_fmt    = "yuv420p"
+            _ext       = ".mkv"
+            options    = {"level": "3"}
 
         if video_name:
             video_stem = os.path.splitext(video_name)[0]
@@ -214,21 +232,21 @@ class InferenceRecorder:
         self._raw_stream          = None
 
         def _open_av(path: str):
-            """Open an MKV container with the configured codec. rate=1000 → 1ms PTS unit."""
+            """Open a container with the configured codec. rate=1000 → 1ms PTS unit."""
             try:
                 container = av.open(path, mode="w")
                 stream    = container.add_stream(codec_name, rate=1000)
                 stream.width   = width
                 stream.height  = height
                 stream.pix_fmt = pix_fmt
-                if fmt == "FFV1":
-                    stream.options = {"level": "3"}
+                if options:
+                    stream.options = options
                 return container, stream
             except Exception as e:
                 logger.error(f"[INFERENCE RECORDER] Failed to open {path}: {e}")
                 return None, None
 
-        if True:  # Processed video is always recorded
+        if record_processed:
             pending_dir = os.path.join(self._root, "processed", "PENDING")
             os.makedirs(pending_dir, exist_ok=True)
             path = os.path.join(pending_dir, base_name)
@@ -239,7 +257,7 @@ class InferenceRecorder:
             else:
                 logger.error(f"[INFERENCE RECORDER] Processed container failed: {path}")
 
-        if False:  # Raw video is not recorded by default
+        if record_raw:
             pending_dir = os.path.join(self._root, "raw", "PENDING")
             os.makedirs(pending_dir, exist_ok=True)
             path = os.path.join(pending_dir, base_name)

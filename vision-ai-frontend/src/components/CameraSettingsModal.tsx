@@ -334,6 +334,45 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                     />
                   </div>
                 </div>
+
+                {/* Recording Video Format */}
+                <div className="sm:col-span-2 space-y-1 pt-1.5 border-t border-[var(--border-color)]/60">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-[var(--text-secondary)]">Recording Video Format</span>
+                    <span className="text-[10px] font-semibold text-[var(--accent-pond)]">
+                      {(localConfig.recordingFormat || 'AVI') === 'AVI' 
+                        ? 'AVI container • MJPEG analytical codec'
+                        : (localConfig.recordingFormat || 'AVI') === 'MP4'
+                          ? 'MP4 container • H.264 web/universal codec'
+                          : 'MKV container • FFV1 lossless codec'}
+                    </span>
+                  </div>
+                  <div className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-[var(--bg-card)] border border-[var(--border-color)] w-full">
+                    {([
+                      { id: 'AVI', label: 'AVI (MJPEG)' },
+                      { id: 'MP4', label: 'MP4 (H.264)' },
+                      { id: 'FFV1', label: 'MKV (FFV1)' },
+                    ] as const).map((fmt) => {
+                      const isSelected = (localConfig.recordingFormat || 'AVI') === fmt.id;
+                      return (
+                        <button
+                          key={fmt.id}
+                          type="button"
+                          onClick={() => {
+                            playWaterDropSound();
+                            setLocalConfig({ ...localConfig, recordingFormat: fmt.id });
+                          }}
+                          className={`flex-1 py-1 px-2 rounded-md text-[11px] font-bold transition-all cursor-pointer text-center whitespace-nowrap ${isSelected
+                            ? 'bg-[var(--accent-pond)] text-white shadow-xs'
+                            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                            }`}
+                        >
+                          {fmt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
 

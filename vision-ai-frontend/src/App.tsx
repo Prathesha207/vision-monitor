@@ -836,6 +836,7 @@ export default function App() {
               cameraRecordName={video.cameraRecordName}
               onClearCameraRecord={handleClearCameraRecord}
               cameraTargetFps={camera.effectiveCameraConfig.targetFps || 30}
+              recordingFormat={camera.effectiveCameraConfig.recordingFormat || 'AVI'}
             />
           </main>
 

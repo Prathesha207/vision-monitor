@@ -94,7 +94,7 @@ FRONTEND_PID=$!
 
 echo ""
 echo "=================================================="
-echo " Vision AI Dev Servers Started"
+echo " Vision Monitor Dev Servers Started"
 echo " Backend:  http://localhost:$PORT"
 echo " Frontend: http://localhost:5173"
 echo "=================================================="

@@ -62,6 +62,7 @@ interface DetectionCanvasProps {
   cameraRecordName?: string;
   onClearCameraRecord?: () => void;
   cameraTargetFps?: number;
+  recordingFormat?: 'AVI' | 'MP4' | 'FFV1';
 }
 
 export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
@@ -103,6 +104,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   cameraRecordName,
   onClearCameraRecord,
   cameraTargetFps,
+  recordingFormat = 'AVI',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -382,10 +384,14 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
             if (isRecording) {
               playWaterDropSound();
               if (isRunning && isCameraSource) {
-                // Ensure live inference claim is stopped before the recording is uploaded
+                // Ensure live inference claim is stopped before the recording is finalized
                 await onStopInference?.();
               }
-              stopRecording();
+              const res = await stopRecording();
+              if (res && res.session_id && res.stream_url && res.filename) {
+                const fullStreamUrl = `${getApiBaseUrl()}${res.stream_url}`;
+                onCustomVideoUploaded?.(fullStreamUrl, res.filename, res.session_id, true);
+              }
             } else {
               playWaterDropSound();
               // If stream is not running yet, start the stream first automatically
@@ -393,10 +399,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                 await onStartStream();
                 await new Promise((resolve) => setTimeout(resolve, 1000));
               }
-              if (cameraImgRef.current) {
-                const targetFps = cameraTargetFps || (fps > 0 ? fps : 30);
-                startRecording(cameraImgRef.current, videoDimensions?.width || 1920, videoDimensions?.height || 1080, targetFps);
-              }
+              await startRecording(recordingFormat || 'AVI');
             }
           }}
           isFullscreen={isFullscreen}

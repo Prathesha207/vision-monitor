@@ -1032,14 +1032,16 @@ class OakCameraService:
 
                 if should_record and not recording_active:
                     h, w = frame.shape[:2]
+                    rec_fmt = self._resolve_recording_format()
                     recorder = InferenceRecorder(
                         session_id=f"{session_id}_{int(time.time())}",
                         width=w,
                         height=h,
                         fps=self._configured_fps,
+                        recording_format=rec_fmt,
                     )
                     recording_active = True
-                    logger.info("[INFERENCE] Duck recording started")
+                    logger.info(f"[INFERENCE] Duck recording started (format={rec_fmt})")
                 elif not should_record and recording_active:
                     if recorder:
                         recorder.stop()
@@ -1457,22 +1459,45 @@ class OakCameraService:
     def _resolve_recording_path(self) -> str | None:
         return None
 
-    def _resolve_recording_format(self) -> str:
-        return "MJPEG"
+    def _resolve_recording_format(self, override: str | None = None) -> str:
+        if override and isinstance(override, str) and override.strip():
+            return override.strip().upper()
+        try:
+            from app.core.database import SessionLocal
+            from app.models.camera_model import Camera
+            db = SessionLocal()
+            try:
+                cam = db.query(Camera).first()
+                fmt = getattr(cam, "recording_format", None)
+                if fmt and isinstance(fmt, str) and fmt.strip():
+                    return fmt.strip().upper()
+            finally:
+                db.close()
+        except Exception:
+            pass
+        return "AVI"
 
-    def start_recording(self, session_id: str, width: int, height: int, fps: float, root_path: str | None = None) -> str:
+    def start_recording(
+        self,
+        session_id: str,
+        width: int,
+        height: int,
+        fps: float,
+        root_path: str | None = None,
+        recording_format: str | None = None,
+    ) -> str:
         from app.services.recording_service import start_recording as _start, active_recordings
 
         root_path = self._resolve_recording_path()
-        recording_format = self._resolve_recording_format()
+        rec_fmt = self._resolve_recording_format(recording_format)
 
-        logger.info(f"[RECORD] Starting recording — session: {session_id}, {width}x{height} @ {fps}fps | format={recording_format}")
+        logger.info(f"[RECORD] Starting recording — session: {session_id}, {width}x{height} @ {fps}fps | format={rec_fmt}")
         logger.info(f"[RECORD] Pipeline running: {self._is_running}")
         logger.info(f"[RECORD] Threads — mjpeg: {bool(self._mjpeg_thread and self._mjpeg_thread.is_alive())} | hires: {bool(self._hires_thread and self._hires_thread.is_alive())} | convert: {bool(self._convert_thread and self._convert_thread.is_alive())}")
         realtime_log_service.add_log(
             "record",
             "RECORD",
-            f"Recording started: Session {session_id}",
+            f"Recording started: Session {session_id} ({rec_fmt})",
             "success"
         )
 
@@ -1485,7 +1510,7 @@ class OakCameraService:
         else:
             logger.info("[RECORD] Capture threads already running (AE limit already applied at stream start)")
 
-        path = _start(session_id, width, height, fps, root_path, recording_format)
+        path = _start(session_id, width, height, fps, root_path, rec_fmt)
         self._active_recording = active_recordings.get(session_id)
 
         if self._active_recording is None:
@@ -1495,7 +1520,7 @@ class OakCameraService:
 
         return path
 
-    def stop_recording(self, session_id: str) -> None:
+    def stop_recording(self, session_id: str) -> dict:
         from app.services.recording_service import stop_recording as _stop
 
         logger.info(f"[RECORD] Stopping recording — session: {session_id}")
@@ -1509,8 +1534,8 @@ class OakCameraService:
             logger.info(f"[RECORD] Queue size before stop: {self._active_recording.frame_queue.qsize()}")
 
         self._active_recording = None
-        _stop(session_id)
-        logger.info("[RECORD] Recording stopped and session cleared")
+        result = _stop(session_id)
+        logger.info(f"[RECORD] Recording stopped and session cleared → {result}")
 
         # Stop capture threads only if streaming and pipeline are also not active
         streaming_active = bool(self._is_streaming or self._stream_subscribers or (self._stream_queue is not None))
@@ -1519,6 +1544,8 @@ class OakCameraService:
             self._stop_capture_threads()
         else:
             logger.info("[RECORD] Streaming/pipeline still active — keeping capture threads running")
+
+        return result
 
     # ==================== App Lifecycle (connect / disconnect) ====================
 

@@ -12,11 +12,16 @@ $VenvPython = Join-Path $BackendDir '.venv\Scripts\python.exe'
 & $VenvPython -m pip install -r (Join-Path $BackendDir 'requirements.txt')
 
 if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
-  Write-Host 'NVIDIA GPU detected; installing CUDA-enabled PyTorch...'
-  $CudaIndex = if ($env:PYTORCH_CUDA_INDEX) { $env:PYTORCH_CUDA_INDEX } else { 'https://download.pytorch.org/whl/cu128' }
-  & $VenvPython -m pip install --force-reinstall --index-url $CudaIndex torch torchvision
-  if ($LASTEXITCODE -ne 0) {
-    throw "CUDA wheel index $CudaIndex is unavailable for this Python/platform. Set PYTORCH_CUDA_INDEX to another supported PyTorch CUDA index."
+  $HasCuda = & $VenvPython -c "import torch; print(torch.cuda.is_available() or 'cu' in torch.__version__)" 2>$null
+  if ($HasCuda -ne 'True') {
+    Write-Host 'NVIDIA GPU detected; installing CUDA-enabled PyTorch...'
+    $CudaIndex = if ($env:PYTORCH_CUDA_INDEX) { $env:PYTORCH_CUDA_INDEX } else { 'https://download.pytorch.org/whl/cu121' }
+    & $VenvPython -m pip install --force-reinstall --index-url $CudaIndex torch torchvision
+    if ($LASTEXITCODE -ne 0) {
+      throw "CUDA wheel index $CudaIndex is unavailable for this Python/platform. Set PYTORCH_CUDA_INDEX to another supported PyTorch CUDA index."
+    }
+  } else {
+    Write-Host 'CUDA PyTorch is already installed and operational.'
   }
 } else {
   Write-Host 'No NVIDIA GPU detected; keeping CPU-compatible PyTorch.'

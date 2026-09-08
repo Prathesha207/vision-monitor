@@ -46,14 +46,29 @@ class RecordingSession:
         folder = os.path.join(root_path, now.strftime("%Y-%m-%d"))
         os.makedirs(folder, exist_ok=True)
 
-        fmt = (recording_format or "MJPEG").upper()
+        fmt = (recording_format or "AVI").upper()
 
-        codec_name = "mjpeg" if fmt == "MJPEG" else "ffv1"
-        pix_fmt    = "yuvj420p" if fmt == "MJPEG" else "yuv420p"
-        ext        = ".avi" if fmt == "MJPEG" else ".mkv"
+        options = {}
+        if fmt in ("MP4", "H264", "LIBX264"):
+            fmt        = "MP4"
+            codec_name = "libx264"
+            pix_fmt    = "yuv420p"
+            ext        = ".mp4"
+            options    = {"preset": "ultrafast", "crf": "18"}
+        elif fmt in ("FFV1", "MKV"):
+            fmt        = "FFV1"
+            codec_name = "ffv1"
+            pix_fmt    = "yuv420p"
+            ext        = ".mkv"
+            options    = {"level": "3"}
+        else:  # Default: AVI (MJPEG)
+            fmt        = "AVI"
+            codec_name = "mjpeg"
+            pix_fmt    = "yuvj420p"
+            ext        = ".avi"
 
-        filename = now.strftime(f"session_%Y-%m-%d_%H-%M-%S{ext}")
-        self.video_path = os.path.join(folder, filename)
+        self.filename = now.strftime(f"session_%Y-%m-%d_%H-%M-%S{ext}")
+        self.video_path = os.path.join(folder, self.filename)
         self.width  = width
         self.height = height
         self.fmt    = fmt
@@ -61,20 +76,19 @@ class RecordingSession:
         try:
             self.container = av.open(self.video_path, mode="w")
             # rate=1000 → time_base = 1/1000 s = 1 ms per PTS unit.
-            # The nominal "1000 fps" is metadata only; MKV players use
-            # the actual PTS differences between frames for timing.
+            # VFR timestamps allow precise wall-clock synchronization.
             self.stream = self.container.add_stream(codec_name, rate=1000)
             self.stream.width   = width
             self.stream.height  = height
             self.stream.pix_fmt = pix_fmt
-            if fmt == "FFV1":
-                self.stream.options = {"level": "3"}  # highest FFV1 quality
+            if options:
+                self.stream.options = options
         except Exception as e:
             logger.error(f"[RECORD] Failed to open container: {e}")
             self.is_running = False
             return
 
-        self.frame_queue = queue.Queue(maxsize=500)
+        self.frame_queue = queue.Queue(maxsize=1000)
         self.is_running  = True
         # Set start clock at session creation — not on first frame — so the
         # container duration matches the wall-clock recording time exactly.
@@ -85,7 +99,7 @@ class RecordingSession:
 
         self.thread = threading.Thread(target=self._worker, daemon=True)
         self.thread.start()
-        logger.info(f"[RECORD] Started: {self.video_path} | {codec_name} | {width}x{height}")
+        logger.info(f"[RECORD] Started: {self.video_path} | format={fmt} ({codec_name}) | {width}x{height}")
 
     # ── Worker thread ─────────────────────────────────────────────────────────
 
@@ -153,7 +167,7 @@ class RecordingSession:
             except Exception:
                 pass
 
-    def stop(self):
+    def stop(self) -> dict:
         # Compute the actual wall-clock recording duration right now.
         # The last real frame arrived some time ago (depends on camera fps).
         # Adding a duplicate of the last frame at "now" pads the container so
@@ -182,6 +196,16 @@ class RecordingSession:
         if self.thread.is_alive():
             logger.warning("[RECORD] Worker thread did not finish within 30 s")
         # Container is already closed by the worker's finally block
+        duration = time.monotonic() - self._start_mono
+        return {
+            "recording_path": self.video_path,
+            "filename": self.filename,
+            "duration": round(duration, 2),
+            "frames_written": self._frames_written,
+            "format": self.fmt,
+            "width": self.width,
+            "height": self.height,
+        }
 
 
 def _get_default_recording_path() -> str:
@@ -222,7 +246,7 @@ def start_recording(
     height: int,
     fps: float = 30.0,
     root_path: str = None,
-    recording_format: str = "MJPEG",
+    recording_format: str = "AVI",
 ) -> str:
     logger.info(f"[RECORD] Creating session: {session_id} | format={recording_format}")
     if session_id in active_recordings:
@@ -241,9 +265,9 @@ def write_frame(session_id: str, frame) -> None:
         session.add_frame(frame)
 
 
-def stop_recording(session_id: str) -> None:
+def stop_recording(session_id: str) -> dict:
     session = active_recordings.pop(session_id, None)
     if not session:
         logger.warning(f"[RECORD] No active session: {session_id}")
-        return
-    session.stop()
+        return {}
+    return session.stop()
