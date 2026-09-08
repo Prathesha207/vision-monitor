@@ -41,18 +41,55 @@ export function useVideoPipeline({
   const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number } | null>(null);
   const [initialUploadFile, setInitialUploadFile] = useState<File | undefined>();
 
+  // Dedicated state for camera recording sessions (kept inside Camera Inference Area)
+  const [cameraRecordSessionId, setCameraRecordSessionId] = useState<string | null>(null);
+  const [cameraRecordUrl, setCameraRecordUrl] = useState<string | undefined>(undefined);
+  const [cameraRecordName, setCameraRecordName] = useState<string | undefined>(undefined);
+
+  const clearCameraRecording = () => {
+    if (cameraRecordSessionId) {
+      fetch(`${getApiBaseUrl()}/video/stop/${cameraRecordSessionId}`, { method: 'POST' }).catch(() => {});
+    }
+    setCameraRecordSessionId(null);
+    setCameraRecordUrl(undefined);
+    setCameraRecordName(undefined);
+    setIsRunning(false);
+    setDucks([]);
+    useInferenceStore.getState().resetStats();
+    resetBBoxCache();
+    addLog('Camera recording cleared • Returned to live camera feed.', 'info');
+  };
+
   // Persist video session state on every change so Ctrl+R can reconnect
   useEffect(() => {
     saveSessionState({ videoSessionId: videoSessionId ?? null, customVideoUrl, customVideoName });
   }, [videoSessionId, customVideoUrl, customVideoName]);
 
   // Custom uploaded video handler (Directly in video canvas)
-  const handleVideoUploaded = (url: string, name: string, sessionId?: string) => {
-    const isRecordedStream = name.startsWith('recorded_camera');
-    
+  const handleVideoUploaded = (
+    url: string,
+    name: string,
+    sessionId?: string,
+    isCameraRecording?: boolean
+  ) => {
+    const isRecordedStream = Boolean(isCameraRecording);
+
+    if (isRecordedStream) {
+      if (sessionId) setCameraRecordSessionId(sessionId);
+      setCameraRecordUrl(url);
+      setCameraRecordName(name);
+      setIsRunning(false);
+      setDucks([]);
+      useInferenceStore.getState().resetStats();
+      resetBBoxCache();
+      showToast('success', 'Camera recording ready for inference in Camera area');
+      addLog('Camera recording ready for inference in Camera area. Click Start Inference.', 'success');
+      return; // Short-circuit: never switch to uploaded-video area!
+    }
+
     // If online camera is currently active, block upload with alert as per requirement (unless it's a recorded stream)
     const isCameraActive = (sourceType === 'oak-camera' || sourceType === 'webcam') && isRunning;
-    if (isCameraActive && !isRecordedStream) {
+    if (isCameraActive) {
       showToast('error', 'Disable camera before uploading video');
       addLog('Blocked upload: Disable camera before uploading video', 'anomaly');
       return;
@@ -60,12 +97,6 @@ export function useVideoPipeline({
 
     if (sessionId) {
       setVideoSessionId(sessionId);
-    }
-
-    if (isRecordedStream) {
-      // Auto-stop camera to smoothly transition into video preview
-      setIsRunning(false);
-      addLog('Camera recording finished. Ready for inference.', 'success');
     }
 
     if (name.toLowerCase().includes('_annotated') || name.toLowerCase().startsWith('annotated_')) {
@@ -89,10 +120,9 @@ export function useVideoPipeline({
     useInferenceStore.getState().resetStats();
     resetBBoxCache();
 
-    if (isStreamUrl) {
-      setIsRunning(true);
-      showToast('success', `Inference started for "${name}"`);
-      addLog(`Inference started: "${name}"`, 'success');
+    if (sessionId) {
+      setVideoSessionId(sessionId);
+      void startVideoInference(sessionId);
     } else {
       setIsRunning(false);
       showToast('success', `Video ready. Click "Start Inference" to evaluate.`);
@@ -186,6 +216,13 @@ export function useVideoPipeline({
     setInitialUploadFile,
     handleVideoUploaded,
     handleClearVideo,
-    startVideoInference
+    startVideoInference,
+    cameraRecordSessionId,
+    setCameraRecordSessionId,
+    cameraRecordUrl,
+    setCameraRecordUrl,
+    cameraRecordName,
+    setCameraRecordName,
+    clearCameraRecording,
   };
 }

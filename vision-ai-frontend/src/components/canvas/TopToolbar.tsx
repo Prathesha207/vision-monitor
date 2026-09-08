@@ -20,6 +20,7 @@ interface TopToolbarProps {
   backendStatus?: string;
   isCameraSource: boolean;
   isVideoSource: boolean;
+  hasCameraRecording?: boolean;
   anomalyStatus: AnomalyStatus;
   isStreaming: boolean;
   isFirstFrameLoaded: boolean;
@@ -42,6 +43,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   onToggleHUD,
   isCameraSource,
   isVideoSource: _isVideoSource,
+  hasCameraRecording,
   anomalyStatus,
   isStreaming,
   framesProcessed = 0,
@@ -171,18 +173,27 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
       {/* Recording Button (Camera Only) */}
       {isCameraSource && !isRunning && (
         <button
-          disabled={!isStreaming && !isRecording}
+          disabled={(!isStreaming && !isRecording) || hasCameraRecording}
           onClick={() => {
+            if (hasCameraRecording) return;
             playWaterDropSound();
             onToggleRecording();
           }}
-          title={isStreaming ? (isRecording ? 'Stop recording' : 'Record live camera stream') : 'Start the camera stream before recording'}
+          title={
+            hasCameraRecording
+              ? 'Cannot record while reviewing a recorded clip. Return to live camera feed first.'
+              : isStreaming
+                ? (isRecording ? 'Stop recording' : 'Record live camera stream')
+                : 'Start the camera stream before recording'
+          }
           className={`h-7 sm:h-8 px-3 flex items-center gap-2 rounded-xl backdrop-blur-md border text-xs font-bold transition-all shrink-0 shadow-xs active:scale-95 ${
             isRecording
               ? 'bg-red-500/20 border-red-500/50 text-red-400 animate-pulse'
-              : isStreaming
-                ? 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] cursor-pointer'
-                : 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-muted)] opacity-50 cursor-not-allowed'
+              : hasCameraRecording
+                ? 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-muted)] opacity-50 cursor-not-allowed'
+                : isStreaming
+                  ? 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] cursor-pointer'
+                  : 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-muted)] opacity-50 cursor-not-allowed'
           }`}
         >
           <div className={`w-2.5 h-2.5 rounded-full ${isRecording ? 'bg-red-500' : 'bg-red-500/50'}`} />

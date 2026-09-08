@@ -40,6 +40,8 @@ interface SourceSelectorProps {
   onStopStream?: () => void;
   isCameraConnected?: boolean;
   cameraStartingState?: 'idle' | 'waking_camera' | 'waiting_frame' | 'ready';
+  cameraRecordSessionId?: string | null;
+  onClearCameraRecord?: () => void;
 }
 
 export const SourceSelector: React.FC<SourceSelectorProps> = ({
@@ -66,6 +68,8 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
   onStopStream,
   isCameraConnected = true,
   cameraStartingState = 'ready',
+  cameraRecordSessionId,
+  onClearCameraRecord,
 }) => {
   const isVideoLoading = useInferenceStore((state) => state.isVideoLoading);
 
@@ -156,7 +160,7 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   <span>STARTING...</span>
                 </button>
-              ) : isCameraMode && !isStreaming ? (
+              ) : isCameraMode && !isStreaming && !cameraRecordSessionId ? (
                 <button
                   onClick={() => {
                     playWaterDropSound();
@@ -225,7 +229,7 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                 </div>
               )}
 
-              {isCameraMode && isStreaming && !isRunning && (
+              {isCameraMode && isStreaming && !isRunning && !cameraRecordSessionId && (
                 <button
                   onClick={() => {
                     playWaterDropSound();
@@ -236,6 +240,21 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                 >
                   <Square className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-current" />
                   <span>STOP<span className="hidden sm:inline"> STREAM</span></span>
+                </button>
+              )}
+
+              {/* Return to live camera feed button when camera recording is loaded */}
+              {isCameraMode && cameraRecordSessionId && (
+                <button
+                  onClick={() => {
+                    playWaterDropSound();
+                    onClearCameraRecord?.();
+                  }}
+                  title="Clear recorded clip and return to live camera"
+                  className="h-8 sm:h-9 flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-100 hover:text-white border border-slate-600/80 text-[11px] sm:text-xs font-semibold shadow-xs active:scale-95 cursor-pointer transition-all shrink-0"
+                >
+                  <RotateCcw className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                  <span className="hidden sm:inline">LIVE FEED</span>
                 </button>
               )}
 

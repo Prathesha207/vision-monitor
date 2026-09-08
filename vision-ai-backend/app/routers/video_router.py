@@ -17,7 +17,21 @@ import subprocess
 import imageio_ffmpeg
 
 @router.post("/upload")
-async def upload_video(file: UploadFile = File(...), expected_ducks: int = Form(18)):
+async def upload_video(
+    file: UploadFile = File(...),
+    expected_ducks: int = Form(18),
+    is_camera_recording: bool = Form(False),
+):
+    is_camera_rec = is_camera_recording or bool(file.filename and file.filename.startswith("recorded_camera"))
+    if is_camera_rec:
+        from app.ml import app_state
+        if app_state.get_active_inference_kind() == "camera":
+            try:
+                from app.services.oak_camera_service import oak_camera_service
+                await asyncio.to_thread(oak_camera_service.stop_inference)
+            except Exception as e:
+                logger.warning(f"Failed to auto-stop camera inference on recording upload: {e}")
+
     # NEW: create_session() now raises RuntimeError while a training job
     # owns the GPU -- surface that as 409 instead of letting it 500.
     try:
@@ -32,8 +46,7 @@ async def upload_video(file: UploadFile = File(...), expected_ducks: int = Form(
     ext = os.path.splitext(file.filename or "video.mp4")[1] or ".mp4"
     browser_video_path = os.path.join(session_dir, "source.mp4")
     
-    is_camera_recording = bool(file.filename and file.filename.startswith("recorded_camera"))
-    if is_camera_recording:
+    if is_camera_rec:
         from datetime import datetime
         today = datetime.now().strftime("%Y-%m-%d")
         from app.core.app_paths import get_desktop_dir
@@ -54,7 +67,7 @@ async def upload_video(file: UploadFile = File(...), expected_ducks: int = Form(
             )
         with open(raw_save_path, "wb") as f:
             f.write(content)
-        if is_camera_recording:
+        if is_camera_rec:
             logger.info(f"[RECORD] Saved recorded camera video directly to Desktop: {raw_save_path}")
     except Exception as e:
         logger.error(f"Error saving uploaded file: {e}")
@@ -82,7 +95,7 @@ async def upload_video(file: UploadFile = File(...), expected_ducks: int = Form(
         logger.warning(f"Direct OpenCV probe failed: {e}")
 
     effective_inference_path = raw_save_path
-    browser_video_path = raw_save_path
+    browser_video_path = raw_save_path if can_read_directly else os.path.join(session_dir, "source.mp4")
 
     # 2. Only if OpenCV CANNOT open the raw file directly, fall back to ffmpeg transcode
     if not can_read_directly:
@@ -146,7 +159,11 @@ async def upload_video(file: UploadFile = File(...), expected_ducks: int = Form(
             session["stats"]["video_width"] = frame_width
             session["stats"]["video_height"] = frame_height
     
-    return {"session_id": session_id, "status": "ready"}
+    return {
+        "session_id": session_id,
+        "status": "ready",
+        "is_camera_recording": is_camera_rec,
+    }
 
 from fastapi.responses import FileResponse
 

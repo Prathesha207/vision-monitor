@@ -247,6 +247,7 @@ export default function App() {
   const inference = useInferenceLoop({
     sourceType,
     videoSessionId: video.videoSessionId,
+    cameraRecordSessionId: video.cameraRecordSessionId,
     expectedDucks,
     showToast,
     addLog,
@@ -254,6 +255,7 @@ export default function App() {
     setDucks,
     setVideoDimensions: video.setVideoDimensions,
     cameraService,
+    setCameraIsStreaming: camera.setIsStreaming,
     isRunning,
     setIsRunning,
     isStarting,
@@ -378,15 +380,12 @@ export default function App() {
     };
 
     // 2. Stop running stream/inference on previous source
-    if (isRunning) {
+    if (isCurrentCamera) {
+      if (isRunning) { setIsRunning(false); cameraService.stopLiveInference().catch(() => {}); }
+      if (camera.isStreaming) { cameraService.stopStream().catch(() => {}); camera.setIsStreaming(false); }
+    } else if (isRunning && video.videoSessionId) {
       setIsRunning(false);
-      if (isCurrentCamera) {
-        cameraService.stopLiveInference().catch(() => {});
-        cameraService.stopStream().catch(() => {});
-        camera.setIsStreaming(false);
-      } else if (video.videoSessionId) {
-        fetch(`${getApiBaseUrl()}/video/stop/${video.videoSessionId}`, { method: 'POST' }).catch(() => {});
-      }
+      fetch(`${getApiBaseUrl()}/video/stop/${video.videoSessionId}`, { method: 'POST' }).catch(() => {});
     }
 
     // 3. Switch source
@@ -418,11 +417,10 @@ export default function App() {
 
     if (isTargetCamera) {
       camera.setCameraStartingState('ready');
+      camera.setIsStreaming(false);
       addLog(`Stream source switched to: ${targetType.toUpperCase()}`, 'info');
       showToast('info', 'Switched to OAK Camera mode');
-      if (!camera.isStreaming) {
-        camera.startCameraStream().catch(() => {});
-      }
+      // No auto-start — CameraStandbyCard renders until user clicks Start Stream.
     } else {
       camera.setCameraStartingState('ready');
       if (video.customVideoUrl) {
@@ -509,6 +507,7 @@ export default function App() {
     inference.setUptimeSeconds(0);
     sourceStateCache.current.camera = null;
     setLastCameraFrame(undefined);
+    video.clearCameraRecording();
     // Reset all camera hardware flags so canvas returns to standby/offline state
     camera.setCameraStartingState('ready');
     camera.setIsStreaming(false);
@@ -523,6 +522,13 @@ export default function App() {
     } catch {}
     showToast('info', 'Camera reset • Ready to start stream');
     addLog('Camera session reset • Detections cleared, stream ready.', 'info');
+  };
+
+  const handleClearCameraRecord = () => {
+    video.clearCameraRecording();
+    camera.setCameraStartingState('ready');
+    camera.setIsStreaming(false);
+    cameraService.stopStream().catch(() => {});
   };
 
   const handleResetVideo = async () => {
@@ -559,6 +565,14 @@ export default function App() {
       if (!video.videoSessionId) {
         uploadTriggerRef.current?.();
         return;
+      }
+    }
+    if (sourceType === 'oak-camera' && video.cameraRecordSessionId) {
+      if (!isRunning) {
+        // GPU Contention Safety: release live camera claims before starting video inference on recording
+        await cameraService.stopLiveInference().catch(() => {});
+        await cameraService.stopStream().catch(() => {});
+        camera.setIsStreaming(false);
       }
     }
     await inference.handleToggleRunning(video.startVideoInference);
@@ -744,6 +758,8 @@ export default function App() {
           onResetCamera={handleResetCamera}
           isCameraConnected={camera.effectiveCameraConfig.connected}
           cameraStartingState={camera.cameraStartingState}
+          cameraRecordSessionId={video.cameraRecordSessionId}
+          onClearCameraRecord={handleClearCameraRecord}
         />
 
         <div className="w-full flex flex-col lg:flex-row items-stretch flex-1 min-h-0 gap-4">
@@ -756,6 +772,8 @@ export default function App() {
               isRunning={isRunning}
               isStarting={isStarting}
               onToggleRunning={handleToggleRunning}
+              onStopInference={handleStopInference}
+              onResumeInference={handleResumeInference}
               isStreaming={camera.isStreaming}
               onRequestSwitchMode={handleRequestSwitchMode}
               fps={fps}
@@ -777,22 +795,24 @@ export default function App() {
               onRetryConnection={camera.startCameraStream}
               onStartStream={camera.startCameraStream}
               framesProcessed={inference.framesProcessed}
+              cameraRecordSessionId={video.cameraRecordSessionId}
+              cameraRecordUrl={video.cameraRecordUrl}
+              cameraRecordName={video.cameraRecordName}
+              onClearCameraRecord={handleClearCameraRecord}
             />
           </main>
 
-          {(isRunning || inference.framesProcessed > 0 || (anomalyFinal.anomalyStatus.detectedCount ?? 0) > 0) && (
-            <DetectionDrawer
-              isOpen={drawerOpen}
-              onToggle={() => setDrawerOpen(!drawerOpen)}
-              anomalyStatus={anomalyFinal.anomalyStatus}
-              ducks={anomalyFinal.activeDucks}
-              metrics={metrics}
-              selectedDuckId={selectedDuckId}
-              onSelectDuck={setSelectedDuckId}
-              isStandby={isStandby}
-              logs={logs}
-            />
-          )}
+          <DetectionDrawer
+            isOpen={drawerOpen}
+            onToggle={() => setDrawerOpen(!drawerOpen)}
+            anomalyStatus={anomalyFinal.anomalyStatus}
+            ducks={anomalyFinal.activeDucks}
+            metrics={metrics}
+            selectedDuckId={selectedDuckId}
+            onSelectDuck={setSelectedDuckId}
+            isStandby={isStandby}
+            logs={logs}
+          />
         </div>
       </div>
 

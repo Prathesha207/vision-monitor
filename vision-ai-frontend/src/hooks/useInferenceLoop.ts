@@ -9,6 +9,7 @@ import { playWaterDropSound } from '../utils/audio';
 export function useInferenceLoop({
   sourceType,
   videoSessionId,
+  cameraRecordSessionId,
   expectedDucks,
   showToast,
   addLog,
@@ -16,6 +17,7 @@ export function useInferenceLoop({
   setDucks,
   setVideoDimensions,
   cameraService,
+  setCameraIsStreaming,
   isRunning,
   setIsRunning,
   isStarting,
@@ -30,6 +32,7 @@ export function useInferenceLoop({
 }: {
   sourceType: StreamSourceType;
   videoSessionId: string | null;
+  cameraRecordSessionId?: string | null;
   expectedDucks: number;
   showToast: (type: 'error' | 'success' | 'info', message: string) => void;
   addLog: (message: string, level?: LogEntry['level']) => void;
@@ -37,6 +40,7 @@ export function useInferenceLoop({
   setDucks: (ducks: DuckEntity[]) => void;
   setVideoDimensions: (dim: { width: number; height: number }) => void;
   cameraService: any;
+  setCameraIsStreaming?: (val: boolean) => void;
   isRunning: boolean;
   setIsRunning: (val: boolean) => void;
   isStarting: boolean;
@@ -49,16 +53,21 @@ export function useInferenceLoop({
   setUptimeSeconds: (val: number) => void;
   setLastCameraFrame?: (frame: string) => void;
 }) {
-  // FPS is preserved on stop so users can review the achieved performance.
-  // It is only reset upon explicit session reset / clearing video or starting a new run.
-
-  // Effect: Core dual-transport loop - WebSocket for camera, polling for video
   useEffect(() => {
     if (!isRunning) return;
-    
-    const isLive = sourceType === 'oak-camera' || sourceType === 'webcam';
-    if (!isLive && !videoSessionId) return;
-    
+
+    const isCameraSource = sourceType === 'oak-camera' || sourceType === 'webcam';
+    // KEY FIX: a camera-recording session must poll like a video, not
+    // connect to the live websocket, even though sourceType is still
+    // 'oak-camera'. Only go live-ws when it's the camera source AND no
+    // recording is loaded.
+    const isLive = isCameraSource && !cameraRecordSessionId;
+    // Effective session id to poll: recorded-clip session takes priority
+    // over a regular uploaded-video session when both exist for any reason.
+    const effectiveVideoSessionId = isCameraSource ? cameraRecordSessionId : videoSessionId;
+
+    if (!isLive && !effectiveVideoSessionId) return;
+
     if (isLive) {
       let ws: WebSocket | null = null;
       let isMounted = true;
@@ -77,7 +86,7 @@ export function useInferenceLoop({
               setFps(data.metrics?.fps || data.fps || 0);
               setFramesProcessed(data.frames_processed || 0);
               setUptimeSeconds(Math.floor((data.frames_processed || 0) / (data.metrics?.fps || data.fps || 30)));
-              
+
               if (data.video_width && data.video_height) {
                 setVideoDimensions({ width: data.video_width, height: data.video_height });
               }
@@ -89,7 +98,7 @@ export function useInferenceLoop({
                 setDucks(incomingDucks);
               }
             }
-          } catch(e) {}
+          } catch (e) { }
         };
         ws.onclose = () => {
           if (isMounted) setTimeout(connectWs, 2000);
@@ -98,15 +107,14 @@ export function useInferenceLoop({
       connectWs();
       return () => { isMounted = false; if (ws) ws.close(); };
     }
-    
-    if (!videoSessionId) return;
 
-    const sessionId = videoSessionId;
-    
+    // ---- Polling branch: covers BOTH uploaded video AND camera-recording ----
+    const sessionId = effectiveVideoSessionId as string;
+
     let isMounted = true;
     let timeoutId: ReturnType<typeof setTimeout>;
     let consecutive404s = 0;
-    
+
     const pollBackend = async () => {
       try {
         const res = await fetch(`${getApiBaseUrl()}/video/status/${sessionId}`);
@@ -125,18 +133,17 @@ export function useInferenceLoop({
           if (isMounted) timeoutId = setTimeout(pollBackend, 500);
           return;
         }
-        
+
         const data = await res.json();
         if (!isMounted) return;
 
-        // Update the global Zustand store with pure ML statistics
         useInferenceStore.getState().setStats(data);
-        
+
         if (data.status !== 'queued' && data.status !== 'error' && data.status !== 'idle') {
           setFps(data.fps || 0);
           setFramesProcessed(data.frames_processed || 0);
           setUptimeSeconds(Math.floor((data.frames_processed || 0) / (data.fps || 30)));
-          
+
           if (data.video_width && data.video_height) {
             setVideoDimensions({ width: data.video_width, height: data.video_height });
           }
@@ -145,7 +152,6 @@ export function useInferenceLoop({
           const vh = data.video_height || DEFAULT_VIDEO_HEIGHT;
           const incomingDucks = mapDetectionsToDucks(data, vw, vh, expectedDucks);
 
-          // Render exactly what the ML model sends — 1:1 mapping
           if (data.status !== "HAND" && !data.hand_detected) {
             setDucks(incomingDucks);
           }
@@ -163,45 +169,64 @@ export function useInferenceLoop({
           addLog(`Inference failed: ${data.reasons?.join(', ') || 'Unknown error'}`, 'anomaly');
           return;
         }
-        
+
         const pollInterval = Math.max(120, Math.min(250, Math.floor(1000 / (data?.fps || 15))));
         if (isMounted) {
           timeoutId = setTimeout(pollBackend, pollInterval);
         }
         return;
-        
-      } catch(err) {
+
+      } catch (err) {
       } finally {
         if (isMounted && !timeoutId && isRunning) {
           timeoutId = setTimeout(pollBackend, 200);
         }
       }
     };
-    
+
     pollBackend();
-    
+
     return () => {
       isMounted = false;
       clearTimeout(timeoutId);
     };
-  }, [isRunning, videoSessionId, sourceType]);
+    // NOTE: cameraRecordSessionId added to deps — this is what makes the
+    // effect correctly tear down the websocket and switch to polling (or
+    // vice versa) the instant a recording is loaded or cleared.
+  }, [isRunning, videoSessionId, cameraRecordSessionId, sourceType]);
 
-  const handleToggleRunning = async (startVideoInference: () => Promise<void>) => {
+  const handleToggleRunning = async (startVideoInference: (customSessionId?: string) => Promise<void>) => {
     playWaterDropSound();
+    const isCameraMode = sourceType === 'oak-camera' || sourceType === 'webcam';
+
     if (isRunning) {
       setIsRunning(false);
       showToast('info', 'Inference paused. Click Resume or Start.');
       addLog('Inference paused • Model evaluation temporarily suspended.', 'info');
-      if (sourceType === 'oak-camera' || sourceType === 'webcam') {
+
+      if (isCameraMode && cameraRecordSessionId) {
+        // Stopping inference on a loaded recording — this is a video-service
+        // session, so stop it the same way uploaded-video does.
+        fetch(`${getApiBaseUrl()}/video/stop/${cameraRecordSessionId}`, { method: 'POST' }).catch(() => {});
+      } else if (isCameraMode) {
         try { await cameraService.stopLiveInference(); } catch (e) { }
       }
-      if (videoSessionId) {
-        fetch(`${getApiBaseUrl()}/video/stop/${videoSessionId}`, { method: 'POST' })
-          .catch(() => {});
+      if (!isCameraMode && videoSessionId) {
+        fetch(`${getApiBaseUrl()}/video/stop/${videoSessionId}`, { method: 'POST' }).catch(() => {});
       }
     } else {
-      const isCameraMode = sourceType === 'oak-camera' || sourceType === 'webcam';
-      if (isCameraMode) {
+      if (isCameraMode && cameraRecordSessionId) {
+        // GPU-contention fix: a recording uses the video-inference GPU
+        // claim, which is refused while the camera claim is held. Always
+        // release live camera inference/stream first, even if the user
+        // believes it's already stopped.
+        setIsStarting(true);
+        try { await cameraService.stopLiveInference(); } catch (e) { }
+        try { await cameraService.stopStream(); } catch (e) { }
+        setCameraIsStreaming?.(false);
+        await startVideoInference(cameraRecordSessionId);
+        setIsStarting(false);
+      } else if (isCameraMode) {
         setIsStarting(true);
         await startCameraPipeline();
         setIsStarting(false);
@@ -214,11 +239,14 @@ export function useInferenceLoop({
   const handleStopInference = async () => {
     playWaterDropSound();
     setIsRunning(false);
-    
-    if (videoSessionId) {
+
+    const isCameraMode = sourceType === 'oak-camera' || sourceType === 'webcam';
+    const activeVideoSessionId = isCameraMode ? cameraRecordSessionId : videoSessionId;
+
+    if (activeVideoSessionId) {
       try {
-        await fetch(`${getApiBaseUrl()}/video/stop/${videoSessionId}`, { method: 'POST' });
-        const res = await fetch(`${getApiBaseUrl()}/video/status/${videoSessionId}`);
+        await fetch(`${getApiBaseUrl()}/video/stop/${activeVideoSessionId}`, { method: 'POST' });
+        const res = await fetch(`${getApiBaseUrl()}/video/status/${activeVideoSessionId}`);
         if (res.ok) {
           const data = await res.json();
           useInferenceStore.getState().setStats(data);
@@ -237,20 +265,35 @@ export function useInferenceLoop({
       }
     }
 
-    if (sourceType === 'oak-camera' || sourceType === 'webcam') {
+    if (isCameraMode && !cameraRecordSessionId) {
       cameraService.stopLiveInference().catch(() => {});
     }
-    
+
     showToast('info', 'Inference paused. Last state retained.');
     addLog('Inference stopped • Detections and side cards preserved.', 'info');
   };
 
-  const handleResumeInference = (startVideoInference: () => Promise<void>) => {
+  const handleResumeInference = (startVideoInference: (customSessionId?: string) => Promise<void>) => {
+    const isCameraMode = sourceType === 'oak-camera' || sourceType === 'webcam';
+
     if (sourceType === 'uploaded-video' || sourceType === 'sample-pond') {
       playWaterDropSound();
       void startVideoInference();
       return;
     }
+
+    if (isCameraMode && cameraRecordSessionId) {
+      // Resuming inference on a loaded recording — video-service path with GPU guard
+      playWaterDropSound();
+      (async () => {
+        try { await cameraService.stopLiveInference(); } catch (e) { }
+        try { await cameraService.stopStream(); } catch (e) { }
+        setCameraIsStreaming?.(false);
+        await startVideoInference(cameraRecordSessionId);
+      })();
+      return;
+    }
+
     playWaterDropSound();
     setFramesProcessed(0);
     setFps(0);
@@ -258,7 +301,7 @@ export function useInferenceLoop({
     useInferenceStore.getState().resetStats();
     resetBBoxCache();
     setIsStarting(true);
-    if (sourceType === 'oak-camera' || sourceType === 'webcam') {
+    if (isCameraMode) {
       cameraService.startLiveInference('live')
         .then((result: any) => {
           setIsStarting(false);

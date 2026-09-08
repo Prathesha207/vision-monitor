@@ -2,11 +2,12 @@ import { useState, useEffect, useRef } from 'react';
 import { getApiBaseUrl } from '../lib/api';
 import { playWaterDropSound } from '../utils/audio';
 import { useInferenceStore } from '../store/inferenceStore';
+import { showToast } from '../lib/toast';
 
 export const useVideoUpload = (
   fileInputRef: React.RefObject<HTMLInputElement | null>,
   expectedDucks: number,
-  onVideoUploaded?: (videoUrl: string, fileName: string, sessionId?: string) => void,
+  onVideoUploaded?: (videoUrl: string, fileName: string, sessionId?: string, isCameraRecording?: boolean) => void,
   recordedFile?: File | null,
   clearRecording?: () => void,
   initialUploadFile?: File
@@ -17,15 +18,17 @@ export const useVideoUpload = (
 
   const blobUrlRef = useRef<string | null>(null);
 
-  const processUploadedFile = async (file: File) => {
+  const processUploadedFile = async (file: File, isRecorded: boolean = false) => {
     playWaterDropSound();
 
     setUploadProgress(0);
     useInferenceStore.getState().setVideoLoading(true);
 
+    const isRec = Boolean(isRecorded);
     const formData = new FormData();
     formData.append('file', file);
     formData.append('expected_ducks', expectedDucks.toString());
+    formData.append('is_camera_recording', isRec ? 'true' : 'false');
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${getApiBaseUrl()}/video/upload`);
@@ -48,7 +51,8 @@ export const useVideoUpload = (
           (async () => {
             if (onVideoUploaded) {
               const streamUrl = `${baseUrl}/video/stream/${data.session_id}`;
-              onVideoUploaded(streamUrl, file.name, data.session_id);
+              const isCameraRec = Boolean(data.is_camera_recording ?? isRec);
+              onVideoUploaded(streamUrl, file.name, data.session_id, isCameraRec);
             }
             setUploadProgress(null);
             useInferenceStore.getState().setVideoLoading(false);
@@ -60,6 +64,12 @@ export const useVideoUpload = (
       } else {
         setUploadProgress(null);
         useInferenceStore.getState().setVideoLoading(false);
+        try {
+          const errData = JSON.parse(xhr.responseText || '{}');
+          showToast('error', errData.message || `Upload failed (Status: ${xhr.status})`);
+        } catch {
+          showToast('error', `Upload failed with status: ${xhr.status}`);
+        }
         console.error('Upload failed with status:', xhr.status);
       }
     };
@@ -67,6 +77,7 @@ export const useVideoUpload = (
     xhr.onerror = () => {
       setUploadProgress(null);
       useInferenceStore.getState().setVideoLoading(false);
+      showToast('error', 'Network error during video upload');
       console.error('Network error during video upload');
     };
 
@@ -75,7 +86,7 @@ export const useVideoUpload = (
 
   useEffect(() => {
     if (recordedFile) {
-      processUploadedFile(recordedFile);
+      processUploadedFile(recordedFile, true);
       if (clearRecording) {
         clearRecording(); // Ensure it is consumed
       }
