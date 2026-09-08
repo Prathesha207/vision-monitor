@@ -121,8 +121,6 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
       setActiveCameraId(null);
     }
     refreshAll();
-    // Hardware scan runs so "USB detected" badges are accurate, but this
-    // NEVER auto-connects anything — connecting is always an explicit click.
     scanUsbDevices();
   }, [isOpen, config.connected, config.id]);
 
@@ -155,7 +153,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
     }
   };
 
-  // ---- Delete a saved camera ----
+  // ---- Direct one-click delete (no window.confirm popup) ----
   const handleDelete = async (row: SavedCameraRow) => {
     playWaterDropSound();
     setDeletingId(row.id);
@@ -248,11 +246,11 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
       maxWidth="xl"
       icon={<Camera className="w-4 h-4 text-[var(--accent-pond)]" />}
       title="Camera & Stream Settings"
-      description="Add, connect, and manage Luxonis OAK cameras"
+      description="Manage connected cameras and video pipeline"
       footer={
         <>
-          <Button variant="ghost" size="md" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" size="md" onClick={handleSave} icon={<Check className="w-3.5 h-3.5" />}>
+          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" size="sm" onClick={handleSave} icon={<Check className="w-3.5 h-3.5" />}>
             Apply Changes
           </Button>
         </>
@@ -264,90 +262,97 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`pb-1.5 px-3 text-xs font-bold border-b-2 transition-all cursor-pointer ${activeTab === tab
+            className={`pb-1.5 px-3 text-xs font-bold border-b-2 transition-all cursor-pointer ${
+              activeTab === tab
                 ? 'border-[var(--accent-pond)] text-[var(--accent-pond)]'
                 : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-              }`}
+            }`}
           >
             {tab === 'stream' ? 'Cameras' : tab === 'image' ? 'Image Adjustments' : 'OAK DepthAI VPU'}
           </button>
         ))}
       </div>
 
-      {/* Body content — Modal component owns the scrolling exclusively */}
-      <div className="space-y-4 pr-1">
+      {/* Body content — Single scroll region */}
+      <div className="space-y-3.5 pr-0.5">
         {activeTab === 'stream' && (
-          <div className="space-y-4">
-            {/* ---- Resolution & FPS (applies to whichever camera you connect) ---- */}
-            <div className="p-3.5 rounded-2xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] space-y-3.5">
-              <div>
-                <label className="block text-xs font-bold text-[var(--text-primary)] mb-1.5">
-                  Stream Resolution
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {(['1920x1080', '1280x720'] as const).map((res) => (
-                    <button
-                      key={res}
-                      type="button"
-                      onClick={() => setLocalConfig({ ...localConfig, resolution: res })}
-                      className={`py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${localConfig.resolution === res
-                          ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] border-transparent shadow-xs'
-                          : 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-secondary)] hover:bg-[var(--btn-secondary-hover)]'
-                        }`}
-                    >
-                      {res === '1920x1080' ? '1080p FHD' : '720p HD'}
-                    </button>
-                  ))}
-                </div>
+          <div className="space-y-3.5">
+            {/* ── 1. STREAM CONFIGURATION (Compact Row) ── */}
+            <div>
+              <div className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)] mb-1.5 px-0.5">
+                Stream
               </div>
-
-              <div>
-                <div className="flex items-center justify-between text-xs font-bold text-[var(--text-primary)] mb-1.5">
-                  <span className="flex items-center gap-1.5">
-                    <Sliders className="w-3.5 h-3.5 text-[var(--accent-pond)]" />
-                    Target Framerate
-                  </span>
-                  <span className="font-mono font-bold text-[var(--accent-pond)] bg-[var(--accent-pond-subtle)] px-2 py-0.5 rounded-md text-xs border border-[var(--border-color)]">
-                    {localConfig.targetFps} FPS
-                  </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-2.5 rounded-2xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
+                {/* Resolution Selector */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-[var(--text-secondary)]">Resolution</label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {(['1920x1080', '1280x720'] as const).map((res) => (
+                      <button
+                        key={res}
+                        type="button"
+                        onClick={() => setLocalConfig({ ...localConfig, resolution: res })}
+                        className={`py-1.5 px-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                          localConfig.resolution === res
+                            ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] border-transparent shadow-xs'
+                            : 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-secondary)] hover:bg-[var(--btn-secondary-hover)]'
+                        }`}
+                      >
+                        {res === '1920x1080' ? '1080p FHD' : '720p HD'}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <input
-                  type="range"
-                  min={10}
-                  max={60}
-                  step={5}
-                  value={localConfig.targetFps}
-                  onChange={(e) => setLocalConfig({ ...localConfig, targetFps: parseInt(e.target.value, 10) })}
-                  style={getSliderStyle(localConfig.targetFps, 10, 60)}
-                  className="w-full h-2 rounded-lg cursor-pointer transition-all border border-[var(--border-color)]"
-                />
+
+                {/* Framerate Slider */}
+                <div className="space-y-1 flex flex-col justify-between">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-[var(--text-secondary)]">
+                    <span className="flex items-center gap-1">
+                      <Sliders className="w-3 h-3 text-[var(--accent-pond)]" />
+                      FPS
+                    </span>
+                    <span className="font-mono font-bold text-[var(--accent-pond)] bg-[var(--accent-pond-subtle)] px-1.5 py-0.5 rounded text-[11px] border border-[var(--border-color)]">
+                      {localConfig.targetFps} FPS
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={10}
+                    max={60}
+                    step={5}
+                    value={localConfig.targetFps}
+                    onChange={(e) => setLocalConfig({ ...localConfig, targetFps: parseInt(e.target.value, 10) })}
+                    style={getSliderStyle(localConfig.targetFps, 10, 60)}
+                    className="w-full h-2 rounded-lg cursor-pointer transition-all border border-[var(--border-color)]"
+                  />
+                </div>
               </div>
             </div>
 
-            {/* ---- Saved cameras list ---- */}
+            {/* ── 2. YOUR CAMERAS (Dense List) ── */}
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold text-[var(--text-primary)]">
+              <div className="flex items-center justify-between mb-1.5 px-0.5">
+                <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">
                   Your Cameras {savedCameras.length > 0 && `(${savedCameras.length})`}
                 </span>
                 <button
                   type="button"
                   onClick={() => refreshAll()}
                   disabled={isLoadingList}
-                  title="Refresh list"
-                  className="p-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-secondary)] hover:text-[var(--accent-pond)] hover:border-[var(--accent-pond)] transition-all cursor-pointer"
+                  title="Refresh device list"
+                  className="p-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-secondary)] hover:text-[var(--accent-pond)] hover:border-[var(--accent-pond)] transition-all cursor-pointer"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingList ? 'animate-spin text-[var(--accent-pond)]' : ''}`} />
+                  <RefreshCw className={`w-3 h-3 ${isLoadingList ? 'animate-spin text-[var(--accent-pond)]' : ''}`} />
                 </button>
               </div>
 
               {savedCameras.length === 0 && !isLoadingList && (
-                <div className="p-4 rounded-2xl border border-dashed border-[var(--border-color)] text-center text-xs text-[var(--text-muted)]">
-                  No cameras added yet. Add one below.
+                <div className="p-3.5 rounded-2xl border border-dashed border-[var(--border-color)] text-center text-xs text-[var(--text-muted)]">
+                  No cameras registered. Add one below to get started.
                 </div>
               )}
 
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {savedCameras.map((row) => {
                   const usb = isUsbAddress(row.ip_address);
                   const isActive = activeCameraId === row.id && Boolean(config.connected);
@@ -357,36 +362,43 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                   return (
                     <div
                       key={row.id}
-                      className={`p-3 rounded-xl border flex flex-col gap-2 transition-all ${isRowFailed
+                      className={`p-2.5 rounded-xl border flex flex-col gap-1.5 transition-all ${
+                        isRowFailed
                           ? 'border-rose-500/50 bg-rose-500/5'
                           : isActive
-                            ? 'border-emerald-500/40 bg-emerald-500/5'
-                            : 'border-[var(--border-color)] bg-[var(--bg-card)]'
-                        }`}
+                          ? 'border-emerald-500/40 bg-emerald-500/5'
+                          : 'border-[var(--border-color)] bg-[var(--bg-card)]'
+                      }`}
                     >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <div className={`w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 ${isRowFailed
-                              ? 'bg-rose-500/15 border-rose-500/30 text-rose-500'
-                              : 'bg-[var(--accent-pond-subtle)] border-[var(--border-color)] text-[var(--accent-pond)]'
-                            }`}>
-                            {usb ? <Usb className="w-4 h-4" /> : <Wifi className="w-4 h-4" />}
+                      <div className="flex items-center justify-between gap-2.5">
+                        {/* Camera Info */}
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div
+                            className={`w-7 h-7 rounded-lg border flex items-center justify-center shrink-0 ${
+                              isRowFailed
+                                ? 'bg-rose-500/15 border-rose-500/30 text-rose-500'
+                                : 'bg-[var(--accent-pond-subtle)] border-[var(--border-color)] text-[var(--accent-pond)]'
+                            }`}
+                          >
+                            {usb ? <Usb className="w-3.5 h-3.5" /> : <Wifi className="w-3.5 h-3.5" />}
                           </div>
                           <div className="min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-xs font-bold text-[var(--text-primary)] truncate">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs font-bold text-[var(--text-primary)] truncate max-w-[140px] sm:max-w-[200px]">
                                 {row.name}
                               </span>
                               {isActive ? (
-                                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
-                                  <CheckCircle2 className="w-2.5 h-2.5" /> ACTIVE
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                  ACTIVE
                                 </span>
                               ) : isRowFailed ? (
-                                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 shrink-0">
-                                  <AlertCircle className="w-2.5 h-2.5" /> OFFLINE
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 shrink-0">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                                  OFFLINE
                                 </span>
                               ) : (
-                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-slate-500/10 text-[var(--text-muted)] border border-[var(--border-color)] shrink-0">
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-semibold bg-slate-500/10 text-[var(--text-muted)] border border-[var(--border-color)] shrink-0">
                                   DISCONNECTED
                                 </span>
                               )}
@@ -397,15 +409,17 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        {/* Actions */}
+                        <div className="flex items-center gap-1 shrink-0">
                           <Button
                             variant={isActive ? 'secondary' : 'primary'}
                             size="sm"
                             disabled={isConnecting}
                             onClick={() => handleConnectSaved(row)}
+                            className="h-7 text-xs px-2.5 font-bold"
                           >
                             {isConnecting ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <Loader2 className="w-3 h-3 animate-spin" />
                             ) : isActive ? (
                               'Reconnect'
                             ) : (
@@ -417,10 +431,10 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                             onClick={() => handleDelete(row)}
                             disabled={deletingId === row.id}
                             title="Remove camera"
-                            className="p-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-red-500 hover:border-red-400 transition-all cursor-pointer"
+                            className="p-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-red-500 hover:border-red-400 transition-all cursor-pointer"
                           >
                             {deletingId === row.id ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <Loader2 className="w-3 h-3 animate-spin" />
                             ) : (
                               <Trash2 className="w-3.5 h-3.5" />
                             )}
@@ -428,9 +442,9 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                         </div>
                       </div>
 
-                      {/* Explicit Error Display for this Camera */}
+                      {/* Error Banner for Failed Connection */}
                       {isRowFailed && errorMessage && (
-                        <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-[11px] flex items-start gap-2">
+                        <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-[11px] flex items-start gap-1.5 mt-0.5">
                           <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-rose-500" />
                           <div className="min-w-0">
                             <span className="font-bold">Connection Failed: </span>
@@ -444,7 +458,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
               </div>
             </div>
 
-            {/* ---- Add new camera ---- */}
+            {/* ── 3. ADD CAMERA (Compact Expandable Section) ── */}
             {!showAddForm ? (
               <button
                 type="button"
@@ -453,13 +467,13 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                   setErrorCameraId(null);
                   setShowAddForm(true);
                 }}
-                className="w-full py-2.5 rounded-xl border border-dashed border-[var(--border-color)] text-xs font-bold text-[var(--text-secondary)] hover:text-[var(--accent-pond)] hover:border-[var(--accent-pond)] transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                className="w-full py-2 rounded-xl border border-dashed border-[var(--border-color)] text-xs font-bold text-[var(--text-secondary)] hover:text-[var(--accent-pond)] hover:border-[var(--accent-pond)] transition-all cursor-pointer flex items-center justify-center gap-1.5"
               >
                 <Plus className="w-3.5 h-3.5" /> Add Camera
               </button>
             ) : (
-              <div className="p-3.5 rounded-2xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] space-y-3">
-                <div className="flex items-center justify-between">
+              <div className="p-3 rounded-2xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] space-y-2.5">
+                <div className="flex items-center justify-between pb-1 border-b border-[var(--border-color)]">
                   <span className="text-xs font-bold text-[var(--text-primary)]">New Camera</span>
                   <button
                     type="button"
@@ -476,28 +490,29 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
 
                 <div>
                   <label className="block text-[10px] font-bold text-[var(--text-secondary)] mb-1">
-                    Camera Name
+                    Name
                   </label>
                   <input
                     type="text"
                     placeholder="e.g., Line 1 Inspection Camera"
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] text-xs font-medium text-[var(--text-primary)] focus:outline-hidden focus:border-[var(--accent-pond)]"
+                    className="w-full px-3 py-1.5 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] text-xs font-medium text-[var(--text-primary)] focus:outline-hidden focus:border-[var(--accent-pond)]"
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)]">
+                <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)]">
                   <button
                     type="button"
                     onClick={() => {
                       setNewType('usb');
                       setErrorMessage(null);
                     }}
-                    className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${newType === 'usb'
+                    className={`py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      newType === 'usb'
                         ? 'bg-[var(--accent-pond)] text-white shadow-xs'
                         : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                      }`}
+                    }`}
                   >
                     <Usb className="w-3.5 h-3.5" /> USB
                   </button>
@@ -507,17 +522,18 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                       setNewType('ip');
                       setErrorMessage(null);
                     }}
-                    className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${newType === 'ip'
+                    className={`py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      newType === 'ip'
                         ? 'bg-[var(--accent-pond)] text-white shadow-xs'
                         : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                      }`}
+                    }`}
                   >
                     <Wifi className="w-3.5 h-3.5" /> IP / PoE
                   </button>
                 </div>
 
                 {newType === 'usb' ? (
-                  <div className="p-3 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] flex items-center justify-between gap-3">
+                  <div className="p-2.5 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] flex items-center justify-between gap-2.5">
                     <div className="min-w-0">
                       {detectedUsb ? (
                         <>
@@ -525,7 +541,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                             <span className="text-xs font-bold text-[var(--text-primary)] truncate">
                               {detectedUsb.name}
                             </span>
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
                               DETECTED
                             </span>
                           </div>
@@ -537,8 +553,8 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                         </span>
                       )}
                     </div>
-                    <Button variant="secondary" size="sm" disabled={isScanning} onClick={handleDetectUsb}>
-                      {isScanning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Detect'}
+                    <Button variant="secondary" size="sm" disabled={isScanning} onClick={handleDetectUsb} className="h-7 px-2.5 text-xs">
+                      {isScanning ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Detect'}
                     </Button>
                   </div>
                 ) : (
@@ -547,14 +563,14 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                     placeholder="Enter IP address (e.g. 192.168.1.100)"
                     value={newIp}
                     onChange={(e) => setNewIp(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] text-xs font-mono font-medium text-[var(--text-primary)] focus:outline-hidden focus:border-[var(--accent-pond)]"
+                    className="w-full px-3 py-1.5 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] text-xs font-mono font-medium text-[var(--text-primary)] focus:outline-hidden focus:border-[var(--accent-pond)]"
                   />
                 )}
 
-                {/* Error Banner on Add Camera Form */}
+                {/* Form Error Banner */}
                 {errorMessage && !errorCameraId && (
-                  <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-500" />
+                  <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs flex items-start gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-rose-500" />
                     <div className="min-w-0">
                       <span className="font-bold block">Cannot Connect:</span>
                       <span className="text-[11px] leading-relaxed break-words">{errorMessage}</span>
@@ -564,18 +580,18 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
 
                 <Button
                   variant="primary"
-                  size="md"
+                  size="sm"
                   disabled={
                     connectingId === 'new' ||
                     (newType === 'usb' && !detectedUsb) ||
                     (newType === 'ip' && !newIp.trim())
                   }
                   onClick={handleAddAndConnect}
-                  className="w-full"
+                  className="w-full h-8 text-xs font-bold"
                 >
                   {connectingId === 'new' ? (
                     <span className="flex items-center justify-center gap-1.5">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Connecting...
+                      <Loader2 className="w-3 h-3 animate-spin" /> Connecting...
                     </span>
                   ) : (
                     'Add & Connect'
@@ -587,7 +603,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
         )}
 
         {activeTab === 'image' && (
-          <div className="space-y-4">
+          <div className="space-y-3.5">
             <div>
               <div className="flex items-center justify-between text-xs font-bold text-[var(--text-primary)] mb-1">
                 <span>Brightness</span>
@@ -636,17 +652,19 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
               />
             </div>
 
-            <div className="flex items-center justify-between pt-2">
+            <div className="flex items-center justify-between pt-1 border-t border-[var(--border-color)]">
               <span className="text-xs font-bold text-[var(--text-primary)]">Continuous Auto-Focus</span>
               <button
                 type="button"
                 onClick={() => setLocalConfig({ ...localConfig, autoFocus: !localConfig.autoFocus })}
-                className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors cursor-pointer ${localConfig.autoFocus ? 'bg-[var(--accent-pond)]' : 'bg-[var(--btn-secondary-border)]'
-                  }`}
+                className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors cursor-pointer ${
+                  localConfig.autoFocus ? 'bg-[var(--accent-pond)]' : 'bg-[var(--btn-secondary-border)]'
+                }`}
               >
                 <span
-                  className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${localConfig.autoFocus ? 'translate-x-5' : 'translate-x-0'
-                    }`}
+                  className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                    localConfig.autoFocus ? 'translate-x-5' : 'translate-x-0'
+                  }`}
                 />
               </button>
             </div>
@@ -666,15 +684,21 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
             <div className="space-y-2 text-xs">
               <div className="flex justify-between py-1.5 border-b border-[var(--border-color)]">
                 <span className="text-[var(--text-secondary)]">Pipeline Mode</span>
-                <span className="font-mono font-bold text-[var(--accent-pond)]">DepthAI Spatial Detection</span>
+                <span className="font-mono font-bold text-[var(--accent-pond)]">DepthAI Spatial Detection (YOLOv8)</span>
               </div>
               <div className="flex justify-between py-1.5 border-b border-[var(--border-color)]">
-                <span className="text-[var(--text-secondary)]">Device Temperature</span>
-                <span className="font-mono font-bold text-[var(--text-primary)]">41.2 °C (Normal)</span>
+                <span className="text-[var(--text-secondary)]">Hardware Status</span>
+                <span className={`font-mono font-bold ${config.connected ? 'text-emerald-500' : 'text-slate-400'}`}>
+                  {config.connected ? 'Online • DepthAI Device Connected' : 'Standby • No Device Connected'}
+                </span>
+              </div>
+              <div className="flex justify-between py-1.5 border-b border-[var(--border-color)]">
+                <span className="text-[var(--text-secondary)]">Target VPU Latency</span>
+                <span className="font-mono font-bold text-[var(--text-primary)]">~6.4 ms / frame (Zero CPU Load)</span>
               </div>
               <div className="flex justify-between py-1.5">
-                <span className="text-[var(--text-secondary)]">Inference Engine Latency</span>
-                <span className="font-mono font-bold text-[var(--text-primary)]">6.4 ms / frame</span>
+                <span className="text-[var(--text-secondary)]">Configured Profile</span>
+                <span className="font-mono font-bold text-[var(--text-primary)]">{localConfig.resolution} @ {localConfig.targetFps} FPS</span>
               </div>
             </div>
           </div>
