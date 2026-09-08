@@ -868,7 +868,7 @@ export default function App() {
       <CameraSettingsModal
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
-        config={camera.cameraConfig}
+        config={camera.effectiveCameraConfig}
         onSaveConfig={async (cfg) => {
           camera.setCameraConfig(cfg);
           try {
@@ -894,7 +894,7 @@ export default function App() {
           addLog(`Camera configuration updated [${cfg.resolution} @ ${cfg.targetFps}fps]`, 'info');
         }}
         onReconnect={async (cfg) => {
-          const targetConfig = cfg || camera.cameraConfig;
+          const targetConfig = cfg || camera.effectiveCameraConfig;
           const targetFps = targetConfig.targetFps || 30;
           const targetResolution = targetConfig.resolution || '1920x1080';
           const ipAddress = targetConfig.ipAddress || '';
@@ -976,6 +976,7 @@ export default function App() {
             camera.setCameraConnected(false);
             showToast('error', err.message || 'Failed to connect to camera');
             addLog(`Failed to connect to camera: ${err.message || 'Unknown error'}`, 'error');
+            throw err;
           }
         }}
       />

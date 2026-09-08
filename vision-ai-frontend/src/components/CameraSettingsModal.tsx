@@ -12,6 +12,7 @@ import {
   Plus,
   Sliders,
   CheckCircle2,
+  AlertCircle,
   X,
 } from 'lucide-react';
 import { playWaterDropSound } from '../utils/audio';
@@ -63,6 +64,10 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [activeCameraId, setActiveCameraId] = useState<number | null>(null);
 
+  // ---- Error tracking for user visibility ----
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorCameraId, setErrorCameraId] = useState<number | null>(null);
+
   // ---- Add-camera form ----
   const [showAddForm, setShowAddForm] = useState(false);
   const [newName, setNewName] = useState('');
@@ -104,20 +109,29 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
       setNewName('');
       setNewIp('');
       setDetectedUsb(null);
+      setErrorMessage(null);
+      setErrorCameraId(null);
       return;
     }
     setLocalConfig({ ...config, targetFps: config.targetFps || 30 });
-    if (config.connected && config.id) setActiveCameraId(config.id);
+    // ONLY set as active if the camera hardware is genuinely connected and online
+    if (config.connected && config.id) {
+      setActiveCameraId(config.id);
+    } else {
+      setActiveCameraId(null);
+    }
     refreshAll();
     // Hardware scan runs so "USB detected" badges are accurate, but this
     // NEVER auto-connects anything — connecting is always an explicit click.
     scanUsbDevices();
-  }, [isOpen]);
+  }, [isOpen, config.connected, config.id]);
 
   // ---- Connect to a SAVED camera row ----
   const handleConnectSaved = async (row: SavedCameraRow) => {
     playWaterDropSound();
     setConnectingId(row.id);
+    setErrorMessage(null);
+    setErrorCameraId(null);
     const updated: CameraConfig = {
       ...localConfig,
       id: row.id,
@@ -130,6 +144,12 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
     try {
       await onReconnectRef.current(updated);
       setActiveCameraId(row.id);
+      setErrorMessage(null);
+      setErrorCameraId(null);
+    } catch (err: any) {
+      setActiveCameraId(null);
+      setErrorCameraId(row.id);
+      setErrorMessage(err?.message || 'Failed to connect to camera device');
     } finally {
       setConnectingId(null);
     }
@@ -147,6 +167,10 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
       }
       setSavedCameras((prev) => prev.filter((c) => c.id !== row.id));
       if (activeCameraId === row.id) setActiveCameraId(null);
+      if (errorCameraId === row.id) {
+        setErrorCameraId(null);
+        setErrorMessage(null);
+      }
     } finally {
       setDeletingId(null);
     }
@@ -155,6 +179,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
   // ---- Detect USB device for the add-form ----
   const handleDetectUsb = async () => {
     playWaterDropSound();
+    setErrorMessage(null);
     const usb = await scanUsbDevices();
     if (usb && !newName.trim()) {
       setNewName(usb.name || 'USB Camera');
@@ -170,6 +195,8 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
 
     playWaterDropSound();
     setConnectingId('new');
+    setErrorMessage(null);
+    setErrorCameraId(null);
     try {
       const payload = {
         name,
@@ -193,6 +220,10 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
       setNewName('');
       setNewIp('');
       setDetectedUsb(null);
+      setErrorMessage(null);
+    } catch (err: any) {
+      setActiveCameraId(null);
+      setErrorMessage(err?.message || 'Failed to connect to new camera device');
     } finally {
       setConnectingId(null);
     }
@@ -235,11 +266,10 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`pb-1.5 px-3 text-xs font-bold border-b-2 transition-all cursor-pointer ${
-              activeTab === tab
+            className={`pb-1.5 px-3 text-xs font-bold border-b-2 transition-all cursor-pointer ${activeTab === tab
                 ? 'border-[var(--accent-pond)] text-[var(--accent-pond)]'
                 : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-            }`}
+              }`}
           >
             {tab === 'stream' ? 'Cameras' : tab === 'image' ? 'Image Adjustments' : 'OAK DepthAI VPU'}
           </button>
@@ -262,11 +292,10 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                       key={res}
                       type="button"
                       onClick={() => setLocalConfig({ ...localConfig, resolution: res })}
-                      className={`py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                        localConfig.resolution === res
+                      className={`py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${localConfig.resolution === res
                           ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] border-transparent shadow-xs'
                           : 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-secondary)] hover:bg-[var(--btn-secondary-hover)]'
-                      }`}
+                        }`}
                     >
                       {res === '1920x1080' ? '1080p FHD' : '720p HD'}
                     </button>
@@ -323,67 +352,94 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
               <div className="space-y-2">
                 {savedCameras.map((row) => {
                   const usb = isUsbAddress(row.ip_address);
-                  const isActive = activeCameraId === row.id;
+                  const isActive = activeCameraId === row.id && Boolean(config.connected);
                   const isConnecting = connectingId === row.id;
+                  const isRowFailed = errorCameraId === row.id;
+
                   return (
                     <div
                       key={row.id}
-                      className={`p-3 rounded-xl border flex items-center justify-between gap-3 transition-all ${
-                        isActive
-                          ? 'border-emerald-500/40 bg-emerald-500/5'
-                          : 'border-[var(--border-color)] bg-[var(--bg-card)]'
-                      }`}
+                      className={`p-3 rounded-xl border flex flex-col gap-2 transition-all ${isRowFailed
+                          ? 'border-rose-500/50 bg-rose-500/5'
+                          : isActive
+                            ? 'border-emerald-500/40 bg-emerald-500/5'
+                            : 'border-[var(--border-color)] bg-[var(--bg-card)]'
+                        }`}
                     >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="w-8 h-8 rounded-lg bg-[var(--accent-pond-subtle)] border border-[var(--border-color)] flex items-center justify-center text-[var(--accent-pond)] shrink-0">
-                          {usb ? <Usb className="w-4 h-4" /> : <Wifi className="w-4 h-4" />}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-bold text-[var(--text-primary)] truncate">
-                              {row.name}
-                            </span>
-                            {isActive && (
-                              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
-                                <CheckCircle2 className="w-2.5 h-2.5" /> ACTIVE
-                              </span>
-                            )}
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className={`w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 ${isRowFailed
+                              ? 'bg-rose-500/15 border-rose-500/30 text-rose-500'
+                              : 'bg-[var(--accent-pond-subtle)] border-[var(--border-color)] text-[var(--accent-pond)]'
+                            }`}>
+                            {usb ? <Usb className="w-4 h-4" /> : <Wifi className="w-4 h-4" />}
                           </div>
-                          <span className="text-[10px] text-[var(--text-muted)] font-mono block truncate">
-                            {usb ? 'USB' : row.ip_address} · {row.resolution || '1920x1080'} · {row.fps || 30}fps
-                          </span>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-bold text-[var(--text-primary)] truncate">
+                                {row.name}
+                              </span>
+                              {isActive ? (
+                                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
+                                  <CheckCircle2 className="w-2.5 h-2.5" /> ACTIVE
+                                </span>
+                              ) : isRowFailed ? (
+                                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 shrink-0">
+                                  <AlertCircle className="w-2.5 h-2.5" /> OFFLINE
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-slate-500/10 text-[var(--text-muted)] border border-[var(--border-color)] shrink-0">
+                                  DISCONNECTED
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-[var(--text-muted)] font-mono block truncate">
+                              {usb ? 'USB' : row.ip_address} · {row.resolution || '1920x1080'} · {row.fps || 30}fps
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <Button
+                            variant={isActive ? 'secondary' : 'primary'}
+                            size="sm"
+                            disabled={isConnecting}
+                            onClick={() => handleConnectSaved(row)}
+                          >
+                            {isConnecting ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : isActive ? (
+                              'Reconnect'
+                            ) : (
+                              'Connect'
+                            )}
+                          </Button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(row)}
+                            disabled={deletingId === row.id}
+                            title="Remove camera"
+                            className="p-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-red-500 hover:border-red-400 transition-all cursor-pointer"
+                          >
+                            {deletingId === row.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-3.5 h-3.5" />
+                            )}
+                          </button>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <Button
-                          variant={isActive ? 'secondary' : 'primary'}
-                          size="sm"
-                          disabled={isConnecting}
-                          onClick={() => handleConnectSaved(row)}
-                        >
-                          {isConnecting ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : isActive ? (
-                            'Reconnect'
-                          ) : (
-                            'Connect'
-                          )}
-                        </Button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(row)}
-                          disabled={deletingId === row.id}
-                          title="Remove camera"
-                          className="p-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-red-500 hover:border-red-400 transition-all cursor-pointer"
-                        >
-                          {deletingId === row.id ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Trash2 className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                      </div>
+                      {/* Explicit Error Display for this Camera */}
+                      {isRowFailed && errorMessage && (
+                        <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-[11px] flex items-start gap-2">
+                          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-rose-500" />
+                          <div className="min-w-0">
+                            <span className="font-bold">Connection Failed: </span>
+                            <span className="leading-relaxed break-words">{errorMessage}</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -394,7 +450,11 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
             {!showAddForm ? (
               <button
                 type="button"
-                onClick={() => setShowAddForm(true)}
+                onClick={() => {
+                  setErrorMessage(null);
+                  setErrorCameraId(null);
+                  setShowAddForm(true);
+                }}
                 className="w-full py-2.5 rounded-xl border border-dashed border-[var(--border-color)] text-xs font-bold text-[var(--text-secondary)] hover:text-[var(--accent-pond)] hover:border-[var(--accent-pond)] transition-all cursor-pointer flex items-center justify-center gap-1.5"
               >
                 <Plus className="w-3.5 h-3.5" /> Add Camera
@@ -405,7 +465,11 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                   <span className="text-xs font-bold text-[var(--text-primary)]">New Camera</span>
                   <button
                     type="button"
-                    onClick={() => setShowAddForm(false)}
+                    onClick={() => {
+                      setShowAddForm(false);
+                      setErrorMessage(null);
+                      setErrorCameraId(null);
+                    }}
                     className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
                   >
                     <X className="w-3.5 h-3.5" />
@@ -428,23 +492,27 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                 <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)]">
                   <button
                     type="button"
-                    onClick={() => setNewType('usb')}
-                    className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                      newType === 'usb'
+                    onClick={() => {
+                      setNewType('usb');
+                      setErrorMessage(null);
+                    }}
+                    className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${newType === 'usb'
                         ? 'bg-[var(--accent-pond)] text-white shadow-xs'
                         : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                    }`}
+                      }`}
                   >
                     <Usb className="w-3.5 h-3.5" /> USB
                   </button>
                   <button
                     type="button"
-                    onClick={() => setNewType('ip')}
-                    className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                      newType === 'ip'
+                    onClick={() => {
+                      setNewType('ip');
+                      setErrorMessage(null);
+                    }}
+                    className={`py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${newType === 'ip'
                         ? 'bg-[var(--accent-pond)] text-white shadow-xs'
                         : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                    }`}
+                      }`}
                   >
                     <Wifi className="w-3.5 h-3.5" /> IP / PoE
                   </button>
@@ -483,6 +551,17 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                     onChange={(e) => setNewIp(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] text-xs font-mono font-medium text-[var(--text-primary)] focus:outline-hidden focus:border-[var(--accent-pond)]"
                   />
+                )}
+
+                {/* Error Banner on Add Camera Form */}
+                {errorMessage && !errorCameraId && (
+                  <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-500" />
+                    <div className="min-w-0">
+                      <span className="font-bold block">Cannot Connect:</span>
+                      <span className="text-[11px] leading-relaxed break-words">{errorMessage}</span>
+                    </div>
+                  </div>
                 )}
 
                 <Button
@@ -564,14 +643,12 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
               <button
                 type="button"
                 onClick={() => setLocalConfig({ ...localConfig, autoFocus: !localConfig.autoFocus })}
-                className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors cursor-pointer ${
-                  localConfig.autoFocus ? 'bg-[var(--accent-pond)]' : 'bg-[var(--btn-secondary-border)]'
-                }`}
+                className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors cursor-pointer ${localConfig.autoFocus ? 'bg-[var(--accent-pond)]' : 'bg-[var(--btn-secondary-border)]'
+                  }`}
               >
                 <span
-                  className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
-                    localConfig.autoFocus ? 'translate-x-5' : 'translate-x-0'
-                  }`}
+                  className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${localConfig.autoFocus ? 'translate-x-5' : 'translate-x-0'
+                    }`}
                 />
               </button>
             </div>
