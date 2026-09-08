@@ -128,20 +128,18 @@ export function useCameraStatus(
   };
 
   const stopCameraStream = async (
-    isRunning?: boolean,
+    _isRunning?: boolean,
     setDucks?: (ducks: any[]) => void,
     setIsRunning?: (r: boolean) => void
   ) => {
-    if (isRunning) {
-      try { await cameraService.stopLiveInference(); } catch { /* stream can still stop */ }
-      setIsRunning?.(false);
-      setDucks?.([]);
-    }
+    try { await cameraService.stopLiveInference(); } catch { /* stream can still stop */ }
+    setIsRunning?.(false);
+    setDucks?.([]);
     try {
       await cameraService.stopStream();
       setIsStreaming(false);
       showToast('info', 'Camera stream stopped');
-      addLog('Camera stream stopped.', 'info');
+      addLog('Camera stream stopped • Ready for fresh stream.', 'info');
     } catch {
       showToast('error', 'Unable to stop camera stream');
     }

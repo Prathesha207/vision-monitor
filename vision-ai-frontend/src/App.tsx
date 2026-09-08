@@ -524,6 +524,32 @@ export default function App() {
     addLog('Camera session reset • Detections cleared, stream ready.', 'info');
   };
 
+  const handleStopStream = async () => {
+    playWaterDropSound();
+    setIsRunning(false);
+    setSelectedDuckId(null);
+    setDucks([]);
+    useInferenceStore.getState().resetStats();
+    resetBBoxCache();
+    inference.setFramesProcessed(0);
+    inference.setFps(0);
+    inference.setUptimeSeconds(0);
+    setLastCameraFrame(undefined);
+    sourceStateCache.current.camera = null;
+    camera.setCameraStartingState('ready');
+    camera.setIsStreaming(false);
+
+    try {
+      await cameraService.stopLiveInference();
+    } catch {}
+    try {
+      await cameraService.stopStream();
+    } catch {}
+
+    showToast('info', 'Camera stream stopped • Cleared for fresh stream');
+    addLog('Camera stream stopped • Canvas, overlays, and drawer cleared for fresh stream.', 'info');
+  };
+
   const handleClearCameraRecord = () => {
     video.clearCameraRecording();
     camera.setCameraStartingState('ready');
@@ -729,7 +755,7 @@ export default function App() {
           onResumeInference={handleResumeInference}
           isStreaming={camera.isStreaming}
           onStartStream={camera.startCameraStream}
-          onStopStream={() => camera.stopCameraStream(isRunning, setDucks, setIsRunning)}
+          onStopStream={handleStopStream}
           expectedDucks={expectedDucks}
           onExpectedDucksChange={(count) => {
             setExpectedDucks(count);

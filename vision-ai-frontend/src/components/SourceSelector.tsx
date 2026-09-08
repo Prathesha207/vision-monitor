@@ -190,6 +190,19 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                     <Square className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-current" />
                     <span>STOP<span className="hidden sm:inline"> INFERENCE</span></span>
                   </button>
+                  {isCameraMode && isStreaming && !cameraRecordSessionId && (
+                    <button
+                      onClick={() => {
+                        playWaterDropSound();
+                        onStopStream?.();
+                      }}
+                      title="Stop camera stream and clear feed"
+                      className="h-8 sm:h-9 flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 rounded-xl bg-slate-600 hover:bg-slate-500 text-white font-bold text-[11px] sm:text-xs shadow-xs active:scale-95 cursor-pointer transition-all"
+                    >
+                      <Square className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-current" />
+                      <span>STOP<span className="hidden sm:inline"> STREAM</span></span>
+                    </button>
+                  )}
                 </div>
               ) : (
                 /* When Stopped / Paused: provide START INFERENCE */
