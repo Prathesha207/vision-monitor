@@ -81,7 +81,7 @@
   "build": {
     "appId": "com.visionmonitor.application",
     "productName": "Vision-Monitor",
-    "compression": "store",
+    "compression": "maximum",
     "asar": true,
     "npmRebuild": false,
     "buildDependenciesFromSource": false,

@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
   [ValidateSet('cpu', 'cuda')]
-  [string]$Acceleration = 'cuda'
+  [string]$Acceleration = 'cuda',
+  [switch]$SkipPyInstaller
 )
 
 # Produces a self-contained 64-bit Windows NSIS installer. Run this on a
@@ -9,7 +10,11 @@ param(
 $ErrorActionPreference = 'Stop'
 $BackendDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $FrontendDir = Join-Path (Split-Path -Parent $BackendDir) 'vision-ai-frontend'
-$ReleaseVenv = Join-Path $BackendDir '.venv-release'
+$ReleaseVenv = if (Test-Path (Join-Path $BackendDir '.venv')) {
+  Join-Path $BackendDir '.venv'
+} else {
+  Join-Path $BackendDir '.venv-release'
+}
 $Python = (Get-Command python).Source
 
 if (-not [Environment]::Is64BitOperatingSystem) { throw 'A 64-bit Windows host is required.' }
@@ -21,7 +26,7 @@ if (-not (Test-Path $ReleaseVenv)) {
 $VenvPython = Join-Path $ReleaseVenv 'Scripts\python.exe'
 
 # Verify CUDA PyTorch
-$HasCuda = & $VenvPython -c "import torch; print(torch.cuda.is_available() or 'cu' in torch.__version__)"
+$HasCuda = & $VenvPython -c "import torch; print(torch.cuda.is_available() or 'cu' in torch.__version__)" 2>$null
 Write-Host "CUDA PyTorch status in environment: $HasCuda"
 if ($Acceleration -eq 'cuda' -and $HasCuda -ne 'True') {
   $CudaIndex = if ($env:PYTORCH_CUDA_INDEX) { $env:PYTORCH_CUDA_INDEX } else { 'https://download.pytorch.org/whl/cu121' }
@@ -33,21 +38,33 @@ $DuckAnalyzerWheel = Get-ChildItem (Join-Path $BackendDir 'app\ml\duck_analyzer-
   Sort-Object Name -Descending | Select-Object -First 1
 if (-not $DuckAnalyzerWheel) { throw 'The bundled duck_analyzer wheel is missing.' }
 & $VenvPython -m pip install $DuckAnalyzerWheel.FullName
+if (-not $SkipPyInstaller -or -not (Test-Path (Join-Path $BackendDir 'dist\backend\backend.exe'))) {
+  Push-Location $BackendDir
+  try {
+    Remove-Item -LiteralPath (Join-Path $BackendDir 'build') -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $BackendDir 'dist') -Recurse -Force -ErrorAction SilentlyContinue
 
-Push-Location $BackendDir
-try {
-  Remove-Item -LiteralPath (Join-Path $BackendDir 'build') -Recurse -Force -ErrorAction SilentlyContinue
-  Remove-Item -LiteralPath (Join-Path $BackendDir 'dist') -Recurse -Force -ErrorAction SilentlyContinue
-  & $VenvPython -m PyInstaller --noconfirm --clean --onedir --name backend run.py `
-    --add-data 'app/ml/models;app/ml/models' `
-    --add-data 'app/ml/config.yaml;app/ml' `
-    --add-data 'alembic;alembic' `
-    --collect-all app --collect-all fastapi --collect-all starlette --collect-all uvicorn `
-    --collect-all sqlalchemy --collect-all cv2 --collect-all torch --collect-all torchvision `
-    --collect-all ultralytics --collect-all segmentation_models_pytorch --collect-all depthai `
-    --collect-all av --collect-all duck_analyzer --collect-all mediapipe --collect-all matplotlib
-  if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed.' }
-} finally { Pop-Location }
+    $PyInstallerArgs = @(
+      '--noconfirm', '--clean', '--onedir', '--name', 'backend', 'run.py',
+      '--add-data', 'app/ml/models;app/ml/models',
+      '--add-data', 'app/ml/config.yaml;app/ml',
+      '--add-data', 'alembic;alembic'
+    )
+    if (Test-Path (Join-Path $BackendDir 'vision_ai.db')) {
+      $PyInstallerArgs += @('--add-data', 'vision_ai.db;.')
+    }
+    $PyInstallerArgs += @(
+      '--collect-all', 'app', '--collect-all', 'fastapi', '--collect-all', 'starlette', '--collect-all', 'uvicorn',
+      '--collect-all', 'sqlalchemy', '--collect-all', 'cv2', '--collect-all', 'torch', '--collect-all', 'torchvision',
+      '--collect-all', 'ultralytics', '--collect-all', 'segmentation_models_pytorch', '--collect-all', 'depthai',
+      '--collect-all', 'av', '--collect-all', 'duck_analyzer', '--collect-all', 'mediapipe', '--collect-all', 'matplotlib'
+    )
+    & $VenvPython -m PyInstaller @PyInstallerArgs
+    if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed.' }
+  } finally { Pop-Location }
+} else {
+  Write-Host 'Reusing existing dist\backend...'
+}
 
 $IconIco = Join-Path $FrontendDir 'public\icon.ico'
 if (-not (Test-Path $IconIco)) {
@@ -63,13 +80,21 @@ Copy-Item -Path (Join-Path $BackendDir 'dist\backend\*') -Destination $ReleaseBa
 Get-ChildItem -Path $ReleaseBackend -Recurse -Include *.lib, *.pdb, *.exp, *.a -File | Remove-Item -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath (Join-Path $ReleaseBackend '_internal\torch\include') -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath (Join-Path $ReleaseBackend '_internal\_polars_runtime_32') -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath (Join-Path $ReleaseBackend '_internal\app\ml\output') -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath (Join-Path $ReleaseBackend '_internal\app\unused') -Recurse -Force -ErrorAction SilentlyContinue
 
 Push-Location $FrontendDir
 try {
-  & npm.cmd ci --include=optional
-  if ($LASTEXITCODE -ne 0) {
-    Write-Host 'npm ci failed, falling back to npm install...'
-    & npm.cmd install --include=optional
+  Remove-Item -LiteralPath (Join-Path $FrontendDir 'dist_app\win-unpacked') -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-Item -Path (Join-Path $FrontendDir 'dist_app\*.nsis.7z*') -Force -ErrorAction SilentlyContinue
+  Remove-Item -Path (Join-Path $FrontendDir 'dist_app\Vision-Monitor*') -Recurse -Force -ErrorAction SilentlyContinue
+
+  if (-not (Test-Path (Join-Path $FrontendDir 'node_modules'))) {
+    & npm.cmd ci --include=optional
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host 'npm ci failed, falling back to npm install...'
+      & npm.cmd install --include=optional
+    }
   }
   & npm.cmd run package:win:x64
   if ($LASTEXITCODE -ne 0) { throw 'electron-builder NSIS packaging failed.' }
