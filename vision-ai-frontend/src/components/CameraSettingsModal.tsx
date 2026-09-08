@@ -69,8 +69,6 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<'usb' | 'ip'>('usb');
   const [newIp, setNewIp] = useState('');
-  const [newPort, setNewPort] = useState('8080');
-  const [newProtocol, setNewProtocol] = useState<'poe' | 'rtsp' | 'http'>('poe');
   const [detectedUsb, setDetectedUsb] = useState<HwDevice | null>(null);
 
   const onReconnectRef = useRef(onReconnect);
@@ -181,9 +179,8 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
 
   // Create + connect new camera
   const handleAddAndConnect = async () => {
-    const fullIp = newType === 'ip' ? (newPort ? `${newIp.trim()}:${newPort.trim()}` : newIp.trim()) : '';
+    const ipAddress = newType === 'usb' ? (detectedUsb?.ip_or_id || 'usb') : newIp.trim();
     const name = newName.trim() || (newType === 'usb' ? (detectedUsb?.name || 'USB OAK Camera') : `IP Camera (${newIp.trim()})`);
-    const ipAddress = newType === 'usb' ? (detectedUsb?.ip_or_id || 'usb') : fullIp;
 
     if (newType === 'ip' && !newIp.trim()) {
       setErrorMessage('Please enter a valid IP address or hostname');
@@ -274,11 +271,11 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
               setActiveTab(tab);
             }}
             className={`pb-1 px-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${activeTab === tab
-                ? 'border-[var(--accent-pond)] text-[var(--accent-pond)]'
-                : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+              ? 'border-[var(--accent-pond)] text-[var(--accent-pond)]'
+              : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
               }`}
           >
-            {tab === 'stream' ? 'Cameras & Connection' : tab === 'image' ? 'Image Adjustments' : 'OAK DepthAI VPU'}
+            {tab === 'stream' ? 'Cameras & Connection' : tab === 'image' ? 'Image Adjustments' }
           </button>
         ))}
       </div>
@@ -305,8 +302,8 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                             setLocalConfig({ ...localConfig, resolution: res });
                           }}
                           className={`flex-1 py-1 px-2 rounded-md text-[11px] font-bold transition-all cursor-pointer text-center whitespace-nowrap ${isSelected
-                              ? 'bg-[var(--accent-pond)] text-white shadow-xs'
-                              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                            ? 'bg-[var(--accent-pond)] text-white shadow-xs'
+                            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                             }`}
                         >
                           {res === '1920x1080' ? '1080p FHD' : '720p HD'}
@@ -361,8 +358,8 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                       setErrorMessage(null);
                     }}
                     className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer ${newType === 'usb'
-                        ? 'bg-[var(--accent-pond)] text-white shadow-xs'
-                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      ? 'bg-[var(--accent-pond)] text-white shadow-xs'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                       }`}
                   >
                     <Usb className="w-3 h-3" /> USB
@@ -375,8 +372,8 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                       setErrorMessage(null);
                     }}
                     className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer ${newType === 'ip'
-                        ? 'bg-[var(--accent-pond)] text-white shadow-xs'
-                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      ? 'bg-[var(--accent-pond)] text-white shadow-xs'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                       }`}
                   >
                     <Wifi className="w-3 h-3" /> IP / PoE
@@ -448,72 +445,17 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                   </Button>
                 </div>
               ) : (
-                <div className="space-y-1.5">
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="col-span-2">
-                      <label className="block text-[10px] font-bold text-[var(--text-secondary)] mb-0.5">
-                        IP Address / Hostname
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="192.168.1.100"
-                        value={newIp}
-                        onChange={(e) => setNewIp(e.target.value)}
-                        className="w-full px-2 py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-xs font-mono font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-hidden focus:border-[var(--accent-pond)] focus:bg-[var(--bg-card)] transition-all"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-[var(--text-secondary)] mb-0.5">
-                        Port
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="8080"
-                        value={newPort}
-                        onChange={(e) => setNewPort(e.target.value)}
-                        className="w-full px-2 py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-xs font-mono font-medium text-[var(--text-primary)] focus:outline-hidden focus:border-[var(--accent-pond)] focus:bg-[var(--bg-card)] transition-all"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Protocols and Quick Presets: Compact */}
-                  <div className="flex items-center justify-between flex-wrap gap-1.5 pt-0.5 text-[10px]">
-                    <div className="flex items-center gap-1">
-                      <span className="font-bold text-[var(--text-muted)]">Proto:</span>
-                      {(['poe', 'rtsp', 'http'] as const).map((proto) => (
-                        <button
-                          key={proto}
-                          type="button"
-                          onClick={() => {
-                            playWaterDropSound();
-                            setNewProtocol(proto);
-                          }}
-                          className={`px-1.5 py-0.2 rounded font-mono font-bold uppercase transition-all cursor-pointer ${newProtocol === proto
-                              ? 'bg-[var(--accent-pond)] text-white'
-                              : 'bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                            }`}
-                        >
-                          {proto === 'poe' ? 'OAK PoE' : proto}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span className="text-[var(--text-muted)]">Presets:</span>
-                      {['192.168.1.100', '192.168.0.50'].map((preset) => (
-                        <button
-                          key={preset}
-                          type="button"
-                          onClick={() => {
-                            playWaterDropSound();
-                            setNewIp(preset);
-                          }}
-                          className="px-1 py-0.2 rounded font-mono bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--accent-pond)] transition-all cursor-pointer"
-                        >
-                          {preset}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-[var(--text-secondary)] mb-0.5">
+                    IP Address / Hostname
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g., 192.168.1.100"
+                    value={newIp}
+                    onChange={(e) => setNewIp(e.target.value)}
+                    className="w-full px-2.5 py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-xs font-mono font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-hidden focus:border-[var(--accent-pond)] focus:bg-[var(--bg-card)] transition-all"
+                  />
                 </div>
               )}
 
@@ -588,10 +530,10 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                     <div
                       key={row.id}
                       className={`p-2 rounded-xl border flex flex-col gap-1 transition-all ${isRowFailed
-                          ? 'border-rose-500/50 bg-rose-500/5'
-                          : isActive
-                            ? 'border-emerald-500/40 bg-emerald-500/5'
-                            : 'border-[var(--border-color)] bg-[var(--bg-card)]'
+                        ? 'border-rose-500/50 bg-rose-500/5'
+                        : isActive
+                          ? 'border-emerald-500/40 bg-emerald-500/5'
+                          : 'border-[var(--border-color)] bg-[var(--bg-card)]'
                         }`}
                     >
                       <div className="flex items-center justify-between gap-2">
@@ -599,10 +541,10 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                           {/* Icon with subtle Active indicator dot on the left */}
                           <div
                             className={`relative w-7 h-7 rounded-lg border flex items-center justify-center shrink-0 ${isRowFailed
-                                ? 'bg-rose-500/15 border-rose-500/30 text-rose-500'
-                                : isActive
-                                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
-                                  : 'bg-[var(--accent-pond-subtle)] border-[var(--border-color)] text-[var(--accent-pond)]'
+                              ? 'bg-rose-500/15 border-rose-500/30 text-rose-500'
+                              : isActive
+                                ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                                : 'bg-[var(--accent-pond-subtle)] border-[var(--border-color)] text-[var(--accent-pond)]'
                               }`}
                           >
                             {usb ? <Usb className="w-3.5 h-3.5" /> : <Wifi className="w-3.5 h-3.5" />}
