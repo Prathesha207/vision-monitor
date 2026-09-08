@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { playWaterDropSound } from '../utils/audio';
 import { Modal, Button } from './ui';
-import { cameraService } from './service/cameraService';
+import { cameraService, type CameraData } from './service/cameraService';
 
 interface CameraSettingsModalProps {
   isOpen: boolean;
@@ -157,20 +157,18 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
 
   // ---- Delete a saved camera ----
   const handleDelete = async (row: SavedCameraRow) => {
-    if (!window.confirm(`Remove camera "${row.name}"?`)) return;
+    playWaterDropSound();
     setDeletingId(row.id);
     try {
-      if (typeof (cameraService as any).deleteCamera === 'function') {
-        await (cameraService as any).deleteCamera(row.id);
-      } else {
-        console.warn('cameraService.deleteCamera is not implemented on the backend yet.');
-      }
+      await cameraService.deleteCamera(row.id);
       setSavedCameras((prev) => prev.filter((c) => c.id !== row.id));
       if (activeCameraId === row.id) setActiveCameraId(null);
       if (errorCameraId === row.id) {
         setErrorCameraId(null);
         setErrorMessage(null);
       }
+    } catch (e) {
+      console.error('Failed to delete camera:', e);
     } finally {
       setDeletingId(null);
     }
@@ -198,7 +196,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
     setErrorMessage(null);
     setErrorCameraId(null);
     try {
-      const payload = {
+      const payload: CameraData = {
         name,
         ip_address: ipAddress,
         resolution: localConfig.resolution || '1920x1080',
