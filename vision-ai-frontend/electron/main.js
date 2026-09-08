@@ -18,7 +18,7 @@ const netSocket = require("net")
 ========================================================= */
 const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
-  console.log("Another instance of Vision AI is already running. Focusing existing window and quitting duplicate instance.")
+  console.log("Another instance of Vision Monitor is already running. Focusing existing window and quitting duplicate instance.")
   app.quit()
   process.exit(0)
 }
@@ -55,10 +55,10 @@ const isDev = !app.isPackaged
 function getUserDataDir() {
   if (process.platform === "win32") {
     const root = process.env.LOCALAPPDATA || process.env.APPDATA || path.join(process.env.USERPROFILE || "", "AppData", "Local")
-    return path.join(root, "Vision-AI")
+    return path.join(root, "Vision-Monitor")
   }
   const xdg = process.env.XDG_STATE_HOME || path.join(process.env.HOME || "", ".local", "state")
-  return path.join(xdg, "vision-ai")
+  return path.join(xdg, "vision-monitor")
 }
 
 const DATA_DIR = getUserDataDir()
@@ -197,7 +197,7 @@ function createSplashWindow() {
         height:100vh;
       ">
         <h1 style="margin-bottom:10px;">
-          Vision AI
+          Vision Monitor
         </h1>
 
         <p style="opacity:0.7">

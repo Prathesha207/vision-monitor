@@ -1,11 +1,11 @@
 {
-  "name": "vision-ai",
+  "name": "vision-monitor",
   "version": "0.1.0",
-  "description": "Vision AI Desktop Application",
-  "homepage": "https://github.com/vision-ai/vision-ai",
+  "description": "Vision Monitor Desktop Application",
+  "homepage": "https://github.com/Prathesha207/vision-monitor",
   "author": {
-    "name": "Vision-AI",
-    "email": "dev@vision-ai.com"
+    "name": "Vision-Monitor",
+    "email": "dev@vision-monitor.com"
   },
   "private": true,
   "main": "electron/main.js",
@@ -78,8 +78,8 @@
     "vite": "^6.2.3"
   },
   "build": {
-    "appId": "com.visionai.application",
-    "productName": "Vision-AI",
+    "appId": "com.visionmonitor.application",
+    "productName": "Vision-Monitor",
     "compression": "store",
     "asar": true,
     "npmRebuild": false,
@@ -103,7 +103,7 @@
       }
     ],
     "linux": {
-      "desktopName": "vision-ai",
+      "desktopName": "vision-monitor",
       "syncDesktopName": true,
       "icon": "public/icon.png",
       "executableArgs": [
@@ -132,7 +132,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
-      "shortcutName": "Vision AI",
+      "shortcutName": "Vision Monitor",
       "runAfterFinish": true,
       "unicode": true
     }

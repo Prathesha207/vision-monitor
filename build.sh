@@ -2,7 +2,7 @@
 set -e
 
 echo "======================================================="
-echo "        Vision AI Build (Linux Desktop App)"
+echo "      Vision Monitor Build (Linux Desktop App)"
 echo "======================================================="
 
 cd vision-ai-backend

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-click installer and builder for Vision AI on Linux
+# One-click installer and builder for Vision Monitor on Linux
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -8,7 +8,7 @@ if [[ ! -f "$ROOT_DIR/vision-ai-backend/run.py" && -f "$PWD/vision-ai-backend/ru
 fi
 
 echo "========================================================"
-echo "  🚀 Vision AI - One-Step Linux Setup & App Builder     "
+echo "  🚀 Vision Monitor - One-Step Linux Setup & App Builder "
 echo "========================================================"
 
 # Make inner scripts executable
@@ -19,12 +19,12 @@ chmod +x "$ROOT_DIR/vision-ai-backend/run_dev_linux.sh"
 MODE="${1:-app}"
 
 if [[ "$MODE" == "--dev" || "$MODE" == "dev" ]]; then
-  echo "Starting Vision AI development environment..."
+  echo "Starting Vision Monitor development environment..."
   exec "$ROOT_DIR/vision-ai-backend/run_dev_linux.sh"
 fi
 
 if [[ "$MODE" == "--setup" || "$MODE" == "setup" ]]; then
-  echo "Running Vision AI setup..."
+  echo "Running Vision Monitor setup..."
   exec "$ROOT_DIR/vision-ai-backend/setup_linux.sh"
 fi
 
@@ -41,9 +41,9 @@ find "$ROOT_DIR/vision-ai-frontend/dist_app" -name "*.AppImage" -exec ls -lh {} 
 find "$ROOT_DIR/vision-ai-frontend/dist_app" -name "*.deb" -exec ls -lh {} + 2>/dev/null || true
 echo
 echo "To run the AppImage, simply execute:"
-echo "  chmod +x ./vision-ai-frontend/dist_app/Vision-AI-*.AppImage"
-echo "  ./vision-ai-frontend/dist_app/Vision-AI-*.AppImage"
+echo "  chmod +x ./vision-ai-frontend/dist_app/Vision-Monitor-*.AppImage"
+echo "  ./vision-ai-frontend/dist_app/Vision-Monitor-*.AppImage"
 echo
 echo "Or install the Debian package:"
-echo "  sudo dpkg -i ./vision-ai-frontend/dist_app/vision-ai_*.deb"
+echo "  sudo dpkg -i ./vision-ai-frontend/dist_app/vision-monitor_*.deb"
 echo "========================================================"

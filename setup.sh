@@ -2,7 +2,7 @@
 set -e
 
 echo "======================================================="
-echo "             Vision AI Setup (Linux)"
+echo "           Vision Monitor Setup (Linux)"
 echo "======================================================="
 echo ""
 
