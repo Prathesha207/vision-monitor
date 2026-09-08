@@ -115,6 +115,9 @@
       ],
       "category": "Utility"
     },
+    "deb": {
+      "compression": "gz"
+    },
     "win": {
       "icon": "public/icon.ico",
       "target": [
