@@ -1,11 +1,11 @@
 @echo off
 echo Starting Vision Monitor Development Servers...
 
-cd vision-ai-backend
+cd /d "%~dp0vision-ai-backend"
 echo Starting Backend...
 start "Vision Monitor Backend" cmd /c ".venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000"
 
-cd ..\vision-ai-frontend
+cd /d "%~dp0vision-ai-frontend"
 echo Starting Frontend...
 start "Vision Monitor Frontend" cmd /c "npm run dev"
 

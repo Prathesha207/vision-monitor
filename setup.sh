@@ -6,7 +6,8 @@ echo "           Vision Monitor Setup (Linux)"
 echo "======================================================="
 echo ""
 
-cd vision-ai-backend
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+cd "$SCRIPT_DIR/vision-ai-backend"
 chmod +x setup_linux.sh
 ./setup_linux.sh
 

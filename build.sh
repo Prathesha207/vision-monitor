@@ -5,7 +5,8 @@ echo "======================================================="
 echo "      Vision Monitor Build (Linux Desktop App)"
 echo "======================================================="
 
-cd vision-ai-backend
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+cd "$SCRIPT_DIR/vision-ai-backend"
 chmod +x build_linux_desktop.sh
 ./build_linux_desktop.sh
 

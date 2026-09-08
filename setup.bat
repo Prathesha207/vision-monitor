@@ -4,7 +4,7 @@ echo          Vision Monitor Setup (Windows)
 echo =======================================================
 echo.
 
-cd vision-ai-backend
+cd /d "%~dp0vision-ai-backend"
 powershell -ExecutionPolicy Bypass -File setup_windows.ps1
 if %ERRORLEVEL% NEQ 0 (
     echo.
