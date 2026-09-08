@@ -9,11 +9,8 @@ import {
   Usb,
   RefreshCw,
   Trash2,
-  Plus,
-  Sliders,
-  CheckCircle2,
   AlertCircle,
-  X,
+  Radio,
 } from 'lucide-react';
 import { playWaterDropSound } from '../utils/audio';
 import { Modal, Button } from './ui';
@@ -56,7 +53,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
   const [activeTab, setActiveTab] = useState<'stream' | 'image' | 'oak'>('stream');
 
   const [savedCameras, setSavedCameras] = useState<SavedCameraRow[]>([]);
-  const [hwDevices, setHwDevices] = useState<HwDevice[]>([]);
+  const [, setHwDevices] = useState<HwDevice[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [isLoadingList, setIsLoadingList] = useState(false);
 
@@ -64,21 +61,22 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [activeCameraId, setActiveCameraId] = useState<number | null>(null);
 
-  // ---- Error tracking for user visibility ----
+  // Error tracking for user visibility
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorCameraId, setErrorCameraId] = useState<number | null>(null);
 
-  // ---- Add-camera form ----
-  const [showAddForm, setShowAddForm] = useState(false);
+  // New Camera Form state
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<'usb' | 'ip'>('usb');
   const [newIp, setNewIp] = useState('');
+  const [newPort, setNewPort] = useState('8080');
+  const [newProtocol, setNewProtocol] = useState<'poe' | 'rtsp' | 'http'>('poe');
   const [detectedUsb, setDetectedUsb] = useState<HwDevice | null>(null);
 
   const onReconnectRef = useRef(onReconnect);
   onReconnectRef.current = onReconnect;
 
-  // ---- Load saved cameras + do a hardware scan (no auto-connect) ----
+  // Load saved cameras + hardware scan
   const refreshAll = useCallback(async () => {
     setIsLoadingList(true);
     try {
@@ -95,7 +93,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
       const devices = await cameraService.getAvailableDevices().catch(() => []);
       const list: HwDevice[] = Array.isArray(devices) ? devices : [];
       setHwDevices(list);
-      const usb = list.find((d) => d.is_usb) || null;
+      const usb = list.find((d) => d.is_usb) || list[0] || null;
       setDetectedUsb(usb);
       return usb;
     } finally {
@@ -105,7 +103,6 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) {
-      setShowAddForm(false);
       setNewName('');
       setNewIp('');
       setDetectedUsb(null);
@@ -114,17 +111,16 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
       return;
     }
     setLocalConfig({ ...config, targetFps: config.targetFps || 30 });
-    // ONLY set as active if the camera hardware is genuinely connected and online
     if (config.connected && config.id) {
-      setActiveCameraId(config.id);
+      setActiveCameraId(typeof config.id === 'number' ? config.id : parseInt(String(config.id), 10) || null);
     } else {
       setActiveCameraId(null);
     }
     refreshAll();
     scanUsbDevices();
-  }, [isOpen, config.connected, config.id]);
+  }, [isOpen, config.connected, config.id, refreshAll, scanUsbDevices, config]);
 
-  // ---- Connect to a SAVED camera row ----
+  // Connect to a SAVED camera row
   const handleConnectSaved = async (row: SavedCameraRow) => {
     playWaterDropSound();
     setConnectingId(row.id);
@@ -137,6 +133,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
       ipAddress: row.ip_address,
       resolution: (row.resolution as any) || localConfig.resolution || '1920x1080',
       targetFps: row.fps || localConfig.targetFps || 30,
+      connected: true,
     };
     setLocalConfig(updated);
     try {
@@ -153,7 +150,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
     }
   };
 
-  // ---- Direct one-click delete (no window.confirm popup) ----
+  // Direct one-click delete without confirm popup
   const handleDelete = async (row: SavedCameraRow) => {
     playWaterDropSound();
     setDeletingId(row.id);
@@ -172,22 +169,26 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
     }
   };
 
-  // ---- Detect USB device for the add-form ----
+  // Detect USB device
   const handleDetectUsb = async () => {
     playWaterDropSound();
     setErrorMessage(null);
     const usb = await scanUsbDevices();
     if (usb && !newName.trim()) {
-      setNewName(usb.name || 'USB Camera');
+      setNewName(usb.name || 'Luxonis OAK-D Pro (USB 3.0)');
     }
   };
 
-  // ---- Create + connect the new camera ----
+  // Create + connect new camera
   const handleAddAndConnect = async () => {
-    const name = newName.trim() || (newType === 'usb' ? 'USB Camera' : `IP Camera (${newIp})`);
-    const ipAddress = newType === 'usb' ? (detectedUsb?.ip_or_id || 'usb') : newIp.trim();
+    const fullIp = newType === 'ip' ? (newPort ? `${newIp.trim()}:${newPort.trim()}` : newIp.trim()) : '';
+    const name = newName.trim() || (newType === 'usb' ? (detectedUsb?.name || 'USB OAK Camera') : `IP Camera (${newIp.trim()})`);
+    const ipAddress = newType === 'usb' ? (detectedUsb?.ip_or_id || 'usb') : fullIp;
 
-    if (newType === 'ip' && !ipAddress) return;
+    if (newType === 'ip' && !newIp.trim()) {
+      setErrorMessage('Please enter a valid IP address or hostname');
+      return;
+    }
 
     playWaterDropSound();
     setConnectingId('new');
@@ -207,19 +208,18 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
         id: saved?.id,
         sourceName: name,
         ipAddress,
+        connected: true,
       };
       setLocalConfig(updated);
       await onReconnectRef.current(updated);
       setActiveCameraId(saved?.id ?? null);
       await refreshAll();
-      setShowAddForm(false);
       setNewName('');
       setNewIp('');
-      setDetectedUsb(null);
       setErrorMessage(null);
     } catch (err: any) {
       setActiveCameraId(null);
-      setErrorMessage(err?.message || 'Failed to connect to new camera device');
+      setErrorMessage(err?.message || 'Failed to connect to camera device');
     } finally {
       setConnectingId(null);
     }
@@ -243,112 +243,337 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      maxWidth="xl"
+      maxWidth="lg"
       icon={<Camera className="w-4 h-4 text-[var(--accent-pond)]" />}
       title="Camera & Stream Settings"
       description="Manage connected cameras and video pipeline"
       footer={
         <>
-          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" size="sm" onClick={handleSave} icon={<Check className="w-3.5 h-3.5" />}>
+          <Button variant="ghost" size="sm" onClick={onClose} className="h-7 text-xs">
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleSave}
+            icon={<Check className="w-3.5 h-3.5" />}
+            className="h-7 text-xs"
+          >
             Apply Changes
           </Button>
         </>
       }
     >
-      {/* Tab Switcher */}
-      <div className="flex border-b border-[var(--border-color)] pb-2 mb-3 -mt-1 shrink-0">
+      {/* Tab Switcher: Compact */}
+      <div className="flex border-b border-[var(--border-color)] pb-1.5 mb-3 -mt-1 shrink-0">
         {(['stream', 'image', 'oak'] as const).map((tab) => (
           <button
             key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`pb-1.5 px-3 text-xs font-bold border-b-2 transition-all cursor-pointer ${
-              activeTab === tab
+            onClick={() => {
+              playWaterDropSound();
+              setActiveTab(tab);
+            }}
+            className={`pb-1 px-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${activeTab === tab
                 ? 'border-[var(--accent-pond)] text-[var(--accent-pond)]'
                 : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-            }`}
+              }`}
           >
-            {tab === 'stream' ? 'Cameras' : tab === 'image' ? 'Image Adjustments' : 'OAK DepthAI VPU'}
+            {tab === 'stream' ? 'Cameras & Connection' : tab === 'image' ? 'Image Adjustments' : 'OAK DepthAI VPU'}
           </button>
         ))}
       </div>
 
-      {/* Body content — Single scroll region */}
-      <div className="space-y-3.5 pr-0.5">
+      {/* Main Container: Compact, single smooth scroll handled by parent modal */}
+      <div className="space-y-2.5">
         {activeTab === 'stream' && (
-          <div className="space-y-3.5">
-            {/* ── 1. STREAM CONFIGURATION (Compact Row) ── */}
-            <div>
-              <div className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)] mb-1.5 px-0.5">
-                Stream
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-2.5 rounded-2xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
-                {/* Resolution Selector */}
+          <>
+            {/* ── 1. STREAM OUTPUT PROFILE (Resolution & Frame Count) ── */}
+            <div className="p-2.5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {/* Resolution */}
                 <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-[var(--text-secondary)]">Resolution</label>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {(['1920x1080', '1280x720'] as const).map((res) => (
-                      <button
-                        key={res}
-                        type="button"
-                        onClick={() => setLocalConfig({ ...localConfig, resolution: res })}
-                        className={`py-1.5 px-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                          localConfig.resolution === res
-                            ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] border-transparent shadow-xs'
-                            : 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-secondary)] hover:bg-[var(--btn-secondary-hover)]'
-                        }`}
-                      >
-                        {res === '1920x1080' ? '1080p FHD' : '720p HD'}
-                      </button>
-                    ))}
+                  <div className="text-[10px] font-bold text-[var(--text-secondary)]">Resolution</div>
+                  <div className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-[var(--bg-card)] border border-[var(--border-color)] w-full">
+                    {(['1920x1080', '1280x720'] as const).map((res) => {
+                      const isSelected = localConfig.resolution === res;
+                      return (
+                        <button
+                          key={res}
+                          type="button"
+                          onClick={() => {
+                            playWaterDropSound();
+                            setLocalConfig({ ...localConfig, resolution: res });
+                          }}
+                          className={`flex-1 py-1 px-2 rounded-md text-[11px] font-bold transition-all cursor-pointer text-center whitespace-nowrap ${isSelected
+                              ? 'bg-[var(--accent-pond)] text-white shadow-xs'
+                              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                            }`}
+                        >
+                          {res === '1920x1080' ? '1080p FHD' : '720p HD'}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
-                {/* Framerate Slider */}
+                {/* Frame Count Slider (up to 60 FPS) */}
                 <div className="space-y-1 flex flex-col justify-between">
-                  <div className="flex items-center justify-between text-[11px] font-bold text-[var(--text-secondary)]">
-                    <span className="flex items-center gap-1">
-                      <Sliders className="w-3 h-3 text-[var(--accent-pond)]" />
-                      FPS
-                    </span>
-                    <span className="font-mono font-bold text-[var(--accent-pond)] bg-[var(--accent-pond-subtle)] px-1.5 py-0.5 rounded text-[11px] border border-[var(--border-color)]">
+                  <div className="flex items-center justify-between text-[10px] font-bold text-[var(--text-secondary)]">
+                    <span>Frame Count</span>
+                    <span className="font-mono font-bold text-[var(--accent-pond)] px-1.5 py-0.2 rounded bg-[var(--bg-card)] border border-[var(--border-color)]">
                       {localConfig.targetFps} FPS
                     </span>
                   </div>
-                  <input
-                    type="range"
-                    min={10}
-                    max={60}
-                    step={5}
-                    value={localConfig.targetFps}
-                    onChange={(e) => setLocalConfig({ ...localConfig, targetFps: parseInt(e.target.value, 10) })}
-                    style={getSliderStyle(localConfig.targetFps, 10, 60)}
-                    className="w-full h-2 rounded-lg cursor-pointer transition-all border border-[var(--border-color)]"
-                  />
+                  <div className="h-[27px] flex items-center px-2 rounded-lg bg-[var(--bg-card)] border border-[var(--border-color)]">
+                    <input
+                      type="range"
+                      min={1}
+                      max={60}
+                      step={1}
+                      value={localConfig.targetFps}
+                      onChange={(e) => setLocalConfig({ ...localConfig, targetFps: parseInt(e.target.value, 10) })}
+                      style={getSliderStyle(localConfig.targetFps, 1, 60)}
+                      className="w-full h-1.5 rounded cursor-pointer transition-all border border-[var(--border-color)]"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* ── 2. YOUR CAMERAS (Dense List) ── */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5 px-0.5">
+            {/* ── 2. CAMERA CONNECTION SETUP (Compact Card & Small Button) ── */}
+            <div className="p-3 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] space-y-2.5">
+              <div className="flex items-center justify-between pb-1.5 border-b border-[var(--border-color)]">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-5 h-5 rounded-md bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] flex items-center justify-center border border-[var(--border-color)]">
+                    <Radio className="w-3 h-3" />
+                  </div>
+                  <span className="text-xs font-bold text-[var(--text-primary)]">
+                    Camera Connection
+                  </span>
+                </div>
+                {/* Interface Switcher Pills */}
+                <div className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playWaterDropSound();
+                      setNewType('usb');
+                      setErrorMessage(null);
+                    }}
+                    className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer ${newType === 'usb'
+                        ? 'bg-[var(--accent-pond)] text-white shadow-xs'
+                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      }`}
+                  >
+                    <Usb className="w-3 h-3" /> USB
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playWaterDropSound();
+                      setNewType('ip');
+                      setErrorMessage(null);
+                    }}
+                    className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer ${newType === 'ip'
+                        ? 'bg-[var(--accent-pond)] text-white shadow-xs'
+                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      }`}
+                  >
+                    <Wifi className="w-3 h-3" /> IP / PoE
+                  </button>
+                </div>
+              </div>
+
+              {/* Camera Name Input */}
+              <div>
+                <label className="block text-[10px] font-bold text-[var(--text-secondary)] mb-0.5">
+                  Camera Label
+                </label>
+                <input
+                  type="text"
+                  placeholder={newType === 'usb' ? (detectedUsb?.name || 'e.g., Dock Inspection OAK-D') : 'e.g., Cam 01'}
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  className="w-full px-2.5 py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-xs font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-hidden focus:border-[var(--accent-pond)] focus:bg-[var(--bg-card)] transition-all"
+                />
+              </div>
+
+              {/* Interface Details: Compact */}
+              {newType === 'usb' ? (
+                <div className="p-2 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] flex items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-6 h-6 rounded-md bg-[var(--bg-card)] border border-[var(--border-color)] flex items-center justify-center text-[var(--accent-pond)] shrink-0">
+                      <Usb className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0">
+                      {detectedUsb ? (
+                        <>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-bold text-[var(--text-primary)] truncate">
+                              {detectedUsb.name}
+                            </span>
+                            <span className="px-1.5 py-0.2 rounded text-[8px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                              READY
+                            </span>
+                          </div>
+                          <span className="text-[9px] text-[var(--text-muted)] font-mono block truncate">
+                            ID: {detectedUsb.mxid}
+                          </span>
+                        </>
+                      ) : (
+                        <div>
+                          <span className="text-xs font-bold text-[var(--text-primary)] block">
+                            No USB Device Detected
+                          </span>
+                          <span className="text-[9px] text-[var(--text-muted)]">
+                            Plug in camera and scan
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={isScanning}
+                    onClick={handleDetectUsb}
+                    className="h-6 px-2 text-[11px] font-bold shrink-0"
+                  >
+                    {isScanning ? (
+                      <Loader2 className="w-3 h-3 animate-spin text-[var(--accent-pond)]" />
+                    ) : (
+                      'Scan'
+                    )}
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-2">
+                      <label className="block text-[10px] font-bold text-[var(--text-secondary)] mb-0.5">
+                        IP Address / Hostname
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="192.168.1.100"
+                        value={newIp}
+                        onChange={(e) => setNewIp(e.target.value)}
+                        className="w-full px-2 py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-xs font-mono font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-hidden focus:border-[var(--accent-pond)] focus:bg-[var(--bg-card)] transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-[var(--text-secondary)] mb-0.5">
+                        Port
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="8080"
+                        value={newPort}
+                        onChange={(e) => setNewPort(e.target.value)}
+                        className="w-full px-2 py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-xs font-mono font-medium text-[var(--text-primary)] focus:outline-hidden focus:border-[var(--accent-pond)] focus:bg-[var(--bg-card)] transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Protocols and Quick Presets: Compact */}
+                  <div className="flex items-center justify-between flex-wrap gap-1.5 pt-0.5 text-[10px]">
+                    <div className="flex items-center gap-1">
+                      <span className="font-bold text-[var(--text-muted)]">Proto:</span>
+                      {(['poe', 'rtsp', 'http'] as const).map((proto) => (
+                        <button
+                          key={proto}
+                          type="button"
+                          onClick={() => {
+                            playWaterDropSound();
+                            setNewProtocol(proto);
+                          }}
+                          className={`px-1.5 py-0.2 rounded font-mono font-bold uppercase transition-all cursor-pointer ${newProtocol === proto
+                              ? 'bg-[var(--accent-pond)] text-white'
+                              : 'bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                            }`}
+                        >
+                          {proto === 'poe' ? 'OAK PoE' : proto}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[var(--text-muted)]">Presets:</span>
+                      {['192.168.1.100', '192.168.0.50'].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => {
+                            playWaterDropSound();
+                            setNewIp(preset);
+                          }}
+                          className="px-1 py-0.2 rounded font-mono bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--accent-pond)] transition-all cursor-pointer"
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Form Error Banner */}
+              {errorMessage && !errorCameraId && (
+                <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-[11px] flex items-start gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-rose-500" />
+                  <div className="min-w-0">
+                    <span className="font-bold">Error: </span>
+                    <span className="leading-relaxed break-words">{errorMessage}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Compact Small Action Button (Right-aligned / Compact) */}
+              <div className="flex justify-end pt-0.5">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={
+                    connectingId === 'new' ||
+                    (newType === 'usb' && !detectedUsb) ||
+                    (newType === 'ip' && !newIp.trim())
+                  }
+                  onClick={handleAddAndConnect}
+                  className="h-7 px-3.5 text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  {connectingId === 'new' ? (
+                    <>
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Connecting...
+                    </>
+                  ) : (
+                    'Add & Connect'
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            {/* ── 3. SAVED / REGISTERED CAMERAS (Compact Cards with Left Active Dot) ── */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between px-0.5">
                 <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">
-                  Your Cameras {savedCameras.length > 0 && `(${savedCameras.length})`}
+                  Configured Cameras {savedCameras.length > 0 && `(${savedCameras.length})`}
                 </span>
                 <button
                   type="button"
                   onClick={() => refreshAll()}
                   disabled={isLoadingList}
                   title="Refresh device list"
-                  className="p-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-secondary)] hover:text-[var(--accent-pond)] hover:border-[var(--accent-pond)] transition-all cursor-pointer"
+                  className="p-1 rounded border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-secondary)] hover:text-[var(--accent-pond)] hover:border-[var(--accent-pond)] transition-all cursor-pointer flex items-center gap-1 text-[10px] px-1.5 font-medium"
                 >
-                  <RefreshCw className={`w-3 h-3 ${isLoadingList ? 'animate-spin text-[var(--accent-pond)]' : ''}`} />
+                  <RefreshCw className={`w-2.5 h-2.5 ${isLoadingList ? 'animate-spin text-[var(--accent-pond)]' : ''}`} />
+                  Refresh
                 </button>
               </div>
 
               {savedCameras.length === 0 && !isLoadingList && (
-                <div className="p-3.5 rounded-2xl border border-dashed border-[var(--border-color)] text-center text-xs text-[var(--text-muted)]">
-                  No cameras registered. Add one below to get started.
+                <div className="p-2.5 rounded-xl border border-dashed border-[var(--border-color)] text-center text-[11px] text-[var(--text-muted)] bg-[var(--bg-card-subtle)]">
+                  No cameras registered yet. Use Add &amp; Connect above to save cameras.
                 </div>
               )}
 
@@ -362,49 +587,49 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                   return (
                     <div
                       key={row.id}
-                      className={`p-2.5 rounded-xl border flex flex-col gap-1.5 transition-all ${
-                        isRowFailed
+                      className={`p-2 rounded-xl border flex flex-col gap-1 transition-all ${isRowFailed
                           ? 'border-rose-500/50 bg-rose-500/5'
                           : isActive
-                          ? 'border-emerald-500/40 bg-emerald-500/5'
-                          : 'border-[var(--border-color)] bg-[var(--bg-card)]'
-                      }`}
+                            ? 'border-emerald-500/40 bg-emerald-500/5'
+                            : 'border-[var(--border-color)] bg-[var(--bg-card)]'
+                        }`}
                     >
-                      <div className="flex items-center justify-between gap-2.5">
-                        {/* Camera Info */}
+                      <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
+                          {/* Icon with subtle Active indicator dot on the left */}
                           <div
-                            className={`w-7 h-7 rounded-lg border flex items-center justify-center shrink-0 ${
-                              isRowFailed
+                            className={`relative w-7 h-7 rounded-lg border flex items-center justify-center shrink-0 ${isRowFailed
                                 ? 'bg-rose-500/15 border-rose-500/30 text-rose-500'
-                                : 'bg-[var(--accent-pond-subtle)] border-[var(--border-color)] text-[var(--accent-pond)]'
-                            }`}
+                                : isActive
+                                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                                  : 'bg-[var(--accent-pond-subtle)] border-[var(--border-color)] text-[var(--accent-pond)]'
+                              }`}
                           >
                             {usb ? <Usb className="w-3.5 h-3.5" /> : <Wifi className="w-3.5 h-3.5" />}
+                            {/* Subtle active pulse dot at left on the camera badge */}
+                            {isActive && (
+                              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-[var(--bg-card)] animate-pulse" />
+                            )}
                           </div>
+
+                          {/* Name and specs without bulky middle badge */}
                           <div className="min-w-0">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-xs font-bold text-[var(--text-primary)] truncate max-w-[140px] sm:max-w-[200px]">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-bold text-[var(--text-primary)] truncate max-w-[170px] sm:max-w-[260px]">
                                 {row.name}
                               </span>
                               {isActive ? (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                  ACTIVE
+                                <span className="text-[9px] font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                                  ● LIVE
                                 </span>
                               ) : isRowFailed ? (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 shrink-0">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                                  OFFLINE
+                                <span className="text-[9px] font-mono font-bold text-rose-500">
+                                  ● OFFLINE
                                 </span>
-                              ) : (
-                                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-semibold bg-slate-500/10 text-[var(--text-muted)] border border-[var(--border-color)] shrink-0">
-                                  DISCONNECTED
-                                </span>
-                              )}
+                              ) : null}
                             </div>
                             <span className="text-[10px] text-[var(--text-muted)] font-mono block truncate">
-                              {usb ? 'USB' : row.ip_address} · {row.resolution || '1920x1080'} · {row.fps || 30}fps
+                              {usb ? 'USB' : row.ip_address} • {row.resolution || '1920x1080'} • {row.fps || 30}fps
                             </span>
                           </div>
                         </div>
@@ -416,10 +641,10 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                             size="sm"
                             disabled={isConnecting}
                             onClick={() => handleConnectSaved(row)}
-                            className="h-7 text-xs px-2.5 font-bold"
+                            className="h-6 text-[11px] px-2.5 font-bold"
                           >
                             {isConnecting ? (
-                              <Loader2 className="w-3 h-3 animate-spin" />
+                              <Loader2 className="w-2.5 h-2.5 animate-spin" />
                             ) : isActive ? (
                               'Reconnect'
                             ) : (
@@ -431,25 +656,22 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                             onClick={() => handleDelete(row)}
                             disabled={deletingId === row.id}
                             title="Remove camera"
-                            className="p-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-red-500 hover:border-red-400 transition-all cursor-pointer"
+                            className="p-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-red-500 hover:border-red-400 transition-all cursor-pointer"
                           >
                             {deletingId === row.id ? (
                               <Loader2 className="w-3 h-3 animate-spin" />
                             ) : (
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Trash2 className="w-3 h-3" />
                             )}
                           </button>
                         </div>
                       </div>
 
-                      {/* Error Banner for Failed Connection */}
+                      {/* Error Banner if connection failed */}
                       {isRowFailed && errorMessage && (
-                        <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-[11px] flex items-start gap-1.5 mt-0.5">
-                          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-rose-500" />
-                          <div className="min-w-0">
-                            <span className="font-bold">Connection Failed: </span>
-                            <span className="leading-relaxed break-words">{errorMessage}</span>
-                          </div>
+                        <div className="p-1.5 rounded-md bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-[10px] flex items-start gap-1">
+                          <AlertCircle className="w-3 h-3 shrink-0 mt-0.5 text-rose-500" />
+                          <span className="leading-tight break-words">{errorMessage}</span>
                         </div>
                       )}
                     </div>
@@ -457,153 +679,11 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                 })}
               </div>
             </div>
-
-            {/* ── 3. ADD CAMERA (Compact Expandable Section) ── */}
-            {!showAddForm ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setErrorMessage(null);
-                  setErrorCameraId(null);
-                  setShowAddForm(true);
-                }}
-                className="w-full py-2 rounded-xl border border-dashed border-[var(--border-color)] text-xs font-bold text-[var(--text-secondary)] hover:text-[var(--accent-pond)] hover:border-[var(--accent-pond)] transition-all cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                <Plus className="w-3.5 h-3.5" /> Add Camera
-              </button>
-            ) : (
-              <div className="p-3 rounded-2xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] space-y-2.5">
-                <div className="flex items-center justify-between pb-1 border-b border-[var(--border-color)]">
-                  <span className="text-xs font-bold text-[var(--text-primary)]">New Camera</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowAddForm(false);
-                      setErrorMessage(null);
-                      setErrorCameraId(null);
-                    }}
-                    className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-[var(--text-secondary)] mb-1">
-                    Name
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g., Line 1 Inspection Camera"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    className="w-full px-3 py-1.5 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] text-xs font-medium text-[var(--text-primary)] focus:outline-hidden focus:border-[var(--accent-pond)]"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)]">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewType('usb');
-                      setErrorMessage(null);
-                    }}
-                    className={`py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                      newType === 'usb'
-                        ? 'bg-[var(--accent-pond)] text-white shadow-xs'
-                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                    }`}
-                  >
-                    <Usb className="w-3.5 h-3.5" /> USB
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewType('ip');
-                      setErrorMessage(null);
-                    }}
-                    className={`py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                      newType === 'ip'
-                        ? 'bg-[var(--accent-pond)] text-white shadow-xs'
-                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                    }`}
-                  >
-                    <Wifi className="w-3.5 h-3.5" /> IP / PoE
-                  </button>
-                </div>
-
-                {newType === 'usb' ? (
-                  <div className="p-2.5 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] flex items-center justify-between gap-2.5">
-                    <div className="min-w-0">
-                      {detectedUsb ? (
-                        <>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-bold text-[var(--text-primary)] truncate">
-                              {detectedUsb.name}
-                            </span>
-                            <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                              DETECTED
-                            </span>
-                          </div>
-                          <span className="text-[10px] text-[var(--text-muted)]">Ready to add &amp; connect</span>
-                        </>
-                      ) : (
-                        <span className="text-[10px] text-[var(--text-muted)]">
-                          Click Detect to scan for a plugged-in USB OAK camera
-                        </span>
-                      )}
-                    </div>
-                    <Button variant="secondary" size="sm" disabled={isScanning} onClick={handleDetectUsb} className="h-7 px-2.5 text-xs">
-                      {isScanning ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Detect'}
-                    </Button>
-                  </div>
-                ) : (
-                  <input
-                    type="text"
-                    placeholder="Enter IP address (e.g. 192.168.1.100)"
-                    value={newIp}
-                    onChange={(e) => setNewIp(e.target.value)}
-                    className="w-full px-3 py-1.5 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] text-xs font-mono font-medium text-[var(--text-primary)] focus:outline-hidden focus:border-[var(--accent-pond)]"
-                  />
-                )}
-
-                {/* Form Error Banner */}
-                {errorMessage && !errorCameraId && (
-                  <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs flex items-start gap-1.5">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-rose-500" />
-                    <div className="min-w-0">
-                      <span className="font-bold block">Cannot Connect:</span>
-                      <span className="text-[11px] leading-relaxed break-words">{errorMessage}</span>
-                    </div>
-                  </div>
-                )}
-
-                <Button
-                  variant="primary"
-                  size="sm"
-                  disabled={
-                    connectingId === 'new' ||
-                    (newType === 'usb' && !detectedUsb) ||
-                    (newType === 'ip' && !newIp.trim())
-                  }
-                  onClick={handleAddAndConnect}
-                  className="w-full h-8 text-xs font-bold"
-                >
-                  {connectingId === 'new' ? (
-                    <span className="flex items-center justify-center gap-1.5">
-                      <Loader2 className="w-3 h-3 animate-spin" /> Connecting...
-                    </span>
-                  ) : (
-                    'Add & Connect'
-                  )}
-                </Button>
-              </div>
-            )}
-          </div>
+          </>
         )}
 
         {activeTab === 'image' && (
-          <div className="space-y-3.5">
+          <div className="space-y-3 p-0.5">
             <div>
               <div className="flex items-center justify-between text-xs font-bold text-[var(--text-primary)] mb-1">
                 <span>Brightness</span>
@@ -616,7 +696,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                 value={localConfig.brightness}
                 onChange={(e) => setLocalConfig({ ...localConfig, brightness: parseInt(e.target.value, 10) })}
                 style={getSliderStyle(localConfig.brightness, -50, 50)}
-                className="w-full h-2 rounded-lg cursor-pointer transition-all border border-[var(--border-color)]"
+                className="w-full h-1.5 rounded cursor-pointer transition-all border border-[var(--border-color)]"
               />
             </div>
 
@@ -632,7 +712,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                 value={localConfig.contrast}
                 onChange={(e) => setLocalConfig({ ...localConfig, contrast: parseInt(e.target.value, 10) })}
                 style={getSliderStyle(localConfig.contrast, 0, 100)}
-                className="w-full h-2 rounded-lg cursor-pointer transition-all border border-[var(--border-color)]"
+                className="w-full h-1.5 rounded cursor-pointer transition-all border border-[var(--border-color)]"
               />
             </div>
 
@@ -648,23 +728,27 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                 value={localConfig.exposure}
                 onChange={(e) => setLocalConfig({ ...localConfig, exposure: parseInt(e.target.value, 10) })}
                 style={getSliderStyle(localConfig.exposure, 10, 100)}
-                className="w-full h-2 rounded-lg cursor-pointer transition-all border border-[var(--border-color)]"
+                className="w-full h-1.5 rounded cursor-pointer transition-all border border-[var(--border-color)]"
               />
             </div>
 
-            <div className="flex items-center justify-between pt-1 border-t border-[var(--border-color)]">
-              <span className="text-xs font-bold text-[var(--text-primary)]">Continuous Auto-Focus</span>
+            <div className="flex items-center justify-between pt-1.5 border-t border-[var(--border-color)]">
+              <div>
+                <span className="text-xs font-bold text-[var(--text-primary)] block">Continuous Auto-Focus</span>
+                <span className="text-[10px] text-[var(--text-muted)]">Automatic lens focus adjustment</span>
+              </div>
               <button
                 type="button"
-                onClick={() => setLocalConfig({ ...localConfig, autoFocus: !localConfig.autoFocus })}
-                className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors cursor-pointer ${
-                  localConfig.autoFocus ? 'bg-[var(--accent-pond)]' : 'bg-[var(--btn-secondary-border)]'
-                }`}
+                onClick={() => {
+                  playWaterDropSound();
+                  setLocalConfig({ ...localConfig, autoFocus: !localConfig.autoFocus });
+                }}
+                className={`w-10 h-5 flex items-center rounded-full p-0.5 transition-colors cursor-pointer ${localConfig.autoFocus ? 'bg-[var(--accent-pond)]' : 'bg-[var(--btn-secondary-border)]'
+                  }`}
               >
                 <span
-                  className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
-                    localConfig.autoFocus ? 'translate-x-5' : 'translate-x-0'
-                  }`}
+                  className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${localConfig.autoFocus ? 'translate-x-5' : 'translate-x-0'
+                    }`}
                 />
               </button>
             </div>
@@ -672,33 +756,35 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
         )}
 
         {activeTab === 'oak' && (
-          <div className="space-y-3">
-            <div className="p-3 rounded-2xl bg-[var(--accent-pond-subtle)] border border-[var(--border-color)] text-xs leading-relaxed text-[var(--text-primary)]">
-              <div className="font-bold flex items-center gap-1.5 text-[var(--accent-pond)] mb-1">
-                <Cpu className="w-4 h-4" />
+          <div className="space-y-2.5 p-0.5">
+            <div className="p-2.5 rounded-xl bg-[var(--accent-pond-subtle)] border border-[var(--border-color)] text-xs leading-relaxed text-[var(--text-primary)]">
+              <div className="font-bold flex items-center gap-1.5 text-[var(--accent-pond)] mb-0.5">
+                <Cpu className="w-3.5 h-3.5" />
                 On-Device VPU Neural Engine
               </div>
               The YOLOv8-DuckTracker model runs entirely on the Myriad X / Keem Bay VPU inside the OAK camera, outputting bounding box coordinates directly at zero CPU overhead.
             </div>
 
-            <div className="space-y-2 text-xs">
-              <div className="flex justify-between py-1.5 border-b border-[var(--border-color)]">
+            <div className="space-y-1.5 text-xs">
+              <div className="flex justify-between py-1 border-b border-[var(--border-color)]">
                 <span className="text-[var(--text-secondary)]">Pipeline Mode</span>
                 <span className="font-mono font-bold text-[var(--accent-pond)]">DepthAI Spatial Detection (YOLOv8)</span>
               </div>
-              <div className="flex justify-between py-1.5 border-b border-[var(--border-color)]">
+              <div className="flex justify-between py-1 border-b border-[var(--border-color)]">
                 <span className="text-[var(--text-secondary)]">Hardware Status</span>
                 <span className={`font-mono font-bold ${config.connected ? 'text-emerald-500' : 'text-slate-400'}`}>
                   {config.connected ? 'Online • DepthAI Device Connected' : 'Standby • No Device Connected'}
                 </span>
               </div>
-              <div className="flex justify-between py-1.5 border-b border-[var(--border-color)]">
+              <div className="flex justify-between py-1 border-b border-[var(--border-color)]">
                 <span className="text-[var(--text-secondary)]">Target VPU Latency</span>
-                <span className="font-mono font-bold text-[var(--text-primary)]">~6.4 ms / frame (Zero CPU Load)</span>
+                <span className="font-mono font-bold text-[var(--text-primary)]">~6.4 ms / frame</span>
               </div>
-              <div className="flex justify-between py-1.5">
-                <span className="text-[var(--text-secondary)]">Configured Profile</span>
-                <span className="font-mono font-bold text-[var(--text-primary)]">{localConfig.resolution} @ {localConfig.targetFps} FPS</span>
+              <div className="flex justify-between py-1">
+                <span className="text-[var(--text-secondary)]">Active Profile</span>
+                <span className="font-mono font-bold text-[var(--text-primary)]">
+                  {localConfig.resolution} @ {localConfig.targetFps} FPS
+                </span>
               </div>
             </div>
           </div>
