@@ -508,20 +508,14 @@ export default function App() {
     sourceStateCache.current.camera = null;
     setLastCameraFrame(undefined);
     video.clearCameraRecording();
-    // Reset all camera hardware flags so canvas returns to standby/offline state
     camera.setCameraStartingState('ready');
-    camera.setIsStreaming(false);
-    camera.setIsCameraDeviceActive(false);
-    // Clear persisted session so a refresh after reset shows LandingScreen / fresh state
-    clearSessionState();
+
     try {
       await cameraService.stopLiveInference();
     } catch {}
-    try {
-      await cameraService.stopStream();
-    } catch {}
-    showToast('info', 'Camera reset • Ready to start stream');
-    addLog('Camera session reset • Detections cleared, stream ready.', 'info');
+
+    showToast('info', 'Detection cards and details reset');
+    addLog('Camera reset • Detection cards, counts, and metrics cleared.', 'info');
   };
 
   const handleStopStream = async () => {
