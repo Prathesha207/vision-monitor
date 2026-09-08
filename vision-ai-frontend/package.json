@@ -1,5 +1,6 @@
 {
   "name": "vision-monitor",
+  "desktopName": "vision-monitor",
   "version": "0.1.0",
   "description": "Vision Monitor Desktop Application",
   "homepage": "https://github.com/Prathesha207/vision-monitor",
@@ -103,7 +104,6 @@
       }
     ],
     "linux": {
-      "desktopName": "vision-monitor",
       "syncDesktopName": true,
       "icon": "public/icon.png",
       "executableArgs": [
