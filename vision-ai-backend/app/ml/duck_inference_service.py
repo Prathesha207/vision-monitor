@@ -273,7 +273,14 @@ def get_session_status(session_id: str) -> Optional[Dict[str, Any]]:
     session = _sessions.get(session_id)
     if not session:
         return None
-    return session.get("last_stats")
+    stats = session.get("last_stats")
+    if stats and isinstance(stats, dict):
+        import numpy as np
+        return {
+            k: v for k, v in stats.items()
+            if not k.startswith("_") and not isinstance(v, np.ndarray)
+        }
+    return stats
 
 
 def update_expected_ducks(session_id: str, count: int) -> None:
