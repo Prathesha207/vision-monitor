@@ -160,6 +160,29 @@ def disable_camera(db: Session, camera_id: int):
         )
 
 
+def delete_camera(db: Session, camera_id: int):
+    try:
+        camera = db.query(Camera).filter(Camera.id == camera_id).first()
+        if not camera:
+            raise HTTPException(status_code=404, detail="Camera not found")
+
+        db.delete(camera)
+        db.commit()
+        realtime_log_service.add_log(
+            "camera",
+            "CAMERA",
+            f"Camera deleted: ID {camera_id}",
+            "success"
+        )
+        return {"status": "success", "message": f"Camera {camera_id} deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[DELETE_CAMERA] Failed error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 def get_cameras(db: Session):
     return db.query(Camera).all()
 

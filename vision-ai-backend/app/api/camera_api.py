@@ -42,6 +42,12 @@ def disable_camera(camera_id: int, db: Session = Depends(get_db)):
     return camera_service.disable_camera(db, camera_id)
 
 
+@router.delete("/{camera_id}")
+@router.delete("/delete/{camera_id}")
+def delete_camera(camera_id: int, db: Session = Depends(get_db)):
+    return camera_service.delete_camera(db, camera_id)
+
+
 @router.get("/", response_model=List[CameraResponse])
 def get_cameras(db: Session = Depends(get_db)):
     return camera_service.get_cameras(db)

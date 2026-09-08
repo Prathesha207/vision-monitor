@@ -44,6 +44,11 @@ export const cameraService = {
     return res.data;
   },
 
+  async deleteCamera(id: string | number) {
+    const res = await api.delete(`/camera/${id}`);
+    return res.data;
+  },
+
   async saveCamera(data: CameraData) {
     if (data.id) {
       return await this.updateCamera(data.id, data);
