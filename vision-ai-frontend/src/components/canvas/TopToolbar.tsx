@@ -178,7 +178,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
         {/* Recording Button (Camera Only) */}
         {isCameraSource && !isRunning && (
           <button
-            disabled={(!isStreaming && !isRecording) || hasCameraRecording}
+            disabled={hasCameraRecording}
             onClick={() => {
               if (hasCameraRecording) return;
               playWaterDropSound();
@@ -187,18 +187,18 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             title={
               hasCameraRecording
                 ? 'Cannot record while reviewing a recorded clip. Return to live camera feed first.'
-                : isStreaming
-                  ? (isRecording ? 'Stop recording' : 'Record live camera stream')
-                  : 'Start the camera stream before recording'
+                : isRecording
+                  ? 'Stop recording'
+                  : isStreaming
+                    ? 'Record live camera stream'
+                    : 'Start camera stream and begin recording'
             }
             className={`h-7 sm:h-8 px-2.5 sm:px-3 flex items-center gap-1.5 sm:gap-2 rounded-xl backdrop-blur-md border text-[10px] sm:text-xs font-bold transition-all shrink-0 shadow-xs active:scale-95 ${
               isRecording
-                ? 'bg-red-500/20 border-red-500/50 text-red-400 animate-pulse'
+                ? 'bg-red-500/20 border-red-500/50 text-red-400 animate-pulse cursor-pointer'
                 : hasCameraRecording
                   ? 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-muted)] opacity-50 cursor-not-allowed'
-                  : isStreaming
-                    ? 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] cursor-pointer'
-                    : 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-muted)] opacity-50 cursor-not-allowed'
+                  : 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] cursor-pointer'
             }`}
           >
             <div className={`w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full ${isRecording ? 'bg-red-500' : 'bg-red-500/50'}`} />

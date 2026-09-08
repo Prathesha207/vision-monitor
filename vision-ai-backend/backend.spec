@@ -35,8 +35,6 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('matplotlib')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
-# Filter out test outputs and sqlite databases from being bundled in the installer
-datas = [d for d in datas if 'app/ml/output' not in d[0].replace('\\', '/') and not d[0].endswith('.db')]
 
 a = Analysis(
     ['run.py'],

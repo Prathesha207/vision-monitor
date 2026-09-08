@@ -388,6 +388,11 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
               stopRecording();
             } else {
               playWaterDropSound();
+              // If stream is not running yet, start the stream first automatically
+              if (!isStreaming && onStartStream) {
+                await onStartStream();
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+              }
               if (cameraImgRef.current) {
                 const targetFps = cameraTargetFps || (fps > 0 ? fps : 30);
                 startRecording(cameraImgRef.current, videoDimensions?.width || 1920, videoDimensions?.height || 1080, targetFps);

@@ -595,6 +595,14 @@ export default function App() {
         camera.setIsStreaming(false);
       }
     }
+    if ((sourceType === 'oak-camera' || sourceType === 'webcam') && !video.cameraRecordSessionId) {
+      if (!isRunning && !camera.isStreaming) {
+        // Stream not started yet: start both stream and inference together!
+        playWaterDropSound();
+        await startCameraPipeline();
+        return;
+      }
+    }
     await inference.handleToggleRunning(video.startVideoInference);
   };
   const handleStopInference = async () => {
@@ -602,7 +610,7 @@ export default function App() {
     setSelectedDuckId(null);
     await inference.handleStopInference();
   };
-  const handleResumeInference = () => {
+  const handleResumeInference = async () => {
     if (sourceType === 'uploaded-video' || sourceType === 'sample-pond') {
       if (!video.videoSessionId) {
         uploadTriggerRef.current?.();
@@ -611,6 +619,15 @@ export default function App() {
       playWaterDropSound();
       void video.startVideoInference();
       return;
+    }
+    if ((sourceType === 'oak-camera' || sourceType === 'webcam') && !video.cameraRecordSessionId) {
+      if (!camera.isStreaming) {
+        // User clicked Start Inference directly without clicking Start Stream first:
+        // Automatically start both stream and inference!
+        playWaterDropSound();
+        await startCameraPipeline();
+        return;
+      }
     }
     inference.handleResumeInference(video.startVideoInference);
   };

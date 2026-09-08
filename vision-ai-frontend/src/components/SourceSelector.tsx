@@ -152,24 +152,9 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   <span>STARTING...</span>
                 </button>
-              ) : isCameraMode && !isStreaming && !cameraRecordSessionId ? (
-                <button
-                  onClick={() => {
-                    playWaterDropSound();
-                    onStartStream?.();
-                  }}
-                  title="Start camera stream"
-                  className="h-8 sm:h-9 flex items-center gap-1 sm:gap-2 px-2.5 sm:px-5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-[11px] sm:text-xs shadow-sm active:scale-95 cursor-pointer transition-all shrink-0"
-                >
-                  <Play className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-current" />
-                  <span className="whitespace-nowrap">START<span className="hidden sm:inline"> STREAM</span></span>
-                </button>
               ) : isRunning ? (
                 /* When Running: provide STOP INFERENCE button */
                 <div className="flex items-center gap-1 sm:gap-2">
-                  {/* <Badge variant="normal" size="sm" dot className="mr-1 hidden xl:inline-flex">
-                    LIVE INFERENCE
-                  </Badge> */}
                   <button
                     onClick={() => {
                       playWaterDropSound();
@@ -197,7 +182,7 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                   )}
                 </div>
               ) : (
-                /* When Stopped / Paused: provide START INFERENCE */
+                /* When Stopped / Paused: provide START INFERENCE (and START/STOP STREAM for Camera) */
                 <div className="flex items-center gap-1 sm:gap-1.5">
                   <button
                     disabled={isStarting || isVideoLoading}
@@ -212,7 +197,9 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                         ? "Video is uploading... please wait"
                         : isStarting
                           ? "Starting inference... please wait"
-                          : "Start real-time YOLOv8 AI inference"
+                          : isCameraMode && !isStreaming
+                            ? "Start camera stream and real-time AI inference"
+                            : "Start real-time YOLOv8 AI inference"
                     }
                     className={`h-8 sm:h-9 flex items-center gap-1 sm:gap-2 px-2.5 sm:px-5 rounded-xl font-bold text-[11px] sm:text-xs shadow-sm transition-all shrink-0 ${isStarting || isVideoLoading
                       ? "bg-emerald-950/80 text-emerald-400/80 border border-emerald-700/50 cursor-not-allowed opacity-80"
@@ -230,21 +217,36 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                       )}
                     </span>
                   </button>
-                </div>
-              )}
 
-              {isCameraMode && isStreaming && !isRunning && !cameraRecordSessionId && (
-                <button
-                  onClick={() => {
-                    playWaterDropSound();
-                    onStopStream?.();
-                  }}
-                  title="Stop camera stream"
-                  className="h-8 sm:h-9 flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-4 rounded-xl bg-slate-600 hover:bg-slate-500 text-white font-bold text-[11px] sm:text-xs shadow-xs active:scale-95 cursor-pointer transition-all"
-                >
-                  <Square className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-current" />
-                  <span>STOP<span className="hidden sm:inline"> STREAM</span></span>
-                </button>
+                  {/* For Camera: allow streaming-only if user wants to align/view camera without AI */}
+                  {isCameraMode && !cameraRecordSessionId && (
+                    !isStreaming ? (
+                      <button
+                        onClick={() => {
+                          playWaterDropSound();
+                          onStartStream?.();
+                        }}
+                        title="Start camera stream only (no AI inference)"
+                        className="h-8 sm:h-9 flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-4 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-[11px] sm:text-xs shadow-xs active:scale-95 cursor-pointer transition-all shrink-0"
+                      >
+                        <Play className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-current" />
+                        <span className="whitespace-nowrap">START<span className="hidden sm:inline"> STREAM</span></span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          playWaterDropSound();
+                          onStopStream?.();
+                        }}
+                        title="Stop camera stream"
+                        className="h-8 sm:h-9 flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-4 rounded-xl bg-slate-600 hover:bg-slate-500 text-white font-bold text-[11px] sm:text-xs shadow-xs active:scale-95 cursor-pointer transition-all"
+                      >
+                        <Square className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-current" />
+                        <span>STOP<span className="hidden sm:inline"> STREAM</span></span>
+                      </button>
+                    )
+                  )}
+                </div>
               )}
 
               {/* Reset button for Video */}
