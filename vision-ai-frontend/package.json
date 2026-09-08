@@ -88,7 +88,7 @@
     "directories": {
       "output": "dist_app"
     },
-    "artifactName": "${productName}-${version}-${os}-${arch}-${ext}",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "files": [
       "dist/**/*",
       "electron/**/*",
