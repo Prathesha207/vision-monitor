@@ -1,6 +1,6 @@
 @echo off
 echo =======================================================
-echo        Vision AI Build (Windows Desktop App)
+echo     Vision Monitor Build (Windows Desktop App)
 echo =======================================================
 cd vision-ai-backend
 powershell -ExecutionPolicy Bypass -File build_windows_desktop.ps1

@@ -1,6 +1,6 @@
 @echo off
 echo =======================================================
-echo              Vision AI Setup (Windows)
+echo          Vision Monitor Setup (Windows)
 echo =======================================================
 echo.
 
