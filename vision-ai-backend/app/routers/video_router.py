@@ -53,8 +53,13 @@ async def upload_video(
     except RuntimeError as e:
         return JSONResponse(status_code=409, content={"message": str(e)})
 
-    # Save uploaded video directly into its dedicated session folder under ml/output/{session_id}/
-    session_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ml", "output", session_id)
+    # Save uploaded video directly into its dedicated session folder under guaranteed writable output directory
+    try:
+        from app.core.app_paths import get_ml_output_dir
+        base_output_dir = str(get_ml_output_dir())
+    except Exception:
+        base_output_dir = os.path.join(tempfile.gettempdir(), "vision_monitor_output")
+    session_dir = os.path.join(base_output_dir, session_id)
     os.makedirs(session_dir, exist_ok=True)
     
     ext = os.path.splitext(file.filename or "video.mp4")[1] or ".mp4"
@@ -264,7 +269,12 @@ async def get_last_frame(session_id: str):
         return JSONResponse(status_code=404, content={"message": "Session not found."})
     frame_bytes = session.get("last_frame_bytes")
     if not frame_bytes:
-        session_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ml", "output", session_id)
+        try:
+            from app.core.app_paths import get_ml_output_dir
+            base_output_dir = str(get_ml_output_dir())
+        except Exception:
+            base_output_dir = os.path.join(tempfile.gettempdir(), "vision_monitor_output")
+        session_dir = os.path.join(base_output_dir, session_id)
         raw_frames_dir = os.path.join(session_dir, "raw_frames")
         if os.path.exists(raw_frames_dir):
             frames = sorted(os.listdir(raw_frames_dir))

@@ -9,8 +9,19 @@ from pathlib import Path
 def user_data_dir() -> Path:
     if sys.platform == "win32":
         root = os.getenv("LOCALAPPDATA") or os.getenv("APPDATA")
-        return Path(root or Path.home()) / "Vision-AI"
-    return Path(os.getenv("XDG_STATE_HOME", Path.home() / ".local" / "state")) / "vision-ai"
+        base = Path(root or Path.home())
+        new_dir = base / "Vision-Monitor"
+        old_dir = base / "Vision-AI"
+        if not new_dir.exists() and old_dir.exists():
+            return old_dir
+        return new_dir
+
+    xdg = Path(os.getenv("XDG_STATE_HOME", Path.home() / ".local" / "state"))
+    new_dir = xdg / "vision-monitor"
+    old_dir = xdg / "vision-ai"
+    if not new_dir.exists() and old_dir.exists():
+        return old_dir
+    return new_dir
 
 
 DATA_DIR = user_data_dir()

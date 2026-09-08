@@ -129,8 +129,13 @@ def _get_or_create_session(session_id: str, expected_duck_count: int,
             except Exception:
                 cfg["device"] = "cpu"
 
-            # Temporary session config path with resolved model_path
-            session_cfg_dir = os.path.join(os.path.dirname(_CONFIG_PATH), "sessions")
+            # Temporary session config path with resolved model_path in a guaranteed WRITABLE directory
+            try:
+                from app.core.app_paths import get_ml_session_config_dir
+                session_cfg_dir = str(get_ml_session_config_dir())
+            except Exception:
+                import tempfile
+                session_cfg_dir = os.path.join(tempfile.gettempdir(), "vision_monitor_sessions")
             os.makedirs(session_cfg_dir, exist_ok=True)
             session_cfg_path = os.path.join(session_cfg_dir, f"camera_config_{session_id}.yaml")
             with open(session_cfg_path, "w") as f:

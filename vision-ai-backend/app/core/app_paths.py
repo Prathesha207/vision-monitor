@@ -7,10 +7,20 @@ def _user_data_dir() -> Path:
     """Return a writable per-user data directory on every supported OS."""
     if sys.platform == "win32":
         root = os.getenv("LOCALAPPDATA") or os.getenv("APPDATA")
-        return Path(root or Path.home()) / "Vision-AI"
+        base = Path(root or Path.home())
+        new_dir = base / "Vision-Monitor"
+        old_dir = base / "Vision-AI"
+        if not new_dir.exists() and old_dir.exists():
+            return old_dir
+        return new_dir
 
     # XDG is standard on Ubuntu and other Linux desktop distributions.
-    return Path(os.getenv("XDG_STATE_HOME", Path.home() / ".local" / "state")) / "vision-ai"
+    xdg = Path(os.getenv("XDG_STATE_HOME", Path.home() / ".local" / "state"))
+    new_dir = xdg / "vision-monitor"
+    old_dir = xdg / "vision-ai"
+    if not new_dir.exists() and old_dir.exists():
+        return old_dir
+    return new_dir
 
 
 def get_desktop_dir() -> Path:
@@ -61,7 +71,31 @@ def get_desktop_dir() -> Path:
 
 
 APP_DIR = _user_data_dir()
-
 APP_DIR.mkdir(parents=True, exist_ok=True)
 
 DATABASE_PATH = APP_DIR / "vision_ai.db"
+
+
+def get_ml_output_dir() -> Path:
+    """Return a guaranteed WRITABLE output directory for ML inference sessions (videos, thumbnails, results.json)."""
+    if getattr(sys, "frozen", False):
+        out = APP_DIR / "output"
+    else:
+        dev_out = Path(__file__).resolve().parent.parent / "ml" / "output"
+        try:
+            dev_out.mkdir(parents=True, exist_ok=True)
+            test_file = dev_out / ".write_test"
+            test_file.touch()
+            test_file.unlink()
+            return dev_out
+        except Exception:
+            out = APP_DIR / "output"
+    out.mkdir(parents=True, exist_ok=True)
+    return out
+
+
+def get_ml_session_config_dir() -> Path:
+    """Return a guaranteed WRITABLE directory for temporary camera and video YAML configs."""
+    cfg_dir = APP_DIR / "sessions"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    return cfg_dir

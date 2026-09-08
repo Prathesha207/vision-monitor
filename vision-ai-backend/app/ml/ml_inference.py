@@ -406,9 +406,13 @@ class VideoInferenceService:
                 if DuckAnalyzer is None:
                     raise RuntimeError("DuckAnalyzer package is not installed.")
 
-                # Unified session output directory under backend/ml/output/{session_id}/
-                ml_dir = os.path.dirname(self.config_path)
-                session_dir = os.path.join(ml_dir, "output", session_id)
+                # Unified session output directory under guaranteed writable directory
+                try:
+                    from app.core.app_paths import get_ml_output_dir
+                    base_output_dir = str(get_ml_output_dir())
+                except Exception:
+                    base_output_dir = os.path.join(tempfile.gettempdir(), "vision_monitor_output")
+                session_dir = os.path.join(base_output_dir, session_id)
                 os.makedirs(session_dir, exist_ok=True)
 
                 # Determine annotated video filename using original filename
@@ -842,7 +846,11 @@ class VideoInferenceService:
             temp_path = session.get("temp_file")
             # Only remove temporary upload files located inside ml/output/ (never desktop recordings or user videos)
             if temp_path and os.path.exists(temp_path):
-                ml_output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "output"))
+                try:
+                    from app.core.app_paths import get_ml_output_dir
+                    ml_output_dir = os.path.abspath(str(get_ml_output_dir()))
+                except Exception:
+                    ml_output_dir = os.path.abspath(os.path.join(tempfile.gettempdir(), "vision_monitor_output"))
                 try:
                     if os.path.commonpath([os.path.abspath(temp_path), ml_output_dir]) == ml_output_dir:
                         os.unlink(temp_path)

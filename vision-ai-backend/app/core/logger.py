@@ -25,7 +25,11 @@ def setup_logger(name: str = "vision-ai") -> logging.Logger:
     logger.propagate = False
 
     if _shared_handler is None:
-        base_log_dir = "logs"
+        try:
+            from app.core.app_paths import APP_DIR
+            base_log_dir = os.path.join(str(APP_DIR), "logs")
+        except Exception:
+            base_log_dir = "logs"
 
         date_folder = datetime.now().strftime("%Y-%m-%d")
         hour_folder = datetime.now().strftime("%H")
