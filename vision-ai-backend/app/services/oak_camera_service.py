@@ -1421,13 +1421,14 @@ class OakCameraService:
         if offline_was_running:
             self._stop_offline_thread()
         else:
-            streaming_active = self._stream_queue is not None
+            streaming_active = bool(self._is_streaming or self._stream_subscribers or (self._stream_queue is not None))
             recording_active = self._active_recording is not None
-            if not streaming_active and not recording_active:
-                logger.info("[INFERENCE] No other active operations — stopping capture threads")
+            # Keep capture threads alive if streaming or camera pipeline is running
+            if not streaming_active and not recording_active and not self._is_running:
+                logger.info("[INFERENCE] Camera not streaming or running — stopping capture threads")
                 self._stop_capture_threads()
             else:
-                logger.info("[INFERENCE] Other operations active — keeping capture threads running")
+                logger.info(f"[INFERENCE] Camera active (streaming={streaming_active}, recording={recording_active}, running={self._is_running}) — keeping capture threads running")
 
         logger.info("[INFERENCE] Stopped")
         self._stop_gpu_sampler()
@@ -1511,13 +1512,13 @@ class OakCameraService:
         _stop(session_id)
         logger.info("[RECORD] Recording stopped and session cleared")
 
-        # Stop capture threads only if streaming is also not active
-        streaming_active = self._stream_queue is not None
-        if not streaming_active:
-            logger.info("[RECORD] No active streaming — stopping capture threads")
+        # Stop capture threads only if streaming and pipeline are also not active
+        streaming_active = bool(self._is_streaming or self._stream_subscribers or (self._stream_queue is not None))
+        if not streaming_active and not self._is_running:
+            logger.info("[RECORD] No active streaming or running pipeline — stopping capture threads")
             self._stop_capture_threads()
         else:
-            logger.info("[RECORD] Streaming still active — keeping capture threads running")
+            logger.info("[RECORD] Streaming/pipeline still active — keeping capture threads running")
 
     # ==================== App Lifecycle (connect / disconnect) ====================
 

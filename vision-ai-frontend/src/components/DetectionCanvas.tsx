@@ -113,6 +113,13 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   const [videoAspect, setVideoAspect] = useState<number | null>(null);
   const [isFirstFrameLoaded, setIsFirstFrameLoaded] = useState<boolean>(false);
   const [streamCacheBuster, setStreamCacheBuster] = useState<number>(Date.now());
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+    };
+  }, []);
 
   const { isRecording, recordedFile, recordingDuration, startRecording, stopRecording, clearRecording } = useRecording();
   const backendStats = useInferenceStore((state) => state.stats);
@@ -123,6 +130,13 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   const hasActiveVideo = isVideoSource && !!customVideoUrl;
   const isWaitingForVideo = isVideoSource && !hasActiveVideo;
   const isCameraOffline = isCameraSource && !isCameraConnected && !hasCameraRecording;
+
+  // Ensure camera stream reconnects cleanly whenever running state changes while streaming
+  useEffect(() => {
+    if (isCameraSource && isStreaming) {
+      setStreamCacheBuster(Date.now());
+    }
+  }, [isRunning, isCameraSource, isStreaming]);
 
   const effectiveFramesProcessed = framesProcessed || backendStats?.frames_processed || 0;
   const hasInferenceResult = (effectiveFramesProcessed > 0 || ducks.length > 0) && ducks.length > 0;
@@ -290,7 +304,11 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                   setIsFirstFrameLoaded((prev) => (!prev ? true : prev));
                 }}
                 onError={() => {
-                  console.warn('[DetectionCanvas] Camera stream frame interrupted, retrying...');
+                  console.warn('[DetectionCanvas] Camera stream frame interrupted, scheduling reconnect...');
+                  if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+                  retryTimeoutRef.current = setTimeout(() => {
+                    setStreamCacheBuster(Date.now());
+                  }, 1000);
                 }}
               />
             ) : hasActiveVideo ? (

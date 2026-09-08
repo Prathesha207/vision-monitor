@@ -55,10 +55,10 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   const showInferenceStatus = isRunning || hasInferenceResult;
 
   return (
-    <>
-      {/* Top-Left Corner: Real-Time Status Badge */}
-      {showInferenceStatus && (
-        <div className="absolute top-2 sm:top-3 left-2 sm:left-3 pointer-events-auto z-30 flex items-center shrink-0">
+    <div className="absolute top-0 left-0 right-0 p-2 sm:p-3 flex items-center justify-between gap-2 pointer-events-none z-30 max-w-full overflow-hidden">
+      {/* Top-Left Corner: Real-Time Status Badge or Live Stream Indicator */}
+      <div className="pointer-events-auto flex items-center gap-2 min-w-0 shrink-0">
+        {showInferenceStatus ? (
           <div
             className={`flex items-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-3 rounded-xl border text-[10px] sm:text-xs font-black tracking-wide shrink-0 transition-all ${
               anomalyStatus.message === 'WARMING'
@@ -100,133 +100,140 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
               </>
             )}
           </div>
-        </div>
-      )}
+        ) : isCameraSource && isStreaming ? (
+          <div className="flex items-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-3 rounded-xl border text-[10px] sm:text-xs font-black tracking-wide shrink-0 bg-sky-950/90 text-sky-300 border-sky-500/50 shadow-xs">
+            <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse shrink-0 shadow-[0_0_8px_rgba(56,189,248,0.8)]" />
+            <span>LIVE STREAM</span>
+          </div>
+        ) : null}
+      </div>
 
       {/* Top-Right Corner: Action Controls */}
-      <div className="absolute top-2 sm:top-3 right-2 sm:right-3 flex items-center gap-1 sm:gap-1.5 pointer-events-auto z-30 ml-auto shrink-0">
+      <div className="pointer-events-auto flex items-center gap-1 sm:gap-1.5 flex-nowrap justify-end shrink min-w-0">
         {showInferenceStatus && (
           <>
-            {/* Feed toggle pill: RAW vs INFERENCE - Only shown for OAK camera, NOT for video upload */}
-          {isCameraSource && (
-            <div className="flex items-center h-7 sm:h-8 p-0.5 rounded-xl bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--border-color)] shadow-xs shrink-0">
+            {/* Feed toggle pill: RAW vs INFERENCE - Only shown for OAK camera */}
+            {isCameraSource && (
+              <div className="flex items-center h-7 sm:h-8 p-0.5 rounded-xl bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--border-color)] shadow-xs shrink-0">
+                <button
+                  onClick={() => {
+                    playWaterDropSound();
+                    onFeedModeChange('raw');
+                  }}
+                  className={`h-6 sm:h-7 px-2 sm:px-2.5 rounded-lg text-[10px] sm:text-xs font-bold tracking-wide flex items-center justify-center cursor-pointer transition-all ${
+                    feedMode === 'raw'
+                      ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs scale-100'
+                      : 'text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
+                  }`}
+                >
+                  RAW
+                </button>
+                <button
+                  onClick={() => {
+                    playWaterDropSound();
+                    onFeedModeChange('inference');
+                  }}
+                  className={`h-6 sm:h-7 px-2 sm:px-2.5 rounded-lg text-[10px] sm:text-xs font-bold tracking-wide flex items-center justify-center cursor-pointer transition-all ${
+                    feedMode === 'inference'
+                      ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs scale-100'
+                      : 'text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
+                  }`}
+                >
+                  INFERENCE
+                </button>
+              </div>
+            )}
+
+            {/* Bounding Box Mode Toggle: Anomalies Only (Default) vs All Boxes */}
+            {(feedMode === 'inference' || !isCameraSource) && (
               <button
                 onClick={() => {
                   playWaterDropSound();
-                  onFeedModeChange('raw');
+                  onToggleShowAllBoxes();
                 }}
-                className={`h-6 sm:h-7 px-2 sm:px-3 rounded-lg text-[10px] sm:text-xs font-bold tracking-wide flex items-center justify-center cursor-pointer ${
-                  feedMode === 'raw'
-                    ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs scale-100'
-                    : 'text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
+                aria-label={showAllBoxes ? "Showing all bounding boxes. Click to show anomaly boxes only." : "Showing anomaly bounding boxes only. Click to show all boxes."}
+                title={showAllBoxes ? "Bounding Boxes: SHOWING ALL (Click for Anomalies Only)" : "Bounding Boxes: ANOMALIES ONLY (Click for All Boxes)"}
+                className={`h-7 sm:h-8 px-2 sm:px-2.5 flex items-center gap-1.5 rounded-xl backdrop-blur-md border text-[10px] sm:text-xs font-bold transition-all shrink-0 shadow-xs cursor-pointer active:scale-95 ${
+                  !showAllBoxes
+                    ? 'bg-[var(--status-anomaly-bg)] border-[var(--status-anomaly-border)] text-[var(--status-anomaly-text)] hover:opacity-90'
+                    : 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
                 }`}
               >
-                RAW
+                {!showAllBoxes ? (
+                  <>
+                    <ShieldAlert className="w-3.5 h-3.5 text-[var(--status-anomaly-text)] shrink-0" />
+                    <span className="hidden md:inline">Anomalies Only</span>
+                  </>
+                ) : (
+                  <>
+                    <Layers className="w-3.5 h-3.5 text-[var(--text-primary)] shrink-0" />
+                    <span className="hidden md:inline">All Boxes</span>
+                  </>
+                )}
               </button>
-              <button
-                onClick={() => {
-                  playWaterDropSound();
-                  onFeedModeChange('inference');
-                }}
-                className={`h-6 sm:h-7 px-2 sm:px-3 rounded-lg text-[10px] sm:text-xs font-bold tracking-wide flex items-center justify-center cursor-pointer ${
-                  feedMode === 'inference'
-                    ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs scale-100'
-                    : 'text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
-                }`}
-              >
-                INFERENCE
-              </button>
-            </div>
-          )}
-
-          {/* Bounding Box Mode Toggle: Anomalies Only (Default) vs All Boxes */}
-          {(feedMode === 'inference' || !isCameraSource) && (
-            <button
-              onClick={() => {
-                playWaterDropSound();
-                onToggleShowAllBoxes();
-              }}
-              aria-label={showAllBoxes ? "Showing all bounding boxes. Click to show anomaly boxes only." : "Showing anomaly bounding boxes only. Click to show all boxes."}
-              title={showAllBoxes ? "Bounding Boxes: SHOWING ALL (Click for Anomalies Only)" : "Bounding Boxes: ANOMALIES ONLY (Click for All Boxes)"}
-              className={`h-7 sm:h-8 px-2 sm:px-2.5 flex items-center gap-1.5 rounded-xl backdrop-blur-md border text-[10px] sm:text-xs font-bold transition-all shrink-0 shadow-xs cursor-pointer active:scale-95 ${
-                !showAllBoxes
-                  ? 'bg-[var(--status-anomaly-bg)] border-[var(--status-anomaly-border)] text-[var(--status-anomaly-text)] hover:opacity-90'
-                  : 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
-              }`}
-            >
-              {!showAllBoxes ? (
-                <>
-                  <ShieldAlert className="w-3.5 h-3.5 text-[var(--status-anomaly-text)] shrink-0" />
-                  <span className="hidden sm:inline">Anomalies Only</span>
-                </>
-              ) : (
-                <>
-                  <Layers className="w-3.5 h-3.5 text-[var(--text-primary)] shrink-0" />
-                  <span className="hidden sm:inline">All Boxes</span>
-                </>
-              )}
-            </button>
-          )}
-        </>
-      )}
-
-      {/* Recording Button (Camera Only) */}
-      {isCameraSource && !isRunning && (
-        <button
-          disabled={(!isStreaming && !isRecording) || hasCameraRecording}
-          onClick={() => {
-            if (hasCameraRecording) return;
-            playWaterDropSound();
-            onToggleRecording();
-          }}
-          title={
-            hasCameraRecording
-              ? 'Cannot record while reviewing a recorded clip. Return to live camera feed first.'
-              : isStreaming
-                ? (isRecording ? 'Stop recording' : 'Record live camera stream')
-                : 'Start the camera stream before recording'
-          }
-          className={`h-7 sm:h-8 px-3 flex items-center gap-2 rounded-xl backdrop-blur-md border text-xs font-bold transition-all shrink-0 shadow-xs active:scale-95 ${
-            isRecording
-              ? 'bg-red-500/20 border-red-500/50 text-red-400 animate-pulse'
-              : hasCameraRecording
-                ? 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-muted)] opacity-50 cursor-not-allowed'
-                : isStreaming
-                  ? 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] cursor-pointer'
-                  : 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-muted)] opacity-50 cursor-not-allowed'
-          }`}
-        >
-          <div className={`w-2.5 h-2.5 rounded-full ${isRecording ? 'bg-red-500' : 'bg-red-500/50'}`} />
-          {isRecording 
-            ? `RECORDING (${Math.floor(recordingDuration / 60)}:${(recordingDuration % 60).toString().padStart(2, '0')})`
-            : 'RECORD'}
-        </button>
-      )}
-
-      {/* Fullscreen Button */}
-      <button
-        onClick={onToggleFullscreen}
-        aria-label={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
-        title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
-        className="w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center rounded-xl bg-[var(--btn-secondary-bg)] backdrop-blur-md border border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] active:scale-95 shrink-0 shadow-xs cursor-pointer"
-      >
-        {isFullscreen ? (
-          <Minimize2 className="w-3.5 h-3.5 text-[var(--status-anomaly-text)]" />
-        ) : (
-          <Expand className="w-3.5 h-3.5" />
+            )}
+          </>
         )}
-      </button>
 
-      {/* Quick HUD Visibility Toggle */}
-      <button
-        onClick={onToggleHUD}
-        aria-label={showHUD ? 'Hide HUD overlay' : 'Show HUD overlay'}
-        title={showHUD ? 'Hide HUD overlay' : 'Show HUD overlay'}
-        className="w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center rounded-xl bg-[var(--btn-secondary-bg)] backdrop-blur-md border border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] active:scale-95 shrink-0 shadow-xs cursor-pointer"
-      >
-        {showHUD ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-[var(--text-muted)]" />}
-      </button>
+        {/* Recording Button (Camera Only) */}
+        {isCameraSource && !isRunning && (
+          <button
+            disabled={(!isStreaming && !isRecording) || hasCameraRecording}
+            onClick={() => {
+              if (hasCameraRecording) return;
+              playWaterDropSound();
+              onToggleRecording();
+            }}
+            title={
+              hasCameraRecording
+                ? 'Cannot record while reviewing a recorded clip. Return to live camera feed first.'
+                : isStreaming
+                  ? (isRecording ? 'Stop recording' : 'Record live camera stream')
+                  : 'Start the camera stream before recording'
+            }
+            className={`h-7 sm:h-8 px-2.5 sm:px-3 flex items-center gap-1.5 sm:gap-2 rounded-xl backdrop-blur-md border text-[10px] sm:text-xs font-bold transition-all shrink-0 shadow-xs active:scale-95 ${
+              isRecording
+                ? 'bg-red-500/20 border-red-500/50 text-red-400 animate-pulse'
+                : hasCameraRecording
+                  ? 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-muted)] opacity-50 cursor-not-allowed'
+                  : isStreaming
+                    ? 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] cursor-pointer'
+                    : 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-muted)] opacity-50 cursor-not-allowed'
+            }`}
+          >
+            <div className={`w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full ${isRecording ? 'bg-red-500' : 'bg-red-500/50'}`} />
+            <span>
+              {isRecording 
+                ? `REC (${Math.floor(recordingDuration / 60)}:${(recordingDuration % 60).toString().padStart(2, '0')})`
+                : 'RECORD'}
+            </span>
+          </button>
+        )}
+
+        {/* Fullscreen Button */}
+        <button
+          onClick={onToggleFullscreen}
+          aria-label={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+          title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+          className="w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center rounded-xl bg-[var(--btn-secondary-bg)] backdrop-blur-md border border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] active:scale-95 shrink-0 shadow-xs cursor-pointer"
+        >
+          {isFullscreen ? (
+            <Minimize2 className="w-3.5 h-3.5 text-[var(--status-anomaly-text)]" />
+          ) : (
+            <Expand className="w-3.5 h-3.5" />
+          )}
+        </button>
+
+        {/* Quick HUD Visibility Toggle */}
+        <button
+          onClick={onToggleHUD}
+          aria-label={showHUD ? 'Hide HUD overlay' : 'Show HUD overlay'}
+          title={showHUD ? 'Hide HUD overlay' : 'Show HUD overlay'}
+          className="w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center rounded-xl bg-[var(--btn-secondary-bg)] backdrop-blur-md border border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] active:scale-95 shrink-0 shadow-xs cursor-pointer"
+        >
+          {showHUD ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-[var(--text-muted)]" />}
+        </button>
+      </div>
     </div>
-  </>
   );
 };

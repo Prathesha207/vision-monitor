@@ -122,6 +122,7 @@ async def stream(request: Request, session_id: Optional[str] = None):
         logger.info("[STREAM] Capture threads not running — starting them now")
         oak_camera_service._start_capture_threads()
 
+    oak_camera_service._is_streaming = True
     client_queue = oak_camera_service.subscribe_stream()
 
     async def generate():
