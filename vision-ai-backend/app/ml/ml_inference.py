@@ -533,12 +533,9 @@ class VideoInferenceService:
                 if total_frames <= 0:
                     try:
                         import imageio_ffmpeg
-                        meta = imageio_ffmpeg.read_frames(temp_file_path)
-                        # Estimate total frames from duration and fps
-                        duration = meta.get("duration", 0) if isinstance(meta, dict) else 0
-                        fps_meta = meta.get("fps", 30) if isinstance(meta, dict) else 30
-                        if duration > 0 and fps_meta > 0:
-                            total_frames = int(duration * fps_meta)
+                        nframes, _ = imageio_ffmpeg.count_frames_and_secs(temp_file_path)
+                        if nframes and nframes > 0:
+                            total_frames = int(nframes)
                     except Exception:
                         pass
                 session["stats"]["total_frames"] = max(1, total_frames)
@@ -558,6 +555,14 @@ class VideoInferenceService:
                 max_consecutive_failures = 10  # abort the session if the model is failing on every frame, not just a bad one
 
                 while not session["stop_event"].is_set() and self._is_current_run(session_id, run_seq):
+                    # Hard upper bound: never run inference beyond total_frames
+                    if total_frames > 0 and frame_idx >= total_frames:
+                        logger.info(f"Session {session_id}: reached expected total_frames ({total_frames}). Ending inference.")
+                        session["status"] = "completed"
+                        session["stats"]["status"] = "completed"
+                        session["stats"]["progress"] = 100.0
+                        break
+
                     ret, frame = cap.read()
                     # A Stop -> Start may replace this task while OpenCV was
                     # decoding. Never publish even one old frame/stat update
@@ -566,8 +571,12 @@ class VideoInferenceService:
                         break
                     if not ret:
                         # End of video
+                        logger.info(f"Session {session_id}: reached EOF at frame {frame_idx} (expected: {total_frames})")
+                        if frame_idx > 0:
+                            session["stats"]["total_frames"] = frame_idx
                         session["status"] = "completed"
                         session["stats"]["status"] = "completed"
+                        session["stats"]["progress"] = 100.0
                         break
                     
                     height, width = frame.shape[:2]
@@ -680,7 +689,7 @@ class VideoInferenceService:
                     # Update stats
                     elapsed = time.time() - start_time
                     fps = frame_idx / elapsed if elapsed > 0 else 0
-                    progress = (frame_idx / total_frames * 100) if total_frames > 0 else 0
+                    progress = min(100.0, (frame_idx / total_frames * 100)) if total_frames > 0 else 0
                     
                     # thumbnails are one-shot events (confirmed/added/other/etc,
                     # emitted once each by analyzer.py) -- accumulate them for
@@ -734,6 +743,9 @@ class VideoInferenceService:
                     session["status"] = "completed"
                     session["stats"]["status"] = "completed"
                     session["stats"]["progress"] = 100.0
+                    if frame_idx > 0:
+                        session["stats"]["total_frames"] = frame_idx
+                        session["stats"]["frames_processed"] = frame_idx
 
                 # analyzer.py does not write results.json itself -- that path
                 # was being set on session_cfg but nothing ever wrote to it.

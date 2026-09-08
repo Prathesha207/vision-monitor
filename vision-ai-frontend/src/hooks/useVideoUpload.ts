@@ -29,6 +29,10 @@ export const useVideoUpload = (
     formData.append('file', file);
     formData.append('expected_ducks', expectedDucks.toString());
     formData.append('is_camera_recording', isRec ? 'true' : 'false');
+    const fpsMatch = file.name.match(/_(\d+)fps/i);
+    if (fpsMatch) {
+      formData.append('fps', fpsMatch[1]);
+    }
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${getApiBaseUrl()}/video/upload`);

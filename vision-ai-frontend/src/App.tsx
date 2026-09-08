@@ -344,7 +344,7 @@ export default function App() {
       addLog('🔄 Page refreshed — reconnecting to live camera inference stream...', 'info');
       camera.setIsStreaming(true);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ─── 10. Anomaly Detection (computed exactly once per render) ──────
@@ -381,11 +381,11 @@ export default function App() {
 
     // 2. Stop running stream/inference on previous source
     if (isCurrentCamera) {
-      if (isRunning) { setIsRunning(false); cameraService.stopLiveInference().catch(() => {}); }
-      if (camera.isStreaming) { cameraService.stopStream().catch(() => {}); camera.setIsStreaming(false); }
+      if (isRunning) { setIsRunning(false); cameraService.stopLiveInference().catch(() => { }); }
+      if (camera.isStreaming) { cameraService.stopStream().catch(() => { }); camera.setIsStreaming(false); }
     } else if (isRunning && video.videoSessionId) {
       setIsRunning(false);
-      fetch(`${getApiBaseUrl()}/video/stop/${video.videoSessionId}`, { method: 'POST' }).catch(() => {});
+      fetch(`${getApiBaseUrl()}/video/stop/${video.videoSessionId}`, { method: 'POST' }).catch(() => { });
     }
 
     // 3. Switch source
@@ -512,7 +512,7 @@ export default function App() {
 
     try {
       await cameraService.stopLiveInference();
-    } catch {}
+    } catch { }
 
     showToast('info', 'Detection cards and details reset');
     addLog('Camera reset • Detection cards, counts, and metrics cleared.', 'info');
@@ -535,10 +535,10 @@ export default function App() {
 
     try {
       await cameraService.stopLiveInference();
-    } catch {}
+    } catch { }
     try {
       await cameraService.stopStream();
-    } catch {}
+    } catch { }
 
     showToast('info', 'Camera stream stopped • Cleared for fresh stream');
     addLog('Camera stream stopped • Canvas, overlays, and drawer cleared for fresh stream.', 'info');
@@ -548,7 +548,7 @@ export default function App() {
     video.clearCameraRecording();
     camera.setCameraStartingState('ready');
     camera.setIsStreaming(false);
-    cameraService.stopStream().catch(() => {});
+    cameraService.stopStream().catch(() => { });
   };
 
   const handleResetVideo = async () => {
@@ -566,7 +566,7 @@ export default function App() {
     if (video.videoSessionId) {
       try {
         await fetch(`${getApiBaseUrl()}/video/stop/${video.videoSessionId}`, { method: 'POST' });
-      } catch {}
+      } catch { }
     }
     // Clear the video pipeline state so the upload card shows again
     video.setCustomVideoUrl(undefined);
@@ -590,8 +590,8 @@ export default function App() {
     if (sourceType === 'oak-camera' && video.cameraRecordSessionId) {
       if (!isRunning) {
         // GPU Contention Safety: release live camera claims before starting video inference on recording
-        await cameraService.stopLiveInference().catch(() => {});
-        await cameraService.stopStream().catch(() => {});
+        await cameraService.stopLiveInference().catch(() => { });
+        await cameraService.stopStream().catch(() => { });
         camera.setIsStreaming(false);
       }
     }
@@ -709,9 +709,8 @@ export default function App() {
     return (
       <div
         data-theme={theme}
-        className={`w-full min-w-full min-h-screen bg-[var(--bg-page)] text-[var(--text-primary)] ${
-          theme === 'pond-dark' ? 'theme-pond-dark dark' : theme === 'nature' ? 'theme-nature dark' : 'theme-pond-light'
-        }`}
+        className={`w-full min-w-full min-h-screen bg-[var(--bg-page)] text-[var(--text-primary)] ${theme === 'pond-dark' ? 'theme-pond-dark dark' : theme === 'nature' ? 'theme-nature dark' : 'theme-pond-light'
+          }`}
       >
         <LandingScreen cameraConnected={camera.cameraConnected} onInitialize={handleInitializeSystem} />
       </div>
@@ -819,6 +818,7 @@ export default function App() {
               cameraRecordUrl={video.cameraRecordUrl}
               cameraRecordName={video.cameraRecordName}
               onClearCameraRecord={handleClearCameraRecord}
+              cameraTargetFps={camera.effectiveCameraConfig.targetFps || 30}
             />
           </main>
 
@@ -895,7 +895,7 @@ export default function App() {
           const ipAddress = targetConfig.ipAddress || '';
 
           addLog(`Saving & connecting OAK camera at ${ipAddress || 'USB'} [${targetResolution} @ ${targetFps}fps]...`, 'info');
-          
+
           try {
             // 1. Save latest config to database first so DB always has latest resolution, FPS, and IP
             const payload = {
@@ -932,13 +932,13 @@ export default function App() {
             // 2. Stop running stream/pipeline if already active to rebuild cleanly with new resolution & FPS
             try {
               await cameraService.stopLiveInference();
-            } catch {}
+            } catch { }
             try {
               await cameraService.stopStream();
-            } catch {}
+            } catch { }
             try {
               await cameraService.stop();
-            } catch {}
+            } catch { }
 
             // 3. Connect & start pipeline with updated camera settings
             const startRes = await cameraService.start({

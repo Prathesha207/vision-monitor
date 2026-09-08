@@ -21,6 +21,7 @@ async def upload_video(
     file: UploadFile = File(...),
     expected_ducks: int = Form(18),
     is_camera_recording: bool = Form(False),
+    fps: Optional[int] = Form(None),
 ):
     is_camera_rec = is_camera_recording or bool(file.filename and file.filename.startswith("recorded_camera"))
     if is_camera_rec:
@@ -31,6 +32,19 @@ async def upload_video(
                 await asyncio.to_thread(oak_camera_service.stop_inference)
             except Exception as e:
                 logger.warning(f"Failed to auto-stop camera inference on recording upload: {e}")
+
+    # Determine target framerate from parameter or filename
+    target_fps = fps
+    if not target_fps and file.filename:
+        import re
+        m = re.search(r"_(\d+)fps", file.filename)
+        if m:
+            try:
+                target_fps = int(m.group(1))
+            except Exception:
+                pass
+    if not target_fps or target_fps <= 0:
+        target_fps = 30
 
     # NEW: create_session() now raises RuntimeError while a training job
     # owns the GPU -- surface that as 409 instead of letting it 500.
@@ -74,8 +88,8 @@ async def upload_video(
         return JSONResponse(status_code=500, content={"message": "Failed to save uploaded video."})
 
     # 1. First probe if OpenCV can directly read the raw uploaded video (instantaneous, <0.02s)
-    # Camera recordings (WebM) lack container duration/frame-count headers in OpenCV,
-    # so they MUST be transcoded to MP4 to ensure total_frames > 0 and accurate progress calculation.
+    # Camera recordings (WebM/MP4 from MediaRecorder) lack container duration/frame-count headers in OpenCV,
+    # so they MUST be transcoded with constant framerate to ensure exact frame counts and progress calculation.
     can_read_directly = False
     frame0_bytes = None
     frame_width = None
@@ -103,7 +117,7 @@ async def upload_video(
     effective_inference_path = raw_save_path
     browser_video_path = raw_save_path if can_read_directly else os.path.join(session_dir, "source.mp4")
 
-    # 2. Only if OpenCV CANNOT open the raw file directly, fall back to ffmpeg transcode
+    # 2. Only if OpenCV CANNOT open the raw file directly or for camera recordings, fall back to ffmpeg transcode
     if not can_read_directly:
         try:
             import imageio_ffmpeg
@@ -120,6 +134,8 @@ async def upload_video(
                 return subprocess.run(
                     [
                         ffmpeg_exe, "-y", "-i", raw_save_path,
+                        "-vf", f"fps={target_fps}",
+                        "-r", str(target_fps),
                         "-c:v", "libx264", "-profile:v", "baseline", "-level", "3.0",
                         "-preset", "ultrafast",
                         "-pix_fmt", "yuv420p",

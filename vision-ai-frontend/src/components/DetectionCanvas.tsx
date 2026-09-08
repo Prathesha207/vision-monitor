@@ -61,6 +61,7 @@ interface DetectionCanvasProps {
   cameraRecordUrl?: string;
   cameraRecordName?: string;
   onClearCameraRecord?: () => void;
+  cameraTargetFps?: number;
 }
 
 export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
@@ -101,6 +102,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   cameraRecordUrl,
   cameraRecordName,
   onClearCameraRecord,
+  cameraTargetFps,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -387,7 +389,8 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
             } else {
               playWaterDropSound();
               if (cameraImgRef.current) {
-                startRecording(cameraImgRef.current, videoDimensions?.width || 1920, videoDimensions?.height || 1080);
+                const targetFps = cameraTargetFps || (fps > 0 ? fps : 30);
+                startRecording(cameraImgRef.current, videoDimensions?.width || 1920, videoDimensions?.height || 1080, targetFps);
               }
             }
           }}

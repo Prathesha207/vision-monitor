@@ -1,15 +1,7 @@
 import React from 'react';
 import { StreamSourceType } from '../types';
-import {
-  Video,
-  Camera,
-  Play,
-  Square,
-  RotateCcw,
-  Loader2
-} from 'lucide-react';
+import { Video, Camera, Play, Square, RotateCcw, Loader2 } from 'lucide-react';
 import { playWaterDropSound } from '../utils/audio';
-import { Badge } from './ui/Badge';
 import { NumberStepper } from './ui/NumberStepper';
 import { useInferenceStore } from '../store/inferenceStore';
 
@@ -219,14 +211,13 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                       isVideoLoading
                         ? "Video is uploading... please wait"
                         : isStarting
-                        ? "Starting inference... please wait"
-                        : "Start real-time YOLOv8 AI inference"
+                          ? "Starting inference... please wait"
+                          : "Start real-time YOLOv8 AI inference"
                     }
-                    className={`h-8 sm:h-9 flex items-center gap-1 sm:gap-2 px-2.5 sm:px-5 rounded-xl font-bold text-[11px] sm:text-xs shadow-sm transition-all shrink-0 ${
-                      isStarting || isVideoLoading
-                        ? "bg-emerald-950/80 text-emerald-400/80 border border-emerald-700/50 cursor-not-allowed opacity-80"
-                        : "bg-emerald-600 hover:bg-emerald-500 text-white hover:shadow-emerald-600/30 active:scale-95 cursor-pointer"
-                    }`}
+                    className={`h-8 sm:h-9 flex items-center gap-1 sm:gap-2 px-2.5 sm:px-5 rounded-xl font-bold text-[11px] sm:text-xs shadow-sm transition-all shrink-0 ${isStarting || isVideoLoading
+                      ? "bg-emerald-950/80 text-emerald-400/80 border border-emerald-700/50 cursor-not-allowed opacity-80"
+                      : "bg-emerald-600 hover:bg-emerald-500 text-white hover:shadow-emerald-600/30 active:scale-95 cursor-pointer"
+                      }`}
                   >
                     {isStarting || isVideoLoading ? (
                       <Loader2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-spin text-emerald-400" />

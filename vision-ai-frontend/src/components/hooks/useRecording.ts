@@ -13,6 +13,7 @@ export function useRecording() {
   const hiddenCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const startTimeRef = useRef<number | null>(null);
   const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const recordingFpsRef = useRef<number>(30);
 
   const setIsRecordingStore = useInferenceStore((state) => state.setIsRecording);
 
@@ -20,9 +21,12 @@ export function useRecording() {
     setIsRecordingStore(isRecording);
   }, [isRecording, setIsRecordingStore]);
 
-  const startRecording = useCallback((imgElement: HTMLImageElement, width: number, height: number) => {
+  const startRecording = useCallback((imgElement: HTMLImageElement, width: number, height: number, fps: number = 30) => {
     if (isRecording) return;
     
+    const targetFps = Math.max(5, Math.min(60, Math.round(fps || 30)));
+    recordingFpsRef.current = targetFps;
+
     if (!hiddenCanvasRef.current) {
       hiddenCanvasRef.current = document.createElement('canvas');
     }
@@ -56,7 +60,7 @@ export function useRecording() {
       selectedMimeType = 'video/webm';
     }
 
-    const stream = canvas.captureStream(30);
+    const stream = canvas.captureStream(targetFps);
     const mediaRecorder = new MediaRecorder(stream, { mimeType: selectedMimeType });
     mediaRecorderRef.current = mediaRecorder;
     chunksRef.current = [];
@@ -88,7 +92,11 @@ export function useRecording() {
       setRecordedVideoUrl(url);
       
       const ext = selectedMimeType.includes('webm') ? 'webm' : 'mp4';
-      const file = new File([blob], `recorded_camera_${Date.now()}.${ext}`, { type: selectedMimeType });
+      const file = new File(
+        [blob], 
+        `recorded_camera_${Date.now()}_${targetFps}fps.${ext}`, 
+        { type: selectedMimeType }
+      );
       setRecordedFile(file);
     };
 
@@ -106,8 +114,10 @@ export function useRecording() {
     }, 1000);
 
     let lastTime = performance.now();
+    const frameInterval = 1000 / targetFps;
     const drawLoop = (time: number) => {
-      if (time - lastTime >= 1000 / 30) {
+      const elapsed = time - lastTime;
+      if (elapsed >= frameInterval) {
         try {
           if (imgElement && imgElement.complete && imgElement.naturalWidth > 0) {
             ctx.drawImage(imgElement, 0, 0, canvas.width, canvas.height);
@@ -115,7 +125,7 @@ export function useRecording() {
         } catch (e) {
           // Ignore transient cross-origin or render glitches
         }
-        lastTime = time;
+        lastTime = time - (elapsed % frameInterval);
       }
       animationFrameRef.current = requestAnimationFrame(drawLoop);
     };
