@@ -1,3 +1,4 @@
+import tempfile
 import asyncio
 import os
 import sys
@@ -407,6 +408,7 @@ class VideoInferenceService:
                     raise RuntimeError("DuckAnalyzer package is not installed.")
 
                 # Unified session output directory under guaranteed writable directory
+                ml_dir = os.path.dirname(os.path.abspath(self.config_path))
                 try:
                     from app.core.app_paths import get_ml_output_dir
                     base_output_dir = str(get_ml_output_dir())

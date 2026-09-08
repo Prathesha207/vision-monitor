@@ -11,7 +11,11 @@ def _user_data_dir() -> Path:
         new_dir = base / "Vision-Monitor"
         old_dir = base / "Vision-AI"
         if not new_dir.exists() and old_dir.exists():
-            return old_dir
+            try:
+                import shutil
+                shutil.copytree(old_dir, new_dir, dirs_exist_ok=True)
+            except Exception:
+                pass
         return new_dir
 
     # XDG is standard on Ubuntu and other Linux desktop distributions.
@@ -19,7 +23,11 @@ def _user_data_dir() -> Path:
     new_dir = xdg / "vision-monitor"
     old_dir = xdg / "vision-ai"
     if not new_dir.exists() and old_dir.exists():
-        return old_dir
+        try:
+            import shutil
+            shutil.copytree(old_dir, new_dir, dirs_exist_ok=True)
+        except Exception:
+            pass
     return new_dir
 
 
