@@ -7,7 +7,9 @@ import {
   Settings, 
   HelpCircle, 
   Video, 
-  Bot
+  Bot,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import { playWaterDropSound } from '../utils/audio';
 import { IconButton } from './ui';
@@ -22,6 +24,8 @@ interface HeaderProps {
   fps?: number;
   anomalyDetected?: boolean;
   onExitToLanding?: () => void;
+  soundActive?: boolean;
+  onToggleSound?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -31,6 +35,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSettings,
   onOpenHelp,
   onExitToLanding,
+  soundActive = true,
+  onToggleSound,
 }) => {
   const [backendConnected, setBackendConnected] = useState<boolean>(false);
 
@@ -137,6 +143,25 @@ export const Header: React.FC<HeaderProps> = ({
               </span>
             </button>
           </div>
+
+          {/* Sound Toggle Button */}
+          <IconButton
+            onClick={() => {
+              if (onToggleSound) {
+                onToggleSound();
+              }
+            }}
+            aria-label={soundActive ? 'Sound Alerts: Enabled (Click to Mute)' : 'Sound Alerts: Muted (Click to Unmute)'}
+            title={soundActive ? 'Sound Alerts: Enabled (Click to Mute)' : 'Sound Alerts: Muted (Click to Unmute)'}
+            icon={
+              soundActive ? (
+                <Volume2 className="w-3.5 h-3.5 text-[var(--accent-pond)]" />
+              ) : (
+                <VolumeX className="w-3.5 h-3.5 text-[var(--status-anomaly-text)]" />
+              )
+            }
+            size="md"
+          />
 
           {/* Theme Switcher Button */}
           <IconButton

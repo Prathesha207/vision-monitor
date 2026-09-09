@@ -34,6 +34,7 @@ interface SourceSelectorProps {
   cameraStartingState?: 'idle' | 'waking_camera' | 'waiting_frame' | 'ready';
   cameraRecordSessionId?: string | null;
   onClearCameraRecord?: () => void;
+  hasDetections?: boolean;
 }
 
 export const SourceSelector: React.FC<SourceSelectorProps> = ({
@@ -62,8 +63,15 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
   cameraStartingState = 'ready',
   cameraRecordSessionId,
   onClearCameraRecord,
+  hasDetections = false,
 }) => {
   const isVideoLoading = useInferenceStore((state) => state.isVideoLoading);
+  const stats = useInferenceStore((state) => state.stats);
+  const hasCameraDetections = Boolean(
+    hasDetections ||
+    (stats.frames_processed > 0 && stats.status !== 'idle') ||
+    (stats.detections && stats.detections.length > 0)
+  );
 
   const handleSourceClick = (targetType: StreamSourceType) => {
     playWaterDropSound();
@@ -264,8 +272,8 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                 </button>
               )}
 
-              {/* Reset button for Camera */}
-              {isCameraMode && (isStreaming || cameraRecordSessionId) && (
+              {/* Reset button for Camera: visible while running OR when stopped with existing card details to reset */}
+              {isCameraMode && (isRunning || hasCameraDetections) && (isStreaming || cameraRecordSessionId) && (
                 <button
                   onClick={() => {
                     playWaterDropSound();

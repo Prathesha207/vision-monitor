@@ -230,6 +230,14 @@ class VideoInferenceService:
         session = self.sessions.get(session_id)
         if session:
             session["stop_event"].set()
+            last_bytes = session.get("last_frame_bytes")
+            session_dir = session.get("session_dir")
+            if last_bytes and session_dir and os.path.isdir(session_dir):
+                try:
+                    with open(os.path.join(session_dir, "last_frame.jpg"), "wb") as f:
+                        f.write(last_bytes)
+                except Exception as e:
+                    logger.warning(f"Could not write last_frame.jpg on stop_session: {e}")
 
     def start_run(self, session_id: str) -> int:
         """Invalidate any previous task and prepare an entirely fresh stream."""
@@ -753,6 +761,15 @@ class VideoInferenceService:
                         session["stats"]["total_frames"] = frame_idx
                         session["stats"]["frames_processed"] = frame_idx
 
+                # Persist the final frame on disk so get_last_frame can serve it even across reloads
+                last_bytes = session.get("last_frame_bytes")
+                if last_bytes and session_dir and os.path.isdir(session_dir):
+                    try:
+                        with open(os.path.join(session_dir, "last_frame.jpg"), "wb") as f:
+                            f.write(last_bytes)
+                    except Exception as e:
+                        logger.warning(f"Could not persist last_frame.jpg for session {session_id}: {e}")
+
                 # analyzer.py does not write results.json itself -- that path
                 # was being set on session_cfg but nothing ever wrote to it.
                 # Write the final session summary here instead.
@@ -814,6 +831,10 @@ class VideoInferenceService:
                         if os.path.exists(dest_anom):
                             shutil.rmtree(dest_anom)
                         shutil.copytree(anomaly_frames_dir, dest_anom)
+
+                    last_frame_file = os.path.join(session_dir, "last_frame.jpg")
+                    if os.path.exists(last_frame_file):
+                        shutil.copy2(last_frame_file, archive_dir)
 
                     session["stats"]["archived_results_dir"] = archive_dir
                     logger.info(f"[ARCHIVE] Successfully finalized inference results in: {archive_dir}")

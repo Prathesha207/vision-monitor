@@ -1,7 +1,13 @@
 import React from 'react';
-import { Hand, ShieldAlert, Layers, Minimize2, Expand, Eye, EyeOff } from 'lucide-react';
+import { Hand, ShieldAlert, Layers, Minimize2, Expand, Eye, EyeOff, Video, Disc, Clock, Loader2 } from 'lucide-react';
 import type { AnomalyStatus } from '../../types';
 import { playWaterDropSound } from '../../utils/audio';
+
+const formatRecordingTime = (totalSeconds: number) => {
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+};
 
 interface TopToolbarProps {
   isRunning: boolean;
@@ -11,6 +17,7 @@ interface TopToolbarProps {
   showAllBoxes: boolean;
   onToggleShowAllBoxes: () => void;
   isRecording: boolean;
+  isSaving?: boolean;
   recordingDuration?: number;
   onToggleRecording: () => void;
   isFullscreen: boolean;
@@ -35,6 +42,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   showAllBoxes,
   onToggleShowAllBoxes,
   isRecording,
+  isSaving = false,
   recordingDuration = 0,
   onToggleRecording,
   isFullscreen,
@@ -144,30 +152,30 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
               </div>
             )}
 
-            {/* Bounding Box Mode Toggle: Anomalies Only (Default) vs All Boxes */}
+            {/* Bounding Box Mode Toggle: Anomalies Only vs All Boxes */}
             {(feedMode === 'inference' || !isCameraSource) && (
               <button
                 onClick={() => {
                   playWaterDropSound();
                   onToggleShowAllBoxes();
                 }}
-                aria-label={showAllBoxes ? "Showing all bounding boxes. Click to show anomaly boxes only." : "Showing anomaly bounding boxes only. Click to show all boxes."}
+                aria-label={showAllBoxes ? "Showing all bounding boxes. Click for anomalies only." : "Showing anomaly bounding boxes only. Click for all boxes."}
                 title={showAllBoxes ? "Bounding Boxes: SHOWING ALL (Click for Anomalies Only)" : "Bounding Boxes: ANOMALIES ONLY (Click for All Boxes)"}
-                className={`h-7 sm:h-8 px-2 sm:px-2.5 flex items-center gap-1.5 rounded-xl backdrop-blur-md border text-[10px] sm:text-xs font-bold transition-all shrink-0 shadow-xs cursor-pointer active:scale-95 ${
+                className={`h-7 sm:h-8 px-2.5 sm:px-3 flex items-center gap-1.5 rounded-xl backdrop-blur-md border shadow-xs transition-all cursor-pointer active:scale-95 shrink-0 ${
                   !showAllBoxes
-                    ? 'bg-[var(--status-anomaly-bg)] border-[var(--status-anomaly-border)] text-[var(--status-anomaly-text)] hover:opacity-90'
+                    ? 'bg-red-600 border-red-600 text-white hover:bg-red-700 shadow-sm shadow-red-500/25'
                     : 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
                 }`}
               >
                 {!showAllBoxes ? (
                   <>
-                    <ShieldAlert className="w-3.5 h-3.5 text-[var(--status-anomaly-text)] shrink-0" />
-                    <span className="hidden md:inline">Anomalies Only</span>
+                    <ShieldAlert className="w-4 h-4 text-white shrink-0" />
+                    <span className="text-xs font-bold text-white">Anomalies Only</span>
                   </>
                 ) : (
                   <>
-                    <Layers className="w-3.5 h-3.5 text-[var(--text-primary)] shrink-0" />
-                    <span className="hidden md:inline">All Boxes</span>
+                    <Layers className="w-4 h-4 text-[var(--text-primary)] shrink-0" />
+                    <span className="text-xs font-bold text-[var(--text-primary)]">All Boxes</span>
                   </>
                 )}
               </button>
@@ -176,37 +184,72 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
         )}
 
         {/* Recording Button (Camera Only) */}
-        {isCameraSource && !isRunning && (
+        {isCameraSource && (
           <button
-            disabled={hasCameraRecording}
+            disabled={hasCameraRecording || isSaving}
             onClick={() => {
-              if (hasCameraRecording) return;
+              if (hasCameraRecording || isSaving) return;
               playWaterDropSound();
               onToggleRecording();
             }}
             title={
               hasCameraRecording
                 ? 'Cannot record while reviewing a recorded clip. Return to live camera feed first.'
-                : isRecording
-                  ? 'Stop recording'
-                  : isStreaming
-                    ? 'Record live camera stream'
-                    : 'Start camera stream and begin recording'
+                : isSaving
+                  ? 'Finalizing recording... please wait'
+                  : isRecording
+                    ? 'Click to stop recording'
+                    : isStreaming
+                      ? 'Click to record live camera stream'
+                      : 'Start camera stream and begin recording'
             }
-            className={`h-7 sm:h-8 px-2.5 sm:px-3 flex items-center gap-1.5 sm:gap-2 rounded-xl backdrop-blur-md border text-[10px] sm:text-xs font-bold transition-all shrink-0 shadow-xs active:scale-95 ${
-              isRecording
-                ? 'bg-red-500/20 border-red-500/50 text-red-400 animate-pulse cursor-pointer'
-                : hasCameraRecording
-                  ? 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-muted)] opacity-50 cursor-not-allowed'
-                  : 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] cursor-pointer'
+            className={`group h-7 sm:h-8 px-2 sm:px-2.5 flex items-center gap-1.5 sm:gap-2 rounded-xl backdrop-blur-md border text-[10px] sm:text-xs font-bold transition-all shrink-0 shadow-xs active:scale-95 ${
+              hasCameraRecording
+                ? 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-muted)] opacity-40 cursor-not-allowed'
+                : isSaving
+                  ? 'bg-rose-700/90 text-white border-rose-400/80 shadow-md cursor-wait'
+                  : isRecording
+                    ? 'bg-rose-600 hover:bg-rose-500 text-white border-rose-400 shadow-lg shadow-rose-600/40 animate-pulse ring-2 ring-rose-500/30 cursor-pointer'
+                    : 'bg-rose-50 hover:bg-rose-100 border-rose-300 text-rose-700 dark:bg-rose-950/60 dark:hover:bg-rose-900/80 dark:border-rose-500/50 dark:text-rose-200 dark:hover:text-white hover:shadow-rose-600/25 cursor-pointer'
             }`}
           >
-            <div className={`w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full ${isRecording ? 'bg-red-500' : 'bg-red-500/50'}`} />
-            <span>
-              {isRecording 
-                ? `REC (${Math.floor(recordingDuration / 60)}:${(recordingDuration % 60).toString().padStart(2, '0')})`
-                : 'RECORD'}
-            </span>
+            {isSaving ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-white shrink-0" />
+                <span className="font-bold text-[11px] uppercase tracking-wide">SAVING...</span>
+                <div className="flex items-center gap-1 font-mono text-[10px] sm:text-[10.5px] font-bold bg-black/35 border border-white/20 px-1.5 py-0.5 rounded-md text-white/90">
+                  <Clock className="w-2.5 h-2.5 text-rose-200 shrink-0" />
+                  <span>{formatRecordingTime(recordingDuration)}</span>
+                </div>
+              </>
+            ) : isRecording ? (
+              <>
+                {/* Live pulsing dot indicator */}
+                <span className="relative flex h-2.5 w-2.5 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-85" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white shadow-xs" />
+                </span>
+                <Disc className="w-3.5 h-3.5 text-white shrink-0 animate-spin [animation-duration:3s]" />
+                <span className="font-black text-[11px] sm:text-xs tracking-wider uppercase text-white">REC</span>
+                {/* Active Live Timer */}
+                <div className="flex items-center gap-1 font-mono text-[10.5px] sm:text-[11px] font-bold bg-black/35 border border-white/20 px-1.5 sm:px-2 py-0.5 rounded-lg text-white tracking-wider shadow-inner">
+                  <Clock className="w-3 h-3 text-rose-200 shrink-0" />
+                  <span>{formatRecordingTime(recordingDuration)}</span>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Anomaly red dot indicator */}
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.8)] shrink-0" />
+                <Video className="w-3.5 h-3.5 text-rose-500 dark:text-rose-400 shrink-0 group-hover:scale-110 transition-transform" />
+                <span className="font-bold text-[11px] sm:text-xs tracking-wide">REC</span>
+                {/* Standby Time badge */}
+                <div className="flex items-center gap-1 font-mono text-[10px] sm:text-[10.5px] font-semibold bg-rose-100/80 border border-rose-300 dark:bg-black/30 dark:border-rose-500/30 px-1.5 py-0.5 rounded-md text-rose-600 dark:text-rose-300/90">
+                  <Clock className="w-2.5 h-2.5 text-rose-500 dark:text-rose-400/80 shrink-0" />
+                  <span>00:00</span>
+                </div>
+              </>
+            )}
           </button>
         )}
 
@@ -218,9 +261,9 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           className="w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center rounded-xl bg-[var(--btn-secondary-bg)] backdrop-blur-md border border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] active:scale-95 shrink-0 shadow-xs cursor-pointer"
         >
           {isFullscreen ? (
-            <Minimize2 className="w-3.5 h-3.5 text-[var(--status-anomaly-text)]" />
+            <Minimize2 className="w-4 h-4 text-rose-500 dark:text-rose-400" />
           ) : (
-            <Expand className="w-3.5 h-3.5" />
+            <Expand className="w-4 h-4" />
           )}
         </button>
 
@@ -231,7 +274,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           title={showHUD ? 'Hide HUD overlay' : 'Show HUD overlay'}
           className="w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center rounded-xl bg-[var(--btn-secondary-bg)] backdrop-blur-md border border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] active:scale-95 shrink-0 shadow-xs cursor-pointer"
         >
-          {showHUD ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-[var(--text-muted)]" />}
+          {showHUD ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4 text-[var(--text-muted)]" />}
         </button>
       </div>
     </div>

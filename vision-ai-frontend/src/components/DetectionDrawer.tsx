@@ -117,7 +117,7 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
               <ShieldCheck className={`w-4 h-4 ${headerIconClass}`} />
             )}
             <span className={`font-semibold text-xs tracking-wider uppercase ${headerColorClass}`}>
-              {isEmptyState ? 'Inference Details' : anomalyStatus.message === 'HAND DETECTED' ? 'Hand Present' : anomalyStatus.isAnomaly ? 'Anomaly Detection' : 'Normal Operation'}
+              {isEmptyState ? 'Inference Details' : anomalyStatus.message === 'HAND DETECTED' ? 'Hand Present' : anomalyStatus.isAnomaly ? 'Anomaly Detection' : 'Normal'}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -299,8 +299,8 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
                 </span>
               )}
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${anomalyStatus.isAnomaly && (anomalyStatus.difference !== 0 || anomalyStatus.type === 'OVER_COUNT' || anomalyStatus.type === 'UNDER_COUNT')
-                  ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
-                  : 'bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border-[var(--border-color)]'
+                ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
+                : 'bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border-[var(--border-color)]'
                 }`}>
                 {ducks.length} Total
               </span>

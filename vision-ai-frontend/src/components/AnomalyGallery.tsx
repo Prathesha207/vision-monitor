@@ -127,13 +127,13 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
               : 'OK';
 
   const barColorClasses = isMissing
-    ? 'bg-amber-500/25 dark:bg-amber-950/60 border-amber-500/50 text-amber-900 dark:text-amber-200'
+    ? 'bg-[var(--status-warn-bg)] border-[var(--status-warn-border)] text-[var(--status-warn-text)]'
     : isNew
-      ? 'bg-cyan-500/25 dark:bg-cyan-950/60 border-cyan-500/50 text-cyan-900 dark:text-cyan-200'
+      ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-600 dark:text-cyan-400'
       : isAlert
-        ? 'bg-rose-500/25 dark:bg-rose-950/60 border-rose-500/50 text-rose-900 dark:text-rose-200'
+        ? 'bg-[var(--status-anomaly-bg)] border-[var(--status-anomaly-border)] text-[var(--status-anomaly-text)]'
         : isProvisional
-          ? 'bg-amber-500/20 dark:bg-amber-950/50 border-amber-500/40 text-amber-800 dark:text-amber-300'
+          ? 'bg-[var(--status-warn-bg)] border-[var(--status-warn-border)] text-[var(--status-warn-text)]'
           : 'bg-[var(--status-normal-bg)] border-[var(--status-normal-border)] text-[var(--status-normal-text)]';
 
   return (

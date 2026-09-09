@@ -183,6 +183,11 @@ async def upload_video(
         session["stats"]["status"] = "ready"
         if frame0_bytes:
             session["last_frame_bytes"] = frame0_bytes
+            try:
+                with open(os.path.join(session_dir, "last_frame.jpg"), "wb") as f:
+                    f.write(frame0_bytes)
+            except Exception:
+                pass
         if frame_width and frame_height:
             session["stats"]["video_width"] = frame_width
             session["stats"]["video_height"] = frame_height
@@ -266,9 +271,8 @@ async def stop_video(session_id: str):
 @router.get("/last_frame/{session_id}")
 async def get_last_frame(session_id: str):
     session = ml_inference_service.sessions.get(session_id)
-    if not session:
-        return JSONResponse(status_code=404, content={"message": "Session not found."})
-    frame_bytes = session.get("last_frame_bytes")
+    frame_bytes = session.get("last_frame_bytes") if session else None
+    
     if not frame_bytes:
         try:
             from app.core.app_paths import get_ml_output_dir
@@ -276,32 +280,86 @@ async def get_last_frame(session_id: str):
         except Exception:
             base_output_dir = os.path.join(tempfile.gettempdir(), "vision_monitor_output")
         session_dir = os.path.join(base_output_dir, session_id)
-        raw_frames_dir = os.path.join(session_dir, "raw_frames")
-        if os.path.exists(raw_frames_dir):
-            frames = sorted(os.listdir(raw_frames_dir))
-            if frames:
-                last_file = os.path.join(raw_frames_dir, frames[-1])
-                try:
-                    with open(last_file, "rb") as f:
-                        frame_bytes = f.read()
-                except Exception:
-                    pass
-    if not frame_bytes:
-        video_path = session.get("inference_video_path") or session.get("browser_video_path")
-        if video_path and os.path.exists(video_path):
+        
+        # 1. Check last_frame.jpg
+        last_frame_file = os.path.join(session_dir, "last_frame.jpg")
+        if os.path.exists(last_frame_file) and os.path.getsize(last_frame_file) > 0:
             try:
-                import cv2
-                cap = cv2.VideoCapture(video_path)
-                ret, frame0 = cap.read()
-                if ret and frame0 is not None:
-                    _, buf = cv2.imencode(".jpg", frame0, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                    frame_bytes = buf.tobytes()
-                    session["last_frame_bytes"] = frame_bytes
-                    session["stats"]["video_width"] = int(frame0.shape[1])
-                    session["stats"]["video_height"] = int(frame0.shape[0])
-                cap.release()
-            except Exception as e:
-                logger.warning(f"Failed to extract frame from video: {e}")
+                with open(last_frame_file, "rb") as f:
+                    frame_bytes = f.read()
+            except Exception:
+                pass
+
+        # 2. Check anomaly_frames
+        if not frame_bytes:
+            anomaly_dir = os.path.join(session_dir, "anomaly_frames")
+            if os.path.exists(anomaly_dir):
+                afiles = sorted(os.listdir(anomaly_dir))
+                if afiles:
+                    try:
+                        with open(os.path.join(anomaly_dir, afiles[-1]), "rb") as f:
+                            frame_bytes = f.read()
+                    except Exception:
+                        pass
+
+        # 3. Check raw_frames
+        if not frame_bytes:
+            raw_frames_dir = os.path.join(session_dir, "raw_frames")
+            if os.path.exists(raw_frames_dir):
+                frames = sorted(os.listdir(raw_frames_dir))
+                if frames:
+                    try:
+                        with open(os.path.join(raw_frames_dir, frames[-1]), "rb") as f:
+                            frame_bytes = f.read()
+                    except Exception:
+                        pass
+
+        # 4. Check video files on disk or in Desktop archive
+        if not frame_bytes:
+            potential_videos = []
+            if session:
+                for k in ("inference_video_path", "browser_video_path"):
+                    p = session.get(k)
+                    if p and os.path.exists(p):
+                        potential_videos.append(p)
+            if os.path.exists(session_dir):
+                for f in os.listdir(session_dir):
+                    if f.lower().endswith((".mp4", ".avi", ".mov", ".mkv", ".webm")):
+                        potential_videos.append(os.path.join(session_dir, f))
+            try:
+                from app.core.app_paths import get_desktop_dir
+                desktop = get_desktop_dir()
+                archive_base = os.path.join(str(desktop), "inference_results")
+                if os.path.exists(archive_base):
+                    for today in os.listdir(archive_base):
+                        target = os.path.join(archive_base, today, session_id)
+                        if os.path.exists(target):
+                            for fn in os.listdir(target):
+                                if fn.lower().endswith((".mp4", ".avi", ".mov", ".mkv", ".webm")):
+                                    potential_videos.append(os.path.join(target, fn))
+            except Exception:
+                pass
+
+            for video_path in potential_videos:
+                try:
+                    import cv2
+                    cap = cv2.VideoCapture(video_path)
+                    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+                    if total > 1:
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, total - 2))
+                    ret, frame0 = cap.read()
+                    if not ret or frame0 is None:
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        ret, frame0 = cap.read()
+                    cap.release()
+                    if ret and frame0 is not None:
+                        _, buf = cv2.imencode(".jpg", frame0, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                        frame_bytes = buf.tobytes()
+                        if session:
+                            session["last_frame_bytes"] = frame_bytes
+                        break
+                except Exception as e:
+                    logger.warning(f"Failed to extract frame from {video_path}: {e}")
 
     if not frame_bytes:
         return JSONResponse(status_code=404, content={"message": "No frame available."})

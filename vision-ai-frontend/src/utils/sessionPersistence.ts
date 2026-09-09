@@ -23,6 +23,7 @@ export interface PersistedSessionState {
   selectedDuckId?: string | null;
   videoDimensions?: { width: number; height: number } | null;
   lastCameraFrame?: string;
+  lastVideoFrame?: string;
 }
 
 export function saveSessionState(state: Partial<PersistedSessionState>) {

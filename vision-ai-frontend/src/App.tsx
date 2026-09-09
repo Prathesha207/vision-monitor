@@ -10,7 +10,7 @@ import { CameraSettingsModal } from './components/CameraSettingsModal';
 import { HelpModal } from './components/HelpModal';
 import { Modal, Toast, Button } from './components/ui';
 import { useInferenceStore } from './store/inferenceStore';
-import { playWaterDropSound, setSoundEnabled } from './utils/audio';
+import { playWaterDropSound, setSoundEnabled, isSoundEnabled } from './utils/audio';
 import { AlertTriangle } from 'lucide-react';
 import { getApiBaseUrl } from './lib/api';
 import { cameraService } from './components/service/cameraService';
@@ -57,7 +57,7 @@ export default function App() {
   };
 
   const [feedMode, setFeedMode] = useState<'raw' | 'inference'>('inference');
-  const [soundActive, setSoundActive] = useState<boolean>(true);
+  const [soundActive, setSoundActive] = useState<boolean>(() => isSoundEnabled());
   const [drawerOpen, setDrawerOpen] = useState<boolean>(true);
   const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
   const [helpOpen, setHelpOpen] = useState<boolean>(false);
@@ -106,6 +106,7 @@ export default function App() {
     return initialSession?.ducks ?? [];
   });
   const [lastCameraFrame, setLastCameraFrame] = useState<string | undefined>(() => initialSession?.lastCameraFrame);
+  const [lastVideoFrame, setLastVideoFrame] = useState<string | undefined>(() => initialSession?.lastVideoFrame);
 
   // Restore inference store stats from session on mount
   useEffect(() => {
@@ -140,8 +141,10 @@ export default function App() {
       ...(ducks.length > 0 && !isCamera ? { ducks } : {}),
       ...(framesProcessed > 0 && !isCamera ? { framesProcessed, fps, uptimeSeconds } : {}),
       stats: isCamera ? undefined : useInferenceStore.getState().stats,
+      lastCameraFrame: isCamera ? lastCameraFrame : undefined,
+      lastVideoFrame: !isCamera ? lastVideoFrame : undefined,
     });
-  }, [isRunning, sourceType, expectedDucks, ducks, framesProcessed, fps, uptimeSeconds]);
+  }, [isRunning, sourceType, expectedDucks, ducks, framesProcessed, fps, uptimeSeconds, lastCameraFrame, lastVideoFrame]);
 
   // Snapshot cache to preserve complete run state across source toggling
   interface SourceStateSnapshot {
@@ -153,6 +156,7 @@ export default function App() {
     selectedDuckId: string | null;
     videoDimensions: { width: number; height: number } | null;
     lastCameraFrame?: string;
+    lastVideoFrame?: string;
   }
 
   const sourceStateCache = React.useRef<{
@@ -377,6 +381,7 @@ export default function App() {
       selectedDuckId,
       videoDimensions: video.videoDimensions,
       lastCameraFrame: isCurrentCamera ? lastCameraFrame : undefined,
+      lastVideoFrame: !isCurrentCamera ? lastVideoFrame : undefined,
     };
 
     // 2. Stop running stream/inference on previous source
@@ -404,6 +409,7 @@ export default function App() {
       setSelectedDuckId(cached.selectedDuckId);
       if (cached.videoDimensions) video.setVideoDimensions(cached.videoDimensions);
       if (cached.lastCameraFrame && isTargetCamera) setLastCameraFrame(cached.lastCameraFrame);
+      if (cached.lastVideoFrame && !isTargetCamera) setLastVideoFrame(cached.lastVideoFrame);
     } else {
       // Clean slate for new un-run source
       setDucks([]);
@@ -491,6 +497,7 @@ export default function App() {
 
   const handleClearCustomVideo = () => {
     sourceStateCache.current.video = null;
+    setLastVideoFrame(undefined);
     video.handleClearVideo();
     showToast('info', 'Video cleared. Select or upload a new video.');
   };
@@ -562,6 +569,7 @@ export default function App() {
     inference.setFps(0);
     inference.setUptimeSeconds(0);
     sourceStateCache.current.video = null;
+    setLastVideoFrame(undefined);
     // Stop backend session if one is active
     if (video.videoSessionId) {
       try {
@@ -750,6 +758,8 @@ export default function App() {
         fps={fps}
         anomalyDetected={anomalyFinal.anomalyStatus.isAnomaly}
         onExitToLanding={() => { clearSessionState(); setSystemInitialized(false); }}
+        soundActive={soundActive}
+        onToggleSound={handleToggleSound}
       />
 
       <div className="relative w-full max-w-[1720px] 2xl:max-w-[1920px] mx-auto px-3 sm:px-5 lg:px-6 pt-2 sm:pt-3 pb-2 sm:pb-3 flex flex-col flex-1 min-h-0 gap-2.5 sm:gap-3">
@@ -796,6 +806,7 @@ export default function App() {
           cameraStartingState={camera.cameraStartingState}
           cameraRecordSessionId={video.cameraRecordSessionId}
           onClearCameraRecord={handleClearCameraRecord}
+          hasDetections={ducks.length > 0 || framesProcessed > 0}
         />
 
         <div className="w-full flex flex-col lg:flex-row items-stretch flex-1 min-h-0 gap-4">
@@ -828,6 +839,8 @@ export default function App() {
               isBackendConnected={isBackendConnected}
               onRegisterTriggerUpload={(fn) => { uploadTriggerRef.current = fn; }}
               lastCameraFrame={lastCameraFrame}
+              lastVideoFrame={lastVideoFrame}
+              onCaptureVideoFrame={setLastVideoFrame}
               onRetryConnection={camera.startCameraStream}
               onStartStream={camera.startCameraStream}
               framesProcessed={inference.framesProcessed}
