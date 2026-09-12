@@ -849,7 +849,7 @@ export default function App() {
               cameraRecordName={video.cameraRecordName}
               onClearCameraRecord={handleClearCameraRecord}
               cameraTargetFps={camera.effectiveCameraConfig.targetFps || 30}
-              recordingFormat={camera.effectiveCameraConfig.recordingFormat || 'AVI'}
+              recordingFormat={camera.effectiveCameraConfig.recordingFormat || 'MP4'}
             />
           </main>
 
@@ -905,6 +905,7 @@ export default function App() {
               exposure: cfg.exposure, gain: cfg.iso ?? cfg.gain, focus: cfg.focus,
               brightness: cfg.brightness, contrast: cfg.contrast,
               auto_focus: cfg.autoFocus, auto_exposure: cfg.autoExposure ?? true,
+              recording_format: cfg.recordingFormat || 'MP4',
             };
             const savedCamera = cfg.id
               ? await cameraService.updateCamera(cfg.id, payload)

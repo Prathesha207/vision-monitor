@@ -28,7 +28,7 @@ export function useRecording() {
     };
   }, []);
 
-  const startRecording = useCallback(async (recordingFormat: string = 'AVI') => {
+  const startRecording = useCallback(async (recordingFormat: string = 'MP4') => {
     if (isRecording || isSaving) return false;
 
     const newSessionId = `rec_${Date.now()}`;

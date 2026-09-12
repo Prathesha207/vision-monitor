@@ -37,7 +37,7 @@ class RecordingSession:
         height: int,
         fps: float = 30.0,           # kept for API compatibility; not used for timestamps
         root_path: str = None,
-        recording_format: str = "MJPEG",
+        recording_format: str = "MP4",
     ):
         now = datetime.now()
         if not root_path:
@@ -46,26 +46,26 @@ class RecordingSession:
         folder = os.path.join(root_path, now.strftime("%Y-%m-%d"))
         os.makedirs(folder, exist_ok=True)
 
-        fmt = (recording_format or "AVI").upper()
+        fmt = (recording_format or "MP4").upper()
 
         options = {}
-        if fmt in ("MP4", "H264", "LIBX264"):
-            fmt        = "MP4"
-            codec_name = "libx264"
-            pix_fmt    = "yuv420p"
-            ext        = ".mp4"
-            options    = {"preset": "ultrafast", "crf": "18"}
+        if fmt in ("AVI", "MJPEG"):
+            fmt        = "AVI"
+            codec_name = "mjpeg"
+            pix_fmt    = "yuvj420p"
+            ext        = ".avi"
         elif fmt in ("FFV1", "MKV"):
             fmt        = "FFV1"
             codec_name = "ffv1"
             pix_fmt    = "yuv420p"
             ext        = ".mkv"
             options    = {"level": "3"}
-        else:  # Default: AVI (MJPEG)
-            fmt        = "AVI"
-            codec_name = "mjpeg"
-            pix_fmt    = "yuvj420p"
-            ext        = ".avi"
+        else:  # Default: MP4 (H.264)
+            fmt        = "MP4"
+            codec_name = "libx264"
+            pix_fmt    = "yuv420p"
+            ext        = ".mp4"
+            options    = {"preset": "ultrafast", "crf": "18"}
 
         self.filename = now.strftime(f"session_%Y-%m-%d_%H-%M-%S{ext}")
         self.video_path = os.path.join(folder, self.filename)
@@ -246,7 +246,7 @@ def start_recording(
     height: int,
     fps: float = 30.0,
     root_path: str = None,
-    recording_format: str = "AVI",
+    recording_format: str = "MP4",
 ) -> str:
     logger.info(f"[RECORD] Creating session: {session_id} | format={recording_format}")
     if session_id in active_recordings:

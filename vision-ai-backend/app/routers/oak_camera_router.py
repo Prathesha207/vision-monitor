@@ -6,7 +6,7 @@ from typing import Optional
 import cv2
 import numpy as np
 import depthai as dai
-from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -15,6 +15,7 @@ from app.dependencies import get_db
 from app.models.camera_model import Camera
 from app.services import camera_service
 from app.services.oak_camera_service import oak_camera_service
+from app.services.realtime_log_service import realtime_log_service
 
 logger = logging.getLogger("oak-camera")
 
@@ -55,17 +56,29 @@ async def start_camera(payload: Optional[StartCameraPayload] = None, db: Session
                 from app.schemas.camera_schema import CameraUpdate
                 camera = camera_service.update_camera_partial(db, camera.id, CameraUpdate(ip_address=mxid))
         except Exception as e:
+            logger.warning(f"[OAK DEVICE ENUM] {e}")
+            realtime_log_service.add_log("camera", "WARN", f"No camera connected: {e}", "warning")
             return {"status": "error", "message": f"No camera connected: {str(e)}"}
 
-    result = await oak_camera_service.start(camera)
-    return result
+    try:
+        result = await oak_camera_service.start(camera)
+        return result
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /oak/start: {e}", exc_info=True)
+        realtime_log_service.add_log("camera", "CRASH", f"Start camera failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to start camera: {e}")
 
 
 @router.post("/stop")
 async def stop_camera():
     """App shutdown — stop everything and disconnect."""
-    result = await oak_camera_service.stop()
-    return result
+    try:
+        result = await oak_camera_service.stop()
+        return result
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /oak/stop: {e}", exc_info=True)
+        realtime_log_service.add_log("camera", "CRASH", f"Stop camera failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to stop camera: {e}")
 
 
 # ==================== Stream Lifecycle ====================
@@ -73,15 +86,25 @@ async def stop_camera():
 @router.post("/stream/start")
 async def start_stream():
     """User clicks Start Streaming — starts the 3 capture threads."""
-    result = await oak_camera_service.start_streaming()
-    return result
+    try:
+        result = await oak_camera_service.start_streaming()
+        return result
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /oak/stream/start: {e}", exc_info=True)
+        realtime_log_service.add_log("stream", "CRASH", f"Start stream failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to start stream: {e}")
 
 
 @router.post("/stream/stop")
 async def stop_stream():
     """User clicks Stop Streaming — stops capture threads and clears queues."""
-    result = await oak_camera_service.stop_streaming()
-    return result
+    try:
+        result = await oak_camera_service.stop_streaming()
+        return result
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /oak/stream/stop: {e}", exc_info=True)
+        realtime_log_service.add_log("stream", "CRASH", f"Stop stream failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to stop stream: {e}")
 
 
 # ==================== MJPEG Stream ====================
@@ -271,14 +294,21 @@ def update_controls(
     brightness: int | None = None,
     contrast: int | None = None,
 ):
-    oak_camera_service.update_controls(
-        exposure=exposure,
-        gain=gain,
-        focus=focus,
-        brightness=brightness,
-        contrast=contrast,
-    )
-    return {"status": "ok"}
+    try:
+        oak_camera_service.update_controls(
+            exposure=exposure,
+            gain=gain,
+            focus=focus,
+            brightness=brightness,
+            contrast=contrast,
+        )
+        return {"status": "ok"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /oak/controls: {e}", exc_info=True)
+        realtime_log_service.add_log("camera", "CRASH", f"Camera controls update failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to update controls: {e}")
 
 
 # ==================== Inference ====================
@@ -292,40 +322,68 @@ class InferenceStartBody(BaseModel):
 
 @router.post("/inference/start/{session_id}")
 async def start_inference(session_id: str, body: InferenceStartBody = InferenceStartBody()):
-    loop = asyncio.get_running_loop()
-    # Resolve legacy videoId field as videoPath so old frontend builds still work
-    resolved_video_path = body.videoPath or body.videoId or None
-    result = oak_camera_service.start_inference(
-        session_id, loop,
-        offline=body.offline,
-        video_path=resolved_video_path,
-        folder_path=body.folderPath,
-    )
-    return result
+    try:
+        loop = asyncio.get_running_loop()
+        # Resolve legacy videoId field as videoPath so old frontend builds still work
+        resolved_video_path = body.videoPath or body.videoId or None
+        result = oak_camera_service.start_inference(
+            session_id, loop,
+            offline=body.offline,
+            video_path=resolved_video_path,
+            folder_path=body.folderPath,
+        )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /oak/inference/start/{session_id}: {e}", exc_info=True)
+        realtime_log_service.add_log("inference", "CRASH", f"Inference start failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to start inference: {e}")
 
 
 @router.post("/inference/stop")
 def stop_inference():
-    result = oak_camera_service.stop_inference()
-    return result
+    try:
+        result = oak_camera_service.stop_inference()
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /oak/inference/stop: {e}", exc_info=True)
+        realtime_log_service.add_log("inference", "CRASH", f"Inference stop failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to stop inference: {e}")
 
 class ExpectedCountUpdate(BaseModel):
     count: int
 
 @router.post("/inference/update_expected/{session_id}")
 async def update_expected(session_id: str, payload: ExpectedCountUpdate):
-    from app.ml.duck_inference_service import update_expected_ducks
-    update_expected_ducks(session_id, payload.count)
-    return {"message": "Expected duck count updated."}
+    try:
+        from app.ml.camera_inference_service import update_expected_ducks
+        update_expected_ducks(session_id, payload.count)
+        return {"message": "Expected duck count updated."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /oak/inference/update_expected/{session_id}: {e}", exc_info=True)
+        realtime_log_service.add_log("inference", "CRASH", f"Update expected count failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to update expected count: {e}")
 
 
 @router.get("/inference/status/{session_id}")
 async def get_camera_inference_status(session_id: str):
-    from app.ml.duck_inference_service import get_session_status
-    status = get_session_status(session_id)
-    if not status:
-        return {"status": "idle", "session_id": session_id}
-    return status
+    try:
+        from app.ml.camera_inference_service import get_session_status
+        status = get_session_status(session_id)
+        if not status:
+            return {"status": "idle", "session_id": session_id}
+        return status
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API ERROR] GET /oak/inference/status/{session_id}: {e}", exc_info=True)
+        realtime_log_service.add_log("inference", "CRASH", f"Get inference status failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to get inference status: {e}")
 
 
 @router.websocket("/inference/ws/{session_id}")

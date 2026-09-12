@@ -102,17 +102,11 @@ pyinstaller --noconfirm --clean --onedir --name backend "$BACKEND_DIR/run.py" \
   --collect-all mediapipe \
   --collect-all matplotlib
 
-# Keep release files separate from developer/runtime data in frontend/backend.
-# Electron maps this directory to resources/backend inside each installer.
-rm -rf "$FRONTEND_DIR/release-backend"
-mkdir -p "$FRONTEND_DIR/release-backend"
-cp -a "$BACKEND_DIR/dist/backend/." "$FRONTEND_DIR/release-backend/"
-chmod +x "$FRONTEND_DIR/release-backend/backend"
-
-# Strip non-runtime development files to drastically shrink package and speed up deb packaging
-find "$FRONTEND_DIR/release-backend" -name "*.a" -delete 2>/dev/null || true
-rm -rf "$FRONTEND_DIR/release-backend/_internal/torch/include" 2>/dev/null || true
-rm -rf "$FRONTEND_DIR/release-backend/_internal/triton" 2>/dev/null || true
+# Strip non-runtime development files directly in dist/backend
+chmod +x "$BACKEND_DIR/dist/backend/backend"
+find "$BACKEND_DIR/dist/backend" -name "*.a" -delete 2>/dev/null || true
+rm -rf "$BACKEND_DIR/dist/backend/_internal/torch/include" 2>/dev/null || true
+rm -rf "$BACKEND_DIR/dist/backend/_internal/triton" 2>/dev/null || true
 
 cd "$FRONTEND_DIR"
 npm ci --include=optional 2>/dev/null || npm install --include=optional

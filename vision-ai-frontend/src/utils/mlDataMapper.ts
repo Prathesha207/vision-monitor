@@ -4,7 +4,8 @@ import { useInferenceStore } from '../store/inferenceStore';
 /**
  * Maps raw backend ML dictionary into frontend-friendly DuckEntity objects.
  *
- * Ground rule: this function only TRANSLATES what ml_inference.py already
+ * Ground rule: this function only TRANSLATES what the backend ML services
+ * (video_inference_service.py / camera_inference_service.py) already
  * decided (per-detection isAnomaly/provisional, added_ids, missing_ids,
  * other_ids, thumbnails). It must not invent its own anomaly logic on top --
  * that caused the two bugs this rewrite fixes:

@@ -11,7 +11,7 @@ The active code does not send a Ray-specific object or transport. The ML pipelin
 ```text
 Camera frames
   -> oak_camera_service.py
-  -> duck_inference_service.run_inference()
+  -> camera_inference_service.run_inference()
   -> inference result dictionary
   -> asyncio result queue
   -> WS /oak/inference/ws/live
@@ -27,7 +27,7 @@ The WebSocket sends one JSON message for each processed frame. The frontend does
 
 ```text
 POST /video/upload
-  -> backend creates a session
+  -> backend creates a session (video_inference_service.py)
   -> background video inference starts
 
 GET /video/status/{session_id}  (repeated by App.tsx)

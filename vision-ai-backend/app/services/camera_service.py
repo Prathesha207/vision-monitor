@@ -47,15 +47,18 @@ def create_camera(db: Session, data: CameraCreate):
         )
         return camera
     
+    except HTTPException:
+        raise
     except Exception as e:
-            logger.error(f"[CREATE_CAMERA] Failed error: {e}", exc_info=True)
-            realtime_log_service.add_log(
-                "camera",
-                "ERROR",
-                "Failed to create camera",
-                "error"
-            )
-   
+        db.rollback()
+        logger.error(f"[CREATE_CAMERA] Failed error: {e}", exc_info=True)
+        realtime_log_service.add_log(
+            "camera",
+            "ERROR",
+            f"Failed to create camera: {e}",
+            "error"
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to create camera: {e}")
 
 
 def update_camera_partial(db: Session, camera_id: int, data: CameraUpdate):
@@ -95,16 +98,18 @@ def update_camera_partial(db: Session, camera_id: int, data: CameraUpdate):
         )
         return camera
 
-    
+    except HTTPException:
+        raise
     except Exception as e:
-
+        db.rollback()
         logger.error(f"[UPDATE_CAMERA] Failed error: {e}", exc_info=True)
         realtime_log_service.add_log(
             "camera",
-            "WARN",
-            f"Camera not found: ID {camera_id}",
-            "warning"
+            "ERROR",
+            f"Update camera failed: {e}",
+            "error"
         )
+        raise HTTPException(status_code=500, detail=f"Failed to update camera: {e}")
 
 def enable_camera(db: Session, camera_id: int):
     try:
@@ -122,15 +127,19 @@ def enable_camera(db: Session, camera_id: int):
             "success"
         )
         return camera
-    
+
+    except HTTPException:
+        raise
     except Exception as e:
+        db.rollback()
         logger.error(f"[ENABLE_CAMERA] Failed error: {e}", exc_info=True)
         realtime_log_service.add_log(
             "camera",
-            "WARN",
-            f"Enable failed - Camera not found: ID {camera_id}",
-            "warning"
+            "ERROR",
+            f"Enable failed - ID {camera_id}: {e}",
+            "error"
         )
+        raise HTTPException(status_code=500, detail=f"Failed to enable camera: {e}")
 
 
 def disable_camera(db: Session, camera_id: int):
@@ -149,15 +158,19 @@ def disable_camera(db: Session, camera_id: int):
             "success"
         )
         return camera
-    
+
+    except HTTPException:
+        raise
     except Exception as e:
+        db.rollback()
         logger.error(f"[DISABLE_CAMERA] Failed error: {e}", exc_info=True)
         realtime_log_service.add_log(
             "camera",
-            "WARN",
-            f"Disable failed - Camera not found: ID {camera_id}",
-            "warning"
+            "ERROR",
+            f"Disable failed - ID {camera_id}: {e}",
+            "error"
         )
+        raise HTTPException(status_code=500, detail=f"Failed to disable camera: {e}")
 
 
 def delete_camera(db: Session, camera_id: int):
@@ -291,6 +304,8 @@ def update_basic_config(db: Session, data: BasicConfigUpdate):
             "message": "Config updated successfully"
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         logger.error(f"[UPDATE_BASIC_CONFIG ERROR] {e}", exc_info=True)

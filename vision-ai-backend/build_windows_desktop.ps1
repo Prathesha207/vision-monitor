@@ -71,23 +71,22 @@ if (-not (Test-Path $IconIco)) {
   & $VenvPython (Join-Path $FrontendDir 'public\generate_icons.py')
 }
 
-$ReleaseBackend = Join-Path $FrontendDir 'release-backend'
-Remove-Item -LiteralPath $ReleaseBackend -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Path $ReleaseBackend -Force | Out-Null
-Copy-Item -Path (Join-Path $BackendDir 'dist\backend\*') -Destination $ReleaseBackend -Recurse -Force
-
-# Strip non-runtime development files (static .lib, C++ headers, debug symbols)
-Get-ChildItem -Path $ReleaseBackend -Recurse -Include *.lib, *.pdb, *.exp, *.a -File | Remove-Item -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath (Join-Path $ReleaseBackend '_internal\torch\include') -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath (Join-Path $ReleaseBackend '_internal\_polars_runtime_32') -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath (Join-Path $ReleaseBackend '_internal\app\ml\output') -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath (Join-Path $ReleaseBackend '_internal\app\unused') -Recurse -Force -ErrorAction SilentlyContinue
+$BackendDist = Join-Path $BackendDir 'dist\backend'
+if (Test-Path $BackendDist) {
+  Write-Host 'Optimizing dist\backend by removing non-runtime development files...'
+  Get-ChildItem -Path $BackendDist -Recurse -Include *.lib, *.pdb, *.exp, *.a -File | Remove-Item -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath (Join-Path $BackendDist '_internal\torch\include') -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath (Join-Path $BackendDist '_internal\_polars_runtime_32') -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath (Join-Path $BackendDist '_internal\app\ml\output') -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath (Join-Path $BackendDist '_internal\app\unused') -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 Push-Location $FrontendDir
 try {
   Remove-Item -LiteralPath (Join-Path $FrontendDir 'dist_app\win-unpacked') -Recurse -Force -ErrorAction SilentlyContinue
   Remove-Item -Path (Join-Path $FrontendDir 'dist_app\*.nsis.7z*') -Force -ErrorAction SilentlyContinue
   Remove-Item -Path (Join-Path $FrontendDir 'dist_app\Vision-Monitor*') -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-Item -Path (Join-Path $FrontendDir 'dist_app\Vision-AI*') -Recurse -Force -ErrorAction SilentlyContinue
 
   if (-not (Test-Path (Join-Path $FrontendDir 'node_modules'))) {
     & npm.cmd ci --include=optional

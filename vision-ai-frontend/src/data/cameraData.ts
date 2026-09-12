@@ -4,7 +4,7 @@ export const DEFAULT_CAMERA_CONFIG: CameraConfig = {
   sourceName: 'OAK-D Pro Stream',
   resolution: '1920x1080',
   targetFps: 30,
-  recordingFormat: 'AVI',
+  recordingFormat: 'MP4',
   rotationAngle: 0,
   controlMode: 'auto',
   exposure: 50,

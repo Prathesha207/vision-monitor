@@ -3,11 +3,16 @@ echo Starting Vision Monitor Development Servers...
 
 cd /d "%~dp0vision-ai-backend"
 echo Starting Backend...
-start "Vision Monitor Backend" cmd /c ".venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000"
+where uvicorn >nul 2>nul
+if %ERRORLEVEL% equ 0 (
+    start "Vision Monitor Backend" /d "%~dp0vision-ai-backend" cmd /c "uvicorn app.main:app --reload --port 8000"
+) else (
+    start "Vision Monitor Backend" /d "%~dp0vision-ai-backend" cmd /c "call .venv\Scripts\activate.bat && uvicorn app.main:app --reload --port 8000"
+)
 
 cd /d "%~dp0vision-ai-frontend"
 echo Starting Frontend...
-start "Vision Monitor Frontend" cmd /c "npm run dev"
+start "Vision Monitor Frontend" /d "%~dp0vision-ai-frontend" cmd /c "npm run dev"
 
 echo.
 echo ==================================================

@@ -66,12 +66,12 @@ export function useVideoPipeline({
   }, [videoSessionId, customVideoUrl, customVideoName]);
 
   // Custom uploaded video handler (Directly in video canvas)
-  const handleVideoUploaded = (
+  const handleVideoUploaded = async (
     url: string,
     name: string,
     sessionId?: string,
     isCameraRecording?: boolean
-  ) => {
+  ): Promise<void> => {
     const isRecordedStream = Boolean(isCameraRecording);
 
     if (isRecordedStream) {
@@ -85,14 +85,15 @@ export function useVideoPipeline({
       setCameraRecordSessionId(null);
       setCameraRecordUrl(undefined);
       setCameraRecordName(undefined);
-      setIsRunning(false);
+      setCameraStartingState('ready');
       setDucks([]);
       setFramesProcessed(0);
       setFps(0);
       useInferenceStore.getState().resetStats();
       resetBBoxCache();
-      showToast('success', 'Camera recording saved. Click Start Inference to run with progress.');
-      addLog(`Recorded video ready: "${name}". Click Start Inference to run with progress.`, 'success');
+      if (sessionId) {
+        await startVideoInference(sessionId);
+      }
       return;
     }
 
@@ -131,7 +132,7 @@ export function useVideoPipeline({
 
     if (sessionId) {
       setVideoSessionId(sessionId);
-      void startVideoInference(sessionId);
+      await startVideoInference(sessionId);
     } else {
       setIsRunning(false);
       showToast('success', `Video ready. Click "Start Inference" to evaluate.`);

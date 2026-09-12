@@ -81,7 +81,7 @@
   "build": {
     "appId": "com.visionmonitor.application",
     "productName": "Vision-Monitor",
-    "compression": "maximum",
+    "compression": "normal",
     "asar": true,
     "npmRebuild": false,
     "buildDependenciesFromSource": false,
@@ -99,7 +99,7 @@
     ],
     "extraResources": [
       {
-        "from": "release-backend",
+        "from": "../vision-ai-backend/dist/backend",
         "to": "backend"
       }
     ],

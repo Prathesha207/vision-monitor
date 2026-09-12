@@ -2,8 +2,10 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import ResponseValidationError, RequestValidationError
 import os
 import sys
+import uuid
 import subprocess
 from pathlib import Path
 from app.api.router import router
@@ -15,6 +17,7 @@ from app.models.recording_model import Recording
 from app.utils.resource_path import resource_path
 import time
 from app.core.logger import setup_logger
+from app.services.realtime_log_service import realtime_log_service
 
 logger = setup_logger("vision-ai")
 
@@ -112,26 +115,77 @@ app = FastAPI(
 # ---------------------------------------------------
 @app.exception_handler(AppException)
 async def app_exception_handler(request: Request, exc: AppException):
+    req_id = getattr(request.state, "request_id", "req_unknown")
     logger.warning(
-        f"[APP EXCEPTION] {request.method} {request.url.path} -> {exc.status_code}: {exc.message}"
+        f"[APP EXCEPTION] [{req_id}] {request.method} {request.url.path} -> {exc.status_code}: {exc.message}"
+    )
+    realtime_log_service.add_log(
+        "system",
+        "WARN",
+        f"{request.method} {request.url.path} -> {exc.message}",
+        "warning"
     )
     return JSONResponse(
         status_code=exc.status_code,
-        content={"status": False, "message": exc.message, "data": None}
+        content={"status": False, "message": exc.message, "data": None, "request_id": req_id}
+    )
+
+
+@app.exception_handler(ResponseValidationError)
+async def response_validation_exception_handler(request: Request, exc: ResponseValidationError):
+    req_id = getattr(request.state, "request_id", "req_unknown")
+    logger.error(
+        f"[RESPONSE VALIDATION ERROR] [{req_id}] {request.method} {request.url.path}: {exc}",
+        exc_info=True
+    )
+    realtime_log_service.add_log(
+        "system",
+        "CRASH",
+        f"Validation error on {request.method} {request.url.path}",
+        "error"
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "status": False,
+            "message": "Response validation error (endpoint returned invalid data)",
+            "request_id": req_id,
+            "detail": str(exc)
+        }
     )
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    req_id = getattr(request.state, "request_id", "req_unknown")
     logger.error(
-        f"[CRASH 500] Unhandled exception in {request.method} {request.url.path}: {exc}",
+        f"[CRASH 500] [{req_id}] Unhandled exception in {request.method} {request.url.path}: {exc}",
         exc_info=True
+    )
+    realtime_log_service.add_log(
+        "system",
+        "CRASH",
+        f"500 on {request.method} {request.url.path}: {exc}",
+        "error"
     )
     return JSONResponse(
         status_code=500,
-        content={"status": False, "message": "Internal Server Error", "data": None}
+        content={"status": False, "message": "Internal Server Error", "request_id": req_id, "data": None}
     )
 
+
+import json
+from starlette.responses import Response, StreamingResponse
+from app.core.logger import setup_logger, current_request_id
+
+# Paths whose responses must NOT be buffered/read (streaming / binary / websocket-adjacent)
+STREAMING_PATH_PREFIXES = (
+    "/oak/stream",
+    "/video/stream",
+    "/oak/inference/ws",
+    "/oak/snapshot",
+    "/video/last_frame",
+)
 
 # ---------------------------------------------------
 #  API REQUEST & CRASH LOGGING MIDDLEWARE
@@ -139,33 +193,92 @@ async def global_exception_handler(request: Request, exc: Exception):
 @app.middleware("http")
 async def api_logging_middleware(request: Request, call_next):
     start_time = time.time()
+    req_id = request.headers.get("X-Request-ID") or f"req_{uuid.uuid4().hex[:8]}"
+    request.state.request_id = req_id
+    token = current_request_id.set(req_id)
     method = request.method
     path = request.url.path
 
     try:
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception as e:
+            duration_ms = round((time.time() - start_time) * 1000, 1)
+            logger.error(
+                f"[API CRASH] {method} {path} failed after {duration_ms}ms: {e}",
+                exc_info=True,
+            )
+            realtime_log_service.add_log(
+                "system",
+                "CRASH",
+                f"Unhandled error in {method} {path}: {e}",
+                "error"
+            )
+            raise e
+
         duration_ms = round((time.time() - start_time) * 1000, 1)
 
-        # Mute routine polling noise when 200 OK so logs don't drown in polling checks
-        is_routine_poll = (
-            path in ("/health", "/oak/health")
-            or path.startswith("/video/status/")
-            or path.startswith("/oak/inference/status/")
-            or path.startswith("/video/last_frame/")
+        # Never buffer streaming or binary responses — just log status/timing
+        is_streaming = (
+            isinstance(response, StreamingResponse)
+            or any(path.startswith(p) for p in STREAMING_PATH_PREFIXES)
         )
-        if is_routine_poll and response.status_code < 400:
+
+        if is_streaming:
+            if response.status_code >= 400:
+                logger.warning(f"[API WARN] {method} {path} -> {response.status_code} ({duration_ms}ms)")
+            else:
+                logger.info(f"[API] {method} {path} -> {response.status_code} ({duration_ms}ms)")
+            response.headers["X-Request-ID"] = req_id
             return response
-        elif response.status_code >= 500:
-            logger.error(f"[API ERROR] {method} {path} -> {response.status_code} ({duration_ms}ms)")
-        elif response.status_code >= 400:
-            logger.warning(f"[API WARN] {method} {path} -> {response.status_code} ({duration_ms}ms)")
+
+        if response.status_code >= 400:
+            body = b""
+            async for chunk in response.body_iterator:
+                body += chunk
+
+            try:
+                parsed = json.loads(body)
+                if isinstance(parsed, dict):
+                    detail = parsed.get("detail") or parsed.get("message") or parsed
+                else:
+                    detail = parsed
+            except Exception:
+                detail = body.decode(errors="ignore")[:300]
+
+            if response.status_code >= 500:
+                logger.error(
+                    f"[API ERROR] {method} {path} -> {response.status_code} ({duration_ms}ms) | {detail}"
+                )
+            else:
+                logger.warning(
+                    f"[API WARN] {method} {path} -> {response.status_code} ({duration_ms}ms) | {detail}"
+                )
+
+            # Rebuild response since body_iterator was consumed
+            headers = dict(response.headers)
+            headers["content-length"] = str(len(body))
+            headers["X-Request-ID"] = req_id
+            response = Response(
+                content=body,
+                status_code=response.status_code,
+                headers=headers,
+                media_type=response.media_type,
+            )
+            return response
         else:
-            logger.info(f"[API] {method} {path} -> {response.status_code} ({duration_ms}ms)")
-        return response
-    except Exception as e:
-        duration_ms = round((time.time() - start_time) * 1000, 1)
-        logger.error(f"[API CRASH] {method} {path} failed after {duration_ms}ms: {e}", exc_info=True)
-        raise e
+            is_routine_poll = (
+                path in ("/health", "/oak/health")
+                or path.startswith("/video/status/")
+                or path.startswith("/oak/inference/status/")
+            )
+            if not is_routine_poll:
+                logger.info(f"[API] {method} {path} -> {response.status_code} ({duration_ms}ms)")
+
+            response.headers["X-Request-ID"] = req_id
+            return response
+    finally:
+        current_request_id.reset(token)
 
 
 # ---------------------------------------------------

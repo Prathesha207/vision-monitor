@@ -340,20 +340,20 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-bold text-[var(--text-secondary)]">Recording Video Format</span>
                     <span className="text-[10px] font-semibold text-[var(--accent-pond)]">
-                      {(localConfig.recordingFormat || 'AVI') === 'AVI' 
-                        ? 'AVI container • MJPEG analytical codec'
-                        : (localConfig.recordingFormat || 'AVI') === 'MP4'
-                          ? 'MP4 container • H.264 web/universal codec'
+                      {(localConfig.recordingFormat || 'MP4') === 'MP4' 
+                        ? 'MP4 container • H.264 web/universal codec'
+                        : (localConfig.recordingFormat || 'MP4') === 'AVI'
+                          ? 'AVI container • MJPEG analytical codec'
                           : 'MKV container • FFV1 lossless codec'}
                     </span>
                   </div>
                   <div className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-[var(--bg-card)] border border-[var(--border-color)] w-full">
                     {([
-                      { id: 'AVI', label: 'AVI (MJPEG)' },
                       { id: 'MP4', label: 'MP4 (H.264)' },
+                      { id: 'AVI', label: 'AVI (MJPEG)' },
                       { id: 'FFV1', label: 'MKV (FFV1)' },
                     ] as const).map((fmt) => {
-                      const isSelected = (localConfig.recordingFormat || 'AVI') === fmt.id;
+                      const isSelected = (localConfig.recordingFormat || 'MP4') === fmt.id;
                       return (
                         <button
                           key={fmt.id}

@@ -54,7 +54,7 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
               duck.statusEvent === 'added' ||
               duck.statusEvent === 'other_present');
           const isSelected = duck.id === selectedDuckId;
-          
+
           // Default: Normal detected duck (Clean Emerald Green)
           let borderColor = isSelected ? 'border-emerald-400' : 'border-emerald-400/80';
           let bgColor = isSelected ? 'bg-emerald-500/30' : 'bg-emerald-500/5';
@@ -146,18 +146,18 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
                       {duck.id.startsWith('extra') || duck.id.startsWith('unbound')
                         ? 'EXTRA'
                         : duck.species === 'Duck'
-                        ? `#${duck.id}`
-                        : duck.species}
+                          ? `#${duck.id}`
+                          : duck.species}
                     </span>
                   ) : (
                     `#${duck.id}`
                   )}
                 </span>
-                {showConfidence && !isMissing && (
+                {/* {showConfidence && !isMissing && (
                   <span className={`text-[8.5px] opacity-80 ${confColor}`}>
                     {(duck.confidence * 100).toFixed(0)}%
                   </span>
-                )}
+                )} */}
               </div>
             </div>
           );

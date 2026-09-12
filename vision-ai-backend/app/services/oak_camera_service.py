@@ -754,7 +754,7 @@ class OakCameraService:
     #     Also auto-manages processed video recording based on result['record'] flag.
     #     No frame skipping — inference itself is slow enough that _latest_bgr is always fresh.
     #     """
-    #     from app.ml.duck_inference_service import run_inference
+    #     from app.ml.camera_inference_service import run_inference
     #     from app.services.inference_recording_service import InferenceRecorder, draw_overlay
     #     from app.services import inference_config_service
     #     from app.core.database import SessionLocal
@@ -866,7 +866,7 @@ class OakCameraService:
     # ─────────────────────────────────────────────────────────────────────────────
 
     def _inference_worker(self, session_id: str) -> None:
-        from app.ml.duck_inference_service import run_inference
+        from app.ml.camera_inference_service import run_inference
         from app.services.inference_recording_service import InferenceRecorder, draw_overlay
         import base64
 
@@ -913,7 +913,7 @@ class OakCameraService:
                             _got_eof = True
                             break
                         elif item is _VIDEO_BOUNDARY:
-                            from app.ml.duck_inference_service import reset_session_for_next_video
+                            from app.ml.camera_inference_service import reset_session_for_next_video
                             reset_session_for_next_video(session_id)
                             logger.info("[INFERENCE] Video boundary — session reset, cycle counter carried forward")
                             _got_boundary = True
@@ -1387,7 +1387,7 @@ class OakCameraService:
         }
 
     def stop_inference(self) -> dict:
-        from app.ml.duck_inference_service import clear_session
+        from app.ml.camera_inference_service import clear_session
 
         logger.info("[INFERENCE] Stopping...")
         self._inference_stop.set()
@@ -1475,7 +1475,7 @@ class OakCameraService:
                 db.close()
         except Exception:
             pass
-        return "AVI"
+        return "MP4"
 
     def start_recording(
         self,

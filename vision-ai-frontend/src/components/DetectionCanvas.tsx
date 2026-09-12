@@ -44,7 +44,7 @@ interface DetectionCanvasProps {
   customVideoName?: string;
   selectedDuckId: string | null;
   onSelectDuck: (id: string | null) => void;
-  onCustomVideoUploaded?: (videoUrl: string, fileName: string, sessionId?: string, isCameraRecording?: boolean) => void;
+  onCustomVideoUploaded?: (videoUrl: string, fileName: string, sessionId?: string, isCameraRecording?: boolean) => void | Promise<void>;
   onClearCustomVideo?: () => void;
   cameraStartingState?: 'idle' | 'waking_camera' | 'waiting_frame' | 'ready';
   onCameraDeviceChange?: (active: boolean) => void;
@@ -110,7 +110,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   cameraRecordName,
   onClearCameraRecord,
   cameraTargetFps,
-  recordingFormat = 'AVI',
+  recordingFormat = 'MP4',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -288,8 +288,13 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
     <div
       ref={containerRef}
       id="detection-hero-viewport"
-      className={`relative w-full flex-1 h-full min-h-[350px] lg:min-h-0 overflow-hidden border select-none group ${isFullscreen ? 'rounded-none border-none' : 'rounded-3xl'
-        } border-[var(--border-color)] shadow-sm`}
+      className={`relative w-full flex-1 h-full min-h-[350px] lg:min-h-0 overflow-hidden border select-none group transition-colors duration-200 ${
+        isFullscreen ? 'rounded-none border-none' : 'rounded-3xl'
+      } ${
+        isHandPresent && !isOverlayShowing
+          ? 'border-amber-500'
+          : 'border-[var(--border-color)] shadow-sm'
+      }`}
       style={{
         backgroundColor: (isWaitingForVideo || (!isCameraConnected && isCameraSource)) ? 'var(--bg-card)' : '#000000',
         ...(isFullscreen ? { width: '100%', height: '100%', minHeight: '100vh', maxHeight: '100vh' } : {})
@@ -297,13 +302,12 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
     >
       <input type="file" ref={fileInputRef} onChange={handleFileInputChange} accept="video/*" className="hidden" />
 
-      {/* Video Upload Card (Image 1 design, simple non-interactive display) */}
+      {/* Video Upload Card (simple non-interactive display card) */}
       {isWaitingForVideo && (
         <VideoUploadCard
           uploadProgress={uploadProgress}
           isSelectingVideo={isSelectingVideo}
           isBackendConnected={isBackendConnected}
-          onSelectVideo={handleSelectVideoAndStart}
         />
       )}
 
@@ -366,9 +370,8 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                       ? `${getApiBaseUrl()}/oak/inference/stream/live?t=${streamCacheBuster}`
                       : effectiveVideoUrl
                 }
-                className={`absolute inset-0 z-0 h-full w-full pointer-events-none rounded bg-black object-contain ${
-                  streamError && effectiveBackdrop ? 'opacity-0' : 'opacity-100'
-                }`}
+                className={`absolute inset-0 z-0 h-full w-full pointer-events-none rounded bg-black object-contain ${streamError && effectiveBackdrop ? 'opacity-0' : 'opacity-100'
+                  }`}
                 alt=""
                 onLoad={(e) => {
                   const tgt = e.target as HTMLImageElement;
@@ -424,11 +427,6 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                 isCountMismatch={anomalyStatus.difference !== 0}
               />
             )}
-
-            {/* Hand detected warning border: Shown in INFERENCE mode or always for video upload / camera recording */}
-            {!isOverlayShowing && (feedMode === 'inference' || !isCameraSource || hasCameraRecording) && isHandPresent && (
-              <div className="absolute inset-0 z-30 pointer-events-none border-4 border-amber-500/80 rounded" />
-            )}
           </div>
         </div>
       )}
@@ -476,7 +474,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                 await onStartStream();
                 await new Promise((resolve) => setTimeout(resolve, 1000));
               }
-              await startRecording(recordingFormat || 'AVI');
+              await startRecording(recordingFormat || 'MP4');
             }
           }}
           isFullscreen={isFullscreen}

@@ -107,3 +107,19 @@ def get_ml_session_config_dir() -> Path:
     cfg_dir = APP_DIR / "sessions"
     cfg_dir.mkdir(parents=True, exist_ok=True)
     return cfg_dir
+
+
+def get_logs_dir() -> Path:
+    """Return logs directory: project root 'logs' during development, APP_DIR 'logs' in production/frozen."""
+    if getattr(sys, "frozen", False):
+        log_dir = APP_DIR / "logs"
+    else:
+        dev_dir = Path(__file__).resolve().parent.parent.parent / "logs"
+        try:
+            dev_dir.mkdir(parents=True, exist_ok=True)
+            return dev_dir
+        except Exception:
+            log_dir = APP_DIR / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir
+

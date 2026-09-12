@@ -30,7 +30,7 @@ interface DetectionCropCanvasProps {
   duck: DuckEntity;
 }
 
-// Thumbnails are pre-rendered base64 crops sent by the backend (ml_inference.py
+// Thumbnails are pre-rendered base64 crops sent by the backend (video_inference_service.py
 // -> thumbnails[]), not live video captures -- so this stays a plain <img>.
 // A missing duck keeps rendering whatever thumbnail it last had, because
 // mapDetectionsToDucks() looks its id up in the full thumbnail history even

@@ -126,20 +126,28 @@ if hasattr(sys.stdout, "reconfigure"):
 
 def get_duck_analyzer_class():
     """
-    Load DuckAnalyzer ALWAYS from local source file:
-    vision-ai-backend/app/ml/duck_analyzer/analyzer.py
-
-    This MUST match what ml_inference.py / duck_inference_service.py
-    actually import in production ("from
-    app.ml.duck_analyzer.analyzer import DuckAnalyzer"). Pointing this
-    at the legacy analyzer.py silently diagnoses/runs a different analyzer
-    than the one that's really serving the app -- manual runs and app runs
-    will disagree on tracking/rebind/warmup behavior even on identical
-    frames, with no error to indicate why.
+    Load DuckAnalyzer from debug/duck_analyzer.py first if present,
+    otherwise from vision-ai-backend/app/ml/duck_analyzer/analyzer.py.
     """
     _script_dir = Path(__file__).resolve().parent
-    _local_analyzer_file = _script_dir.parent / "duck_analyzer" / "analyzer.py"
+    if str(_script_dir) not in sys.path:
+        sys.path.insert(0, str(_script_dir))
 
+    # 1. First priority: duck_analyzer.py right in debug folder
+    _debug_analyzer_file = _script_dir / "duck_analyzer.py"
+    if _debug_analyzer_file.exists():
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("duck_analyzer", str(_debug_analyzer_file))
+        if spec and spec.loader:
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["duck_analyzer"] = module
+            spec.loader.exec_module(module)
+            duck_cls = getattr(module, "DuckAnalyzer", None)
+            if duck_cls is not None:
+                return duck_cls, str(_debug_analyzer_file), "debug_folder"
+
+    # 2. Local source file: duck_analyzer/analyzer.py
+    _local_analyzer_file = _script_dir.parent / "duck_analyzer" / "analyzer.py"
     if _local_analyzer_file.exists():
         import importlib.util
         spec = importlib.util.spec_from_file_location("local_duck_analyzer", str(_local_analyzer_file))
@@ -155,6 +163,34 @@ def get_duck_analyzer_class():
     from duck_analyzer import DuckAnalyzer
     import duck_analyzer
     return DuckAnalyzer, getattr(duck_analyzer, "__file__", "installed_package"), "site_packages"
+
+
+def get_frame_store_class():
+    """
+    Load FrameStore from debug/frame_store.py if present.
+    """
+    _script_dir = Path(__file__).resolve().parent
+    if str(_script_dir) not in sys.path:
+        sys.path.insert(0, str(_script_dir))
+
+    _debug_frame_store_file = _script_dir / "frame_store.py"
+    if _debug_frame_store_file.exists():
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("frame_store", str(_debug_frame_store_file))
+        if spec and spec.loader:
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["frame_store"] = module
+            spec.loader.exec_module(module)
+            store_cls = getattr(module, "FrameStore", None)
+            if store_cls is not None:
+                return store_cls
+
+    try:
+        from frame_store import FrameStore
+        return FrameStore
+    except Exception:
+        return None
+
 
 
 # ======================================================================
@@ -250,6 +286,12 @@ def _show_pip_info() -> dict:
 
 
 def run_diagnosis() -> None:
+    _script_dir = str(Path(__file__).resolve().parent)
+    if _script_dir not in sys.path:
+        sys.path.insert(0, _script_dir)
+    elif sys.path[0] != _script_dir:
+        sys.path.remove(_script_dir)
+        sys.path.insert(0, _script_dir)
 
     print()
     print("duck_analyzer diagnosis")
@@ -362,7 +404,7 @@ def run_diagnosis() -> None:
     print()
     print("[ local duck_analyzer source file ]")
     print("-" * 60)
-    # NOTE: production (ml_inference.py / duck_inference_service.py) imports
+    # NOTE: production (video_inference_service.py / camera_inference_service.py) imports
     # analyzer.py, not the legacy analyzer.py -- check the file that is
     # actually running, or this diagnosis silently reports on dead code.
     _local_analyzer = Path(__file__).resolve().parent.parent / "duck_analyzer" / "analyzer.py"
@@ -495,60 +537,36 @@ def _resolve_model_path(
     configured_path: Optional[str],
     ml_dir: str,
 ) -> str:
-
     """
-    Same portable resolution logic used by ml_inference.py.
+    Find best.pt prioritizing debug folder and configured path.
     """
-
-    candidates = [
-        os.path.join(
-            ml_dir,
-            "models",
-            "best.pt",
-        ),
-        os.path.join(
-            os.getcwd(),
-            "models",
-            "best.pt",
-        ),
-    ]
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = []
 
     if configured_path:
+        if os.path.isabs(configured_path) and os.path.exists(configured_path):
+            return os.path.abspath(configured_path)
+        candidates.extend([
+            os.path.join(ml_dir, configured_path),
+            os.path.join(script_dir, configured_path),
+            os.path.abspath(configured_path),
+        ])
 
-        if os.path.isabs(
-            configured_path
-        ):
-
-            candidates.append(
-                configured_path
-            )
-
-        else:
-
-            candidates.append(
-                os.path.join(
-                    ml_dir,
-                    configured_path,
-                )
-            )
-
-        candidates.append(
-            os.path.abspath(
-                configured_path
-            )
-        )
+    candidates.extend([
+        os.path.join(script_dir, "best.pt"),
+        os.path.join(ml_dir, "best.pt"),
+        os.path.join(ml_dir, "models", "best.pt"),
+        os.path.join(script_dir, "..", "models", "best.pt"),
+        os.path.join(os.getcwd(), "models", "best.pt"),
+        os.path.join(os.getcwd(), "best.pt"),
+    ])
 
     checked = []
-
     for cand in candidates:
-
         if not cand:
             continue
-
         checked.append(cand)
-
         if os.path.exists(cand):
-
             return os.path.abspath(cand)
 
     raise FileNotFoundError(
@@ -561,85 +579,36 @@ def _resolve_model_path(
 def _resolve_config_path(
     configured_path: Optional[str] = None,
 ) -> str:
-
     """
-    Find config.yaml robustly whether running from:
-
-        debug/
-        app/ml/
-        project root
+    Find config.yaml robustly prioritizing debug/ directory.
     """
-
-    script_dir = os.path.dirname(
-        os.path.abspath(__file__)
-    )
-
+    script_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = []
 
     # --------------------------------------------------------------
     # User supplied config
     # --------------------------------------------------------------
-
     if configured_path:
-
-        if os.path.isabs(
-            configured_path
-        ):
-
-            candidates.append(
-                configured_path
-            )
-
+        if os.path.isabs(configured_path):
+            candidates.append(configured_path)
         else:
-
-            candidates.extend(
-                [
-                    os.path.abspath(
-                        configured_path
-                    ),
-                    os.path.join(
-                        script_dir,
-                        configured_path,
-                    ),
-                    os.path.join(
-                        script_dir,
-                        "..",
-                        configured_path,
-                    ),
-                    os.path.join(
-                        os.getcwd(),
-                        configured_path,
-                    ),
-                ]
-            )
+            candidates.extend([
+                os.path.abspath(configured_path),
+                os.path.join(script_dir, configured_path),
+                os.path.join(script_dir, "..", configured_path),
+                os.path.join(os.getcwd(), configured_path),
+            ])
 
     # --------------------------------------------------------------
-    # Standard locations
+    # Standard locations (debug/ first)
     # --------------------------------------------------------------
-
-    candidates.extend(
-        [
-            os.path.join(
-                script_dir,
-                "..",
-                "config.yaml",
-            ),
-            os.path.join(
-                script_dir,
-                "config.yaml",
-            ),
-            os.path.join(
-                os.getcwd(),
-                "app",
-                "ml",
-                "config.yaml",
-            ),
-            os.path.join(
-                os.getcwd(),
-                "config.yaml",
-            ),
-        ]
-    )
+    candidates.extend([
+        os.path.join(script_dir, "config.yaml"),
+        os.path.join(script_dir, "..", "config.yaml"),
+        os.path.join(os.getcwd(), "app", "ml", "debug", "config.yaml"),
+        os.path.join(os.getcwd(), "app", "ml", "config.yaml"),
+        os.path.join(os.getcwd(), "config.yaml"),
+    ])
 
     seen = set()
 
@@ -673,179 +642,48 @@ def _resolve_config_path(
 
 
 # ======================================================================
-# PART 3
-# REASONS
-# ======================================================================
-
-
-def _build_reasons(
-    result: dict,
-    anchor_locked: bool,
-) -> List[str]:
-
-    """
-    Same reason reconstruction used by ml_inference.py.
-    """
-
-    reasons: List[str] = []
-
-    if result.get(
-        "hand_detected"
-    ):
-
-        reasons.append(
-            "hand_in_frame"
-        )
-
-    if result.get(
-        "missing_ids"
-    ):
-
-        reasons.append(
-            "missing_ducks"
-        )
-
-    if result.get(
-        "other_count",
-        0,
-    ) > 0:
-
-        reasons.append(
-            "other_species_present"
-        )
-
-    if anchor_locked:
-
-        detected_now = result.get(
-            "detected_duck_count",
-            0,
-        )
-
-        expected_now = result.get(
-            "expected_duck_count",
-            0,
-        )
-
-        if detected_now < expected_now:
-
-            reasons.append(
-                "too_few_ducks"
-            )
-
-        elif detected_now > expected_now:
-
-            reasons.append(
-                "too_many_ducks"
-            )
-
-    return reasons
-
-
-# ======================================================================
-# PART 4
-# FRAME SUMMARY
+# PART 3 & 4
+# FRAME SUMMARY & ANOMALY (PURE ML RETURN, NO EXTRA LOGIC)
 # ======================================================================
 
 
 def _print_frame_summary(
     frame_no: int,
     result: dict,
-    analyzer,
+    analyzer=None,
 ) -> None:
-
-    anchor_locked = bool(
-        result.get(
-            "anchor_locked",
-            getattr(
-                analyzer,
-                "anchor_locked",
-                False,
-            ),
-        )
-    )
-
-    reasons = (
-        result.get("reasons")
-        or _build_reasons(
-            result,
-            anchor_locked,
-        )
-    )
-
-    detected = result.get(
-        "detected_duck_count",
-        0,
-    )
-
-    expected = result.get(
-        "expected_duck_count",
-        0,
-    )
-
-    other_count = result.get(
-        "detected_other_toy_count",
-        result.get(
-            "other_count",
-            0,
-        ),
-    )
-
-    missing_ids = result.get(
-        "missing_ids",
-        [],
-    )
-
-    added_ids = result.get(
-        "added_ids",
-        [],
-    )
-
-    status = result.get(
-        "status",
-        "UNKNOWN",
-    )
-
-    hand = result.get(
-        "hand_detected",
-        False,
-    )
+    """
+    Print the exact fields returned by DuckAnalyzer -- no recalculation.
+    """
+    status = result.get("status", "UNKNOWN")
+    detected = result.get("detected_duck_count", 0)
+    expected = result.get("expected_duck_count", 0)
+    missing_ids = result.get("missing_ids", [])
+    added_ids = result.get("added_ids", [])
+    other_ids = result.get("other_ids", [])
+    hand = result.get("hand_detected", False)
+    anchor_locked = result.get("anchor_locked", False)
+    reasons = result.get("reasons", [])
 
     line = (
         f"frame {frame_no:>6} | "
         f"status={str(status):<10} | "
         f"anchor_locked={str(anchor_locked):<5} | "
         f"ducks={detected}/{expected} | "
-        f"other={other_count} | "
+        f"other={len(other_ids)} | "
         f"hand={hand}"
     )
 
     if missing_ids:
-
-        line += (
-            f" | missing={missing_ids}"
-        )
-
+        line += f" | missing={missing_ids}"
     if added_ids:
-
-        line += (
-            f" | added={added_ids}"
-        )
-
+        line += f" | added={added_ids}"
     if reasons:
-
-        line += (
-            f" | reasons={reasons}"
-        )
+        line += f" | reasons={reasons}"
 
     print(line)
 
-    thumbnails = result.get(
-        "thumbnails",
-        [],
-    )
-
-    for thumbnail in thumbnails:
-
+    for thumbnail in result.get("thumbnails", []):
         print(
             "    thumbnail event: "
             f"{thumbnail.get('event')} "
@@ -854,131 +692,16 @@ def _print_frame_summary(
         )
 
 
-# ======================================================================
-# PART 5
-# ANOMALY DETECTION
-# ======================================================================
-
-
 def _is_anomaly_frame(
     result: dict,
-    analyzer,
-    expected_duck_count: int,
+    analyzer=None,
+    expected_duck_count: int = None,
 ) -> bool:
-
     """
-    Decide whether the current annotated frame should also be
-    copied into anomaly_frames/.
-
-    Primary source:
-        DuckAnalyzer status == ANOMALY
-
-    Additional explicit anomaly conditions:
-        - other object detected
-        - missing ducks
-        - hand detected
-        - locked anchor count differs from expected count
-        - reconstructed anomaly reasons
+    Pure ML check: return True only if DuckAnalyzer's status is ANOMALY.
+    No extra logic, no overrides.
     """
-
-    status = str(
-        result.get(
-            "status",
-            "",
-        )
-    ).upper()
-
-    # --------------------------------------------------------------
-    # Direct analyzer verdict
-    # --------------------------------------------------------------
-
-    if status == "ANOMALY":
-        return True
-
-    # --------------------------------------------------------------
-    # Current counts
-    # --------------------------------------------------------------
-
-    other_count = result.get(
-        "detected_other_toy_count",
-        result.get(
-            "other_count",
-            0,
-        ),
-    )
-
-    if other_count > 0:
-        return True
-
-    # --------------------------------------------------------------
-    # Missing IDs
-    # --------------------------------------------------------------
-
-    missing_ids = result.get(
-        "missing_ids",
-        [],
-    )
-
-    if missing_ids:
-        return True
-
-    # --------------------------------------------------------------
-    # Hand detection
-    # --------------------------------------------------------------
-
-    if result.get(
-        "hand_detected",
-        False,
-    ):
-
-        return True
-
-    # --------------------------------------------------------------
-    # Anchor state
-    # --------------------------------------------------------------
-
-    anchor_locked = bool(
-        result.get(
-            "anchor_locked",
-            getattr(
-                analyzer,
-                "anchor_locked",
-                False,
-            ),
-        )
-    )
-
-    if anchor_locked:
-
-        detected_count = result.get(
-            "detected_duck_count",
-            0,
-        )
-
-        expected_count = result.get(
-            "expected_duck_count",
-            expected_duck_count,
-        )
-
-        if detected_count != expected_count:
-            return True
-
-    # --------------------------------------------------------------
-    # Reconstructed reasons
-    # --------------------------------------------------------------
-
-    reasons = (
-        result.get("reasons")
-        or _build_reasons(
-            result,
-            anchor_locked,
-        )
-    )
-
-    if reasons:
-        return True
-
-    return False
+    return str(result.get("status", "")).upper() == "ANOMALY"
 
 
 # ======================================================================
@@ -1040,6 +763,8 @@ def run_manual_inference(
     save_annotated: Optional[str],
     max_frames: Optional[int],
     output_dir: Optional[str],
+    db_path: Optional[str] = None,
+    save_all_frames: bool = False,
 ) -> int:
 
     import cv2
@@ -1173,13 +898,34 @@ def run_manual_inference(
         f"{cfg['model_path']}"
     )
 
+    if cfg.get("roi_path"):
+        roi_candidates = [
+            os.path.join(ml_dir, cfg["roi_path"]),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), cfg["roi_path"]),
+            os.path.abspath(cfg["roi_path"]),
+        ]
+        for rc in roi_candidates:
+            if os.path.exists(rc):
+                cfg["roi_path"] = os.path.abspath(rc)
+                break
+        print(f"Using roi_path: {cfg['roi_path']}")
+
     # --------------------------------------------------------------
-    # Create temporary session config
+    # Disable duplicate internal saving to Documents directory
+    # --------------------------------------------------------------
+    cfg["save_local"] = False
+    cfg["annotated_dir"] = None
+    cfg["thumbnail_dir"] = None
+
+    # --------------------------------------------------------------
+    # Create temporary session config in system temp dir
     # --------------------------------------------------------------
 
+    import tempfile
+
     session_config_path = os.path.join(
-        ml_dir,
-        "_manual_check_config.yaml",
+        tempfile.gettempdir(),
+        f"_duck_analyzer_session_{os.getpid()}.yaml",
     )
 
     try:
@@ -1208,6 +954,8 @@ def run_manual_inference(
     analyzer = None
     cap = None
     out_writer = None
+    store = None
+    resolved_db = None
 
     try:
 
@@ -1324,6 +1072,25 @@ def run_manual_inference(
             )
 
             # ------------------------------------------------------
+            # FrameStore SQLite persistence
+            # ------------------------------------------------------
+            if db_path and db_path.lower() != "none":
+                resolved_db = os.path.abspath(db_path)
+            elif db_path is None:
+                resolved_db = os.path.join(output_root, "duck_run.db")
+
+            if resolved_db:
+                try:
+                    FrameStoreCls = get_frame_store_class()
+                    if FrameStoreCls is not None:
+                        run_id = Path(image_path).stem
+                        store = FrameStoreCls(resolved_db, run_id=run_id, expected=expected_duck_count)
+                        print(f"[DB] FrameStore active -> {resolved_db}")
+                except Exception as e:
+                    print(f"[DB] [WARN] could not initialize FrameStore ({resolved_db}): {e}")
+                    store = None
+
+            # ------------------------------------------------------
             # Save raw image BEFORE analyzer
             # ------------------------------------------------------
 
@@ -1350,6 +1117,15 @@ def run_manual_inference(
                 result,
                 analyzer,
             )
+
+            # ------------------------------------------------------
+            # Log to FrameStore (SQLite + DeepEmbeddings)
+            # ------------------------------------------------------
+            if store is not None:
+                try:
+                    store.log(result, embeddings=analyzer.embeddings_for_frame(result))
+                except Exception as exc:
+                    print(f"[DB] [WARN] store.log failed for image: {exc}")
 
             # ------------------------------------------------------
             # Get backend-generated annotated frame
@@ -1471,6 +1247,13 @@ def run_manual_inference(
         # VIDEO
         # ==========================================================
 
+        if not os.path.exists(video_path):
+            p = Path(video_path)
+            alt = p.parent / "test-videos" / p.name
+            if alt.exists():
+                print(f"[PATH] Located video in test-videos: {alt}")
+                video_path = str(alt)
+
         cap = cv2.VideoCapture(
             video_path
         )
@@ -1490,6 +1273,8 @@ def run_manual_inference(
             )
             or 30.0
         )
+        if fps <= 0 or fps > 120:
+            fps = 30.0
 
         width = int(
             cap.get(
@@ -1569,15 +1354,15 @@ def run_manual_inference(
             "anomaly_frames",
         )
 
-        os.makedirs(
-            raw_dir,
-            exist_ok=True,
-        )
-
-        os.makedirs(
-            annotated_dir,
-            exist_ok=True,
-        )
+        if save_all_frames:
+            os.makedirs(
+                raw_dir,
+                exist_ok=True,
+            )
+            os.makedirs(
+                annotated_dir,
+                exist_ok=True,
+            )
 
         os.makedirs(
             anomaly_dir,
@@ -1589,20 +1374,39 @@ def run_manual_inference(
             "Output folders:"
         )
 
-        print(
-            f"  Raw frames:"
-            f"\n    {raw_dir}"
-        )
-
-        print(
-            f"  Annotated frames:"
-            f"\n    {annotated_dir}"
-        )
+        if save_all_frames:
+            print(
+                f"  Raw frames:"
+                f"\n    {raw_dir}"
+            )
+            print(
+                f"  Annotated frames:"
+                f"\n    {annotated_dir}"
+            )
 
         print(
             f"  Anomaly frames:"
             f"\n    {anomaly_dir}"
         )
+
+        # ==========================================================
+        # FRAMESTORE SQLITE PERSISTENCE
+        # ==========================================================
+        if db_path and db_path.lower() != "none":
+            resolved_db = os.path.abspath(db_path)
+        elif db_path is None:
+            resolved_db = os.path.join(output_root, "duck_run.db")
+
+        if resolved_db:
+            try:
+                FrameStoreCls = get_frame_store_class()
+                if FrameStoreCls is not None:
+                    run_id = Path(video_path).stem
+                    store = FrameStoreCls(resolved_db, run_id=run_id, expected=expected_duck_count)
+                    print(f"[DB] FrameStore active -> {resolved_db}")
+            except Exception as e:
+                print(f"[DB] [WARN] could not initialize FrameStore ({resolved_db}): {e}")
+                store = None
 
         # ==========================================================
         # OPTIONAL ANNOTATED VIDEO
@@ -1654,7 +1458,8 @@ def run_manual_inference(
                 )
 
         # ==========================================================
-        # PROCESS VIDEO
+        #
+        #  PROCESS VIDEO
         # ==========================================================
 
         frame_no = 0
@@ -1673,30 +1478,27 @@ def run_manual_inference(
             frame_no += 1
 
             # ------------------------------------------------------
-            # IMPORTANT:
-            #
-            # Save raw frame BEFORE passing it to DuckAnalyzer.
-            #
-            # This guarantees raw_frames contains the original
-            # OpenCV frame and not the annotated version.
+            # Optional: Save raw frame if save_all_frames is True
             # ------------------------------------------------------
 
-            raw_path = os.path.join(
-                raw_dir,
-                f"frame_{frame_no:06d}.jpg",
-            )
+            if save_all_frames:
 
-            raw_saved = _save_jpeg(
-                raw_path,
-                frame,
-            )
-
-            if not raw_saved:
-
-                print(
-                    f"WARNING: Failed to save "
-                    f"raw frame {frame_no}"
+                raw_path = os.path.join(
+                    raw_dir,
+                    f"frame_{frame_no:06d}.jpg",
                 )
+
+                raw_saved = _save_jpeg(
+                    raw_path,
+                    frame,
+                )
+
+                if not raw_saved:
+
+                    print(
+                        f"WARNING: Failed to save "
+                        f"raw frame {frame_no}"
+                    )
 
             # ------------------------------------------------------
             # Run DuckAnalyzer
@@ -1749,6 +1551,15 @@ def run_manual_inference(
             )
 
             # ------------------------------------------------------
+            # Log to FrameStore (SQLite + DeepEmbeddings)
+            # ------------------------------------------------------
+            if store is not None:
+                try:
+                    store.log(result, embeddings=analyzer.embeddings_for_frame(result))
+                except Exception as exc:
+                    print(f"[DB] [WARN] store.log failed for frame {frame_no}: {exc}")
+
+            # ------------------------------------------------------
             # Get annotated frame
             #
             # This is the frame generated by DuckAnalyzer.
@@ -1783,25 +1594,27 @@ def run_manual_inference(
                 continue
 
             # ------------------------------------------------------
-            # SAVE EVERY ANNOTATED FRAME
+            # Optional: SAVE ANNOTATED FRAME if save_all_frames is True
             # ------------------------------------------------------
 
-            annotated_path = os.path.join(
-                annotated_dir,
-                f"frame_{frame_no:06d}.jpg",
-            )
+            if save_all_frames:
 
-            annotated_saved = _save_jpeg(
-                annotated_path,
-                annotated_frame,
-            )
-
-            if not annotated_saved:
-
-                print(
-                    f"WARNING: Failed to save "
-                    f"annotated frame {frame_no}"
+                annotated_path = os.path.join(
+                    annotated_dir,
+                    f"frame_{frame_no:06d}.jpg",
                 )
+
+                annotated_saved = _save_jpeg(
+                    annotated_path,
+                    annotated_frame,
+                )
+
+                if not annotated_saved:
+
+                    print(
+                        f"WARNING: Failed to save "
+                        f"annotated frame {frame_no}"
+                    )
 
             # ------------------------------------------------------
             # CHECK ANOMALY
@@ -1947,15 +1760,17 @@ def run_manual_inference(
             "Saved output:"
         )
 
-        print(
-            f"  RAW FRAMES"
-            f"\n    {raw_dir}"
-        )
+        if save_all_frames:
 
-        print(
-            f"\n  ALL ANNOTATED FRAMES"
-            f"\n    {annotated_dir}"
-        )
+            print(
+                f"  RAW FRAMES"
+                f"\n    {raw_dir}"
+            )
+
+            print(
+                f"\n  ALL ANNOTATED FRAMES"
+                f"\n    {annotated_dir}"
+            )
 
         print(
             f"\n  ANOMALY ANNOTATED FRAMES"
@@ -1967,6 +1782,13 @@ def run_manual_inference(
             print(
                 f"\n  ANNOTATED VIDEO"
                 f"\n    {save_annotated}"
+            )
+
+        if resolved_db and os.path.exists(resolved_db):
+
+            print(
+                f"\n  FRAMESTORE SQLITE DB"
+                f"\n    {resolved_db}"
             )
 
         print()
@@ -2014,6 +1836,18 @@ def run_manual_inference(
                     f"WARNING: analyzer.close() "
                     f"failed: {exc}"
                 )
+
+        # ==========================================================
+        # CLOSE FRAMESTORE
+        # ==========================================================
+
+        if store is not None:
+
+            try:
+                store.close()
+                print(f"[DB] FrameStore successfully closed: {resolved_db}")
+            except Exception as exc:
+                print(f"[DB] [WARN] FrameStore close failed: {exc}")
 
         # ==========================================================
         # REMOVE TEMP CONFIG
@@ -2105,6 +1939,25 @@ def main() -> int:
         ),
     )
 
+    parser.add_argument(
+        "--db",
+        default=None,
+        help=(
+            "Path to SQLite database to log per-frame detections and embeddings "
+            "via FrameStore (default: <output-dir>/duck_run.db; pass 'none' to disable)"
+        ),
+    )
+
+    parser.add_argument(
+        "--save-all-frames",
+        action="store_true",
+        help=(
+            "Save individual JPEG files for every single raw frame "
+            "and annotated frame (default: False, only saves anomaly frames "
+            "and annotated video to maximize speed)"
+        ),
+    )
+
     # --------------------------------------------------------------
     # Processing
     # --------------------------------------------------------------
@@ -2168,6 +2021,8 @@ def main() -> int:
             save_annotated=args.save_annotated,
             max_frames=args.max_frames,
             output_dir=args.output_dir,
+            db_path=args.db,
+            save_all_frames=args.save_all_frames,
         )
 
     # ==============================================================

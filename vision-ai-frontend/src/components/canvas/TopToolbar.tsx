@@ -1,5 +1,5 @@
 import React from 'react';
-import { Hand, ShieldAlert, Layers, Minimize2, Expand, Eye, EyeOff, Video, Disc, Clock, Loader2 } from 'lucide-react';
+import { Hand, ShieldAlert, CheckCircle2, Layers, Minimize2, Expand, Eye, EyeOff, Video, Disc, Clock, Loader2 } from 'lucide-react';
 import type { AnomalyStatus } from '../../types';
 import { playWaterDropSound } from '../../utils/audio';
 
@@ -67,51 +67,40 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
       {/* Top-Left Corner: Real-Time Status Badge or Live Stream Indicator */}
       <div className="pointer-events-auto flex items-center gap-2 min-w-0 shrink-0">
         {showInferenceStatus ? (
-          <div
-            className={`flex items-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-3 rounded-xl border text-[10px] sm:text-xs font-black tracking-wide shrink-0 transition-all ${
-              anomalyStatus.message === 'WARMING'
-                ? 'bg-amber-500/20 text-amber-400 border-amber-500/50 shadow-xs animate-pulse'
-                : anomalyStatus.isAnomaly
-                ? 'bg-rose-600 text-white border-rose-400 shadow-lg shadow-rose-600/40 animate-pulse'
-                : 'bg-emerald-950/90 text-emerald-300 border-emerald-500/50 shadow-xs'
-            }`}
-          >
+          <div className="flex items-center h-7 sm:h-8 px-2.5 sm:px-3 rounded-xl bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--border-color)] shadow-xs shrink-0 select-none">
             {anomalyStatus.message === 'WARMING' ? (
-              <>
-                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0 shadow-[0_0_8px_rgba(251,191,36,0.8)]" />
-                <span className="font-black text-amber-400">WARMING</span>
-              </>
+              <div className="flex items-center gap-1.5 text-amber-500 font-bold text-xs sm:text-sm animate-pulse">
+                <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.6)]" />
+                <span>WARMING</span>
+              </div>
             ) : anomalyStatus.message === 'HAND DETECTED' ? (
-              <>
-                <Hand className="w-3.5 h-3.5 text-amber-300 shrink-0" />
-                <span className="font-black text-amber-200">HAND PRESENT</span>
-              </>
+              <div className="flex items-center gap-1.5 text-amber-500 font-bold text-xs sm:text-sm animate-pulse">
+                <Hand className="w-3.5 h-3.5 shrink-0" />
+                <span>HAND</span>
+              </div>
             ) : anomalyStatus.isAnomaly ? (
-              <>
-                <ShieldAlert className="w-3.5 h-3.5 text-white shrink-0" />
-                <span className="font-black text-white">ANOMALY</span>
-                {anomalyStatus.difference !== 0 && (
-                  <span className="font-mono text-[9.5px] bg-black/30 px-1 py-0.5 rounded text-rose-100">
-                    {anomalyStatus.difference > 0 ? `+${anomalyStatus.difference}` : anomalyStatus.difference}
-                  </span>
-                )}
-                {(anomalyStatus.foreignCount ?? 0) > 0 && (
-                  <span className="font-mono text-[9.5px] bg-black/30 px-1 py-0.5 rounded text-rose-100">
-                    {anomalyStatus.foreignCount} Foreign
-                  </span>
-                )}
-              </>
+              <div className="flex items-center gap-1.5 text-[var(--status-anomaly-text)] font-bold text-xs sm:text-sm animate-pulse">
+                <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                <span>ANOMALY</span>
+              </div>
+            ) : anomalyStatus.message === 'STANDBY' || anomalyStatus.message === 'READY' || anomalyStatus.message === 'NO CAMERA' ? (
+              <div className="flex items-center gap-1.5 text-[var(--text-secondary)] font-bold text-xs sm:text-sm">
+                <span className="w-2 h-2 rounded-full bg-[var(--accent-pond)] shrink-0" />
+                <span>{anomalyStatus.message}</span>
+              </div>
             ) : (
-              <>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
-                <span className="text-emerald-300 font-bold">NORMAL ({anomalyStatus.detectedCount})</span>
-              </>
+              <div className="flex items-center gap-1.5 text-emerald-500 dark:text-emerald-400 font-bold text-xs sm:text-sm">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-500 dark:text-emerald-400" />
+                <span>NORMAL</span>
+              </div>
             )}
           </div>
         ) : isCameraSource && isStreaming ? (
-          <div className="flex items-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-3 rounded-xl border text-[10px] sm:text-xs font-black tracking-wide shrink-0 bg-sky-950/90 text-sky-300 border-sky-500/50 shadow-xs">
-            <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse shrink-0 shadow-[0_0_8px_rgba(56,189,248,0.8)]" />
-            <span>LIVE STREAM</span>
+          <div className="flex items-center h-7 sm:h-8 px-2.5 sm:px-3 rounded-xl bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--border-color)] shadow-xs shrink-0 select-none">
+            <div className="flex items-center gap-1.5 text-sky-400 font-bold text-xs sm:text-sm">
+              <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse shrink-0 shadow-[0_0_6px_rgba(56,189,248,0.6)]" />
+              <span>LIVE STREAM</span>
+            </div>
           </div>
         ) : null}
       </div>
@@ -258,12 +247,12 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           onClick={onToggleFullscreen}
           aria-label={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
           title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
-          className="w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center rounded-xl bg-[var(--btn-secondary-bg)] backdrop-blur-md border border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] active:scale-95 shrink-0 shadow-xs cursor-pointer"
+          className="w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center rounded-xl bg-[var(--btn-secondary-bg)] backdrop-blur-md border border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:text-white hover:bg-[var(--btn-secondary-hover)] active:scale-95 shrink-0 shadow-xs cursor-pointer"
         >
           {isFullscreen ? (
-            <Minimize2 className="w-4 h-4 text-rose-500 dark:text-rose-400" />
+            <Minimize2 className="w-4 h-4 text-[var(--text-primary)] dark:text-white" />
           ) : (
-            <Expand className="w-4 h-4" />
+            <Expand className="w-4 h-4 text-[var(--text-primary)] dark:text-white" />
           )}
         </button>
 
@@ -272,9 +261,13 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           onClick={onToggleHUD}
           aria-label={showHUD ? 'Hide HUD overlay' : 'Show HUD overlay'}
           title={showHUD ? 'Hide HUD overlay' : 'Show HUD overlay'}
-          className="w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center rounded-xl bg-[var(--btn-secondary-bg)] backdrop-blur-md border border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] active:scale-95 shrink-0 shadow-xs cursor-pointer"
+          className="w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center rounded-xl bg-[var(--btn-secondary-bg)] backdrop-blur-md border border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:text-white hover:bg-[var(--btn-secondary-hover)] active:scale-95 shrink-0 shadow-xs cursor-pointer"
         >
-          {showHUD ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4 text-[var(--text-muted)]" />}
+          {showHUD ? (
+            <Eye className="w-4 h-4 text-[var(--text-primary)] dark:text-white" />
+          ) : (
+            <EyeOff className="w-4 h-4 text-[var(--text-muted)] dark:text-white/70" />
+          )}
         </button>
       </div>
     </div>

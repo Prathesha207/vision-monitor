@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Literal
 from sqlalchemy.orm import Session
@@ -12,6 +12,7 @@ from app.schemas.basic_config_response_schema import BasicConfigResponse
 from app.services import camera_service
 from app.schemas.camera_live_control_schema import CameraLiveControl
 from app.services.oak_camera_service import oak_camera_service
+from app.services.realtime_log_service import realtime_log_service
 
 
 class InferenceModeUpdate(BaseModel):
@@ -24,33 +25,75 @@ router = APIRouter()
 
 @router.post("/create", response_model=CameraResponse)
 def create_camera(data: CameraCreate, db: Session = Depends(get_db)):
-    return camera_service.create_camera(db, data)
+    try:
+        return camera_service.create_camera(db, data)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /camera/create: {e}", exc_info=True)
+        realtime_log_service.add_log("camera", "CRASH", f"Create camera failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Internal error creating camera: {e}")
 
 
 @router.put("/update/{camera_id}", response_model=CameraResponse)
 def update_camera(camera_id: int, data: CameraUpdate, db: Session = Depends(get_db)):
-    return camera_service.update_camera_partial(db, camera_id, data)
+    try:
+        return camera_service.update_camera_partial(db, camera_id, data)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API ERROR] PUT /camera/update/{camera_id}: {e}", exc_info=True)
+        realtime_log_service.add_log("camera", "CRASH", f"Update camera {camera_id} failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Internal error updating camera: {e}")
 
 
 @router.post("/enable/{camera_id}", response_model=CameraResponse)
 def enable_camera(camera_id: int, db: Session = Depends(get_db)):
-    return camera_service.enable_camera(db, camera_id)
+    try:
+        return camera_service.enable_camera(db, camera_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /camera/enable/{camera_id}: {e}", exc_info=True)
+        realtime_log_service.add_log("camera", "CRASH", f"Enable camera {camera_id} failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Internal error enabling camera: {e}")
 
 
 @router.post("/disable/{camera_id}", response_model=CameraResponse)
 def disable_camera(camera_id: int, db: Session = Depends(get_db)):
-    return camera_service.disable_camera(db, camera_id)
+    try:
+        return camera_service.disable_camera(db, camera_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /camera/disable/{camera_id}: {e}", exc_info=True)
+        realtime_log_service.add_log("camera", "CRASH", f"Disable camera {camera_id} failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Internal error disabling camera: {e}")
 
 
 @router.delete("/{camera_id}")
 @router.delete("/delete/{camera_id}")
 def delete_camera(camera_id: int, db: Session = Depends(get_db)):
-    return camera_service.delete_camera(db, camera_id)
+    try:
+        return camera_service.delete_camera(db, camera_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API ERROR] DELETE /camera/{camera_id}: {e}", exc_info=True)
+        realtime_log_service.add_log("camera", "CRASH", f"Delete camera {camera_id} failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Internal error deleting camera: {e}")
 
 
 @router.get("/", response_model=List[CameraResponse])
 def get_cameras(db: Session = Depends(get_db)):
-    return camera_service.get_cameras(db)
+    try:
+        return camera_service.get_cameras(db)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API ERROR] GET /camera/: {e}", exc_info=True)
+        realtime_log_service.add_log("camera", "CRASH", f"Get cameras failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Internal error fetching cameras: {e}")
 
 
 @router.put("/basic-config-update")
@@ -58,12 +101,26 @@ def update_basic_config(
     data: BasicConfigUpdate,
     db: Session = Depends(get_db)
 ):
-    return camera_service.update_basic_config(db, data)
+    try:
+        return camera_service.update_basic_config(db, data)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API ERROR] PUT /camera/basic-config-update: {e}", exc_info=True)
+        realtime_log_service.add_log("system", "CRASH", f"Update basic config failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Internal error updating config: {e}")
 
 
 @router.get("/config", response_model=BasicConfigResponse)
 def get_basic_config(db: Session = Depends(get_db)):
-    return camera_service.get_basic_config(db)
+    try:
+        return camera_service.get_basic_config(db)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API ERROR] GET /camera/config: {e}", exc_info=True)
+        realtime_log_service.add_log("system", "CRASH", f"Get basic config failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Internal error fetching config: {e}")
 
 
 @router.patch("/inference-mode")
