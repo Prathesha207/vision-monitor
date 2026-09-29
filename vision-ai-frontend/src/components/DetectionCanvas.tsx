@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import type { DuckEntity, StreamSourceType, AnomalyStatus, CameraConfig } from '../types';
 import { getApiBaseUrl } from '../lib/api';
+import { showToast } from '../lib/toast';
 import { useInferenceStore } from '../store/inferenceStore';
 import { useRecording } from './hooks/useRecording';
 import { playWaterDropSound } from '../utils/audio';
@@ -14,7 +15,7 @@ import { VideoUploadCard } from './canvas/VideoUploadCard';
 import { CameraOfflineCard } from './canvas/CameraOfflineCard';
 import { CameraStandbyCard } from './canvas/CameraStandbyCard';
 import { TopToolbar } from './canvas/TopToolbar';
-import { StatusBar } from './canvas/StatusBar';
+// import { StatusBar } from './canvas/StatusBar';
 import { LoadingOverlay } from './canvas/LoadingOverlay';
 
 // Extracted Canvas Hooks
@@ -479,17 +480,12 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
           isSaving={isSaving}
           recordingDuration={recordingDuration}
           onToggleRecording={async () => {
-            if (hasCameraRecording) return; // block recording while reviewing a clip
+            if (hasCameraRecording || isRunning) return; // block recording while reviewing a clip or during inference
             if (isRecording) {
               playWaterDropSound();
-              if (isRunning && isCameraSource) {
-                // Ensure live inference claim is stopped before the recording is finalized
-                await onStopInference?.();
-              }
               const res = await stopRecording();
-              if (res && res.session_id && res.stream_url && res.filename) {
-                const fullStreamUrl = `${getApiBaseUrl()}${res.stream_url}`;
-                onCustomVideoUploaded?.(fullStreamUrl, res.filename, res.session_id, true);
+              if (res && res.filename) {
+                showToast('success', `Recording saved: ${res.filename}`);
               }
             } else {
               playWaterDropSound();
@@ -516,7 +512,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
         />
       )}
 
-      {!isOverlayShowing && showHUD && !isCameraOffline && (isRunning || isStarting || hasInferenceResult) && (
+      {/* {!isOverlayShowing && showHUD && !isCameraOffline && (isRunning || isStarting || hasInferenceResult) && (
         <StatusBar
           anomalyStatus={anomalyStatus}
           fps={fps}
@@ -524,7 +520,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
           ducks={ducks}
           expectedDucks={expectedDucks}
         />
-      )}
+      )} */}
     </div>
   );
 };

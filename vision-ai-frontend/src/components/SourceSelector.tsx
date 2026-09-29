@@ -64,6 +64,7 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
   const isVideoLoading = useInferenceStore((state) => state.isVideoLoading);
 
   const handleSourceClick = (targetType: StreamSourceType) => {
+    if (isRunning) return;
     playWaterDropSound();
     if (onRequestSwitchMode) {
       onRequestSwitchMode(targetType);
@@ -85,8 +86,12 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
         {/* Source Toggle Pills */}
         <div className="flex bg-[var(--bg-card-subtle)] p-0.5 sm:p-1 rounded-xl border border-[var(--border-color)] flex-shrink-0">
           <button
+            disabled={isRunning}
             onClick={() => handleSourceClick('uploaded-video')}
-            className={`flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${sourceType === 'uploaded-video'
+            title={isRunning ? 'Stop inference before switching source' : 'Switch to Video File mode'}
+            className={`flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-bold transition-all ${
+              isRunning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+            } ${sourceType === 'uploaded-video'
               ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs'
               : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
               }`}
@@ -96,8 +101,12 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
           </button>
 
           <button
+            disabled={isRunning}
             onClick={() => handleSourceClick('oak-camera')}
-            className={`flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${sourceType === 'oak-camera'
+            title={isRunning ? 'Stop inference before switching source' : 'Switch to OAK Camera mode'}
+            className={`flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs font-bold transition-all ${
+              isRunning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+            } ${sourceType === 'oak-camera'
               ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs'
               : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
               }`}
@@ -151,7 +160,7 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                   <span>STARTING...</span>
                 </button>
               ) : isRunning ? (
-                /* When Running: provide STOP INFERENCE button */
+                /* When Running: provide ONLY STOP INFERENCE button */
                 <div className="flex items-center gap-1 sm:gap-2">
                   <button
                     onClick={() => {
@@ -165,19 +174,6 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                     <Square className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-current" />
                     <span>STOP<span className="hidden sm:inline"> INFERENCE</span></span>
                   </button>
-                  {isCameraMode && isStreaming && !cameraRecordSessionId && (
-                    <button
-                      onClick={() => {
-                        playWaterDropSound();
-                        onStopStream?.();
-                      }}
-                      title="Stop camera stream and clear feed"
-                      className="h-8 sm:h-9 flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 rounded-xl bg-slate-600 hover:bg-slate-500 text-white font-bold text-[11px] sm:text-xs shadow-xs active:scale-95 cursor-pointer transition-all"
-                    >
-                      <Square className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-current" />
-                      <span>STOP<span className="hidden sm:inline"> STREAM</span></span>
-                    </button>
-                  )}
                 </div>
               ) : (
                 /* When Stopped / Paused: provide START INFERENCE (and START/STOP STREAM for Camera) */
