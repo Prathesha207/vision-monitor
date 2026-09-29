@@ -6,7 +6,7 @@ from typing import Optional
 import cv2
 import numpy as np
 import depthai as dai
-from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect, HTTPException, Body
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -15,6 +15,7 @@ from app.dependencies import get_db
 from app.models.camera_model import Camera
 from app.services import camera_service
 from app.services.oak_camera_service import oak_camera_service
+from app.services.realtime_log_service import realtime_log_service
 
 logger = logging.getLogger("oak-camera")
 
@@ -55,17 +56,29 @@ async def start_camera(payload: Optional[StartCameraPayload] = None, db: Session
                 from app.schemas.camera_schema import CameraUpdate
                 camera = camera_service.update_camera_partial(db, camera.id, CameraUpdate(ip_address=mxid))
         except Exception as e:
+            logger.warning(f"[OAK DEVICE ENUM] {e}")
+            realtime_log_service.add_log("camera", "WARN", f"No camera connected: {e}", "warning")
             return {"status": "error", "message": f"No camera connected: {str(e)}"}
 
-    result = await oak_camera_service.start(camera)
-    return result
+    try:
+        result = await oak_camera_service.start(camera)
+        return result
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /oak/start: {e}", exc_info=True)
+        realtime_log_service.add_log("camera", "CRASH", f"Start camera failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to start camera: {e}")
 
 
 @router.post("/stop")
 async def stop_camera():
     """App shutdown — stop everything and disconnect."""
-    result = await oak_camera_service.stop()
-    return result
+    try:
+        result = await oak_camera_service.stop()
+        return result
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /oak/stop: {e}", exc_info=True)
+        realtime_log_service.add_log("camera", "CRASH", f"Stop camera failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to stop camera: {e}")
 
 
 # ==================== Stream Lifecycle ====================
@@ -73,23 +86,33 @@ async def stop_camera():
 @router.post("/stream/start")
 async def start_stream():
     """User clicks Start Streaming — starts the 3 capture threads."""
-    result = await oak_camera_service.start_streaming()
-    return result
+    try:
+        result = await oak_camera_service.start_streaming()
+        return result
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /oak/stream/start: {e}", exc_info=True)
+        realtime_log_service.add_log("stream", "CRASH", f"Start stream failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to start stream: {e}")
 
 
 @router.post("/stream/stop")
 async def stop_stream():
     """User clicks Stop Streaming — stops capture threads and clears queues."""
-    result = await oak_camera_service.stop_streaming()
-    return result
+    try:
+        result = await oak_camera_service.stop_streaming()
+        return result
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /oak/stream/stop: {e}", exc_info=True)
+        realtime_log_service.add_log("stream", "CRASH", f"Stop stream failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to stop stream: {e}")
 
 
 # ==================== MJPEG Stream ====================
 
-@router.get("/stream")
-@router.get("/stream/live")
-@router.get("/inference/stream/live")
 @router.get("/inference/stream/{session_id}")
+@router.get("/inference/stream/live")
+@router.get("/stream/live")
+@router.get("/stream")
 async def stream(request: Request, session_id: Optional[str] = None):
     """MJPEG HTTP stream — connect to this after stream/start or on canvas load.
     Subscribes a client frame queue, yields frames until client disconnects,
@@ -142,17 +165,24 @@ async def stream(request: Request, session_id: Optional[str] = None):
                 try:
                     jpeg = await asyncio.wait_for(client_queue.get(), timeout=2.0)
                 except asyncio.TimeoutError:
-                    if not oak_camera_service._is_running or not oak_camera_service._is_streaming:
+                    if not oak_camera_service._is_running or not oak_camera_service._is_streaming or not oak_camera_service.is_connected:
+                        logger.info(f"[STREAM] Camera stopped or disconnected on timeout — ending client stream (frames sent: {frames_sent})")
                         break
-                    # If capture threads died while streaming is active, attempt restart
-                    if oak_camera_service._is_streaming and not (oak_camera_service._mjpeg_thread and oak_camera_service._mjpeg_thread.is_alive()):
+                    # If capture threads died while streaming is active, attempt restart ONLY if pipeline & queues are healthy
+                    if (
+                        oak_camera_service._is_streaming
+                        and oak_camera_service._is_running
+                        and oak_camera_service.is_connected
+                        and oak_camera_service._mjpeg_dai_queue is not None
+                        and not (oak_camera_service._mjpeg_thread and oak_camera_service._mjpeg_thread.is_alive())
+                    ):
+                        logger.info("[STREAM] Attempting to restart capture threads")
                         oak_camera_service._start_capture_threads()
                     continue
 
                 if jpeg is None:
-                    if not oak_camera_service._is_streaming:
-                        break
-                    continue
+                    logger.info(f"[STREAM] Stream termination sentinel received — ending client stream (frames sent: {frames_sent})")
+                    break
 
                 yield (
                     b"--frame\r\n"
@@ -170,6 +200,8 @@ async def stream(request: Request, session_id: Optional[str] = None):
                         f"avg FPS: {frames_sent / max(elapsed, 1):.1f}"
                     )
 
+        except (asyncio.CancelledError, GeneratorExit):
+            logger.info(f"[STREAM] Client connection closed cleanly — frames sent: {frames_sent}")
         except Exception as e:
             logger.error(f"[STREAM] Generator error: {e}")
         finally:
@@ -198,17 +230,25 @@ async def stream(request: Request, session_id: Optional[str] = None):
 @router.get("/snapshot")
 async def snapshot():
     """Single JPEG frame — returns latest live frame or fallback to prevent UI errors."""
+    # 0. Instant cached JPEG check (no queue pop, zero latency, zero live stream frame stealing)
+    if oak_camera_service._latest_jpeg is not None:
+        return Response(content=oak_camera_service._latest_jpeg, media_type="image/jpeg")
+
     # 1. Try from stream queue / buffer
     frame = await oak_camera_service.get_stream_frame(timeout=0.5)
     if frame is not None:
         return Response(content=frame, media_type="image/jpeg")
 
-    # 2. Try latest BGR frame from converter
+    # 2. Try latest BGR frame from converter (offloaded to thread executor)
     bgr = oak_camera_service.get_bgr_frame()
     if bgr is not None:
-        success, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        if success:
-            return Response(content=buf.tobytes(), media_type="image/jpeg")
+        loop = asyncio.get_running_loop()
+        def _enc():
+            s, b = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            return b.tobytes() if s else None
+        buf = await loop.run_in_executor(None, _enc)
+        if buf is not None:
+            return Response(content=buf, media_type="image/jpeg")
 
     # 3. If capture threads are alive, wait briefly for frame
     if oak_camera_service._mjpeg_thread and oak_camera_service._mjpeg_thread.is_alive():
@@ -263,22 +303,72 @@ async def get_available_devices():
 
 # ==================== Camera Controls ====================
 
+class CameraControlsRequest(BaseModel):
+    exposure: Optional[int] = None
+    gain: Optional[int] = None
+    focus: Optional[int] = None
+    brightness: Optional[int] = None
+    contrast: Optional[int] = None
+    auto_focus: Optional[bool] = None
+    autoFocus: Optional[bool] = None
+    auto_exposure: Optional[bool] = None
+    autoExposure: Optional[bool] = None
+    reset: Optional[bool] = None
+
+@router.post("/controls/reset")
+def reset_camera_controls():
+    """Real Camera Hardware Reset — restores full 3A (Auto Exposure, Auto Focus, Auto White Balance)
+    and removes all manual shutter/gain/focus overrides, matching fresh boot state.
+    """
+    try:
+        return oak_camera_service.reset_controls()
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /oak/controls/reset: {e}", exc_info=True)
+        realtime_log_service.add_log("camera", "CRASH", f"Camera controls reset failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to reset controls: {e}")
+
 @router.post("/controls")
 def update_controls(
+    body: Optional[CameraControlsRequest] = Body(default=None),
     exposure: int | None = None,
     gain: int | None = None,
     focus: int | None = None,
     brightness: int | None = None,
     contrast: int | None = None,
+    auto_focus: bool | None = None,
+    auto_exposure: bool | None = None,
+    reset: bool | None = None,
 ):
-    oak_camera_service.update_controls(
-        exposure=exposure,
-        gain=gain,
-        focus=focus,
-        brightness=brightness,
-        contrast=contrast,
-    )
-    return {"status": "ok"}
+    try:
+        is_reset = (body.reset if body and body.reset is not None else reset)
+        if is_reset:
+            return oak_camera_service.reset_controls()
+
+        exp = body.exposure if body and body.exposure is not None else exposure
+        g = body.gain if body and body.gain is not None else gain
+        f = body.focus if body and body.focus is not None else focus
+        b = body.brightness if body and body.brightness is not None else brightness
+        c = body.contrast if body and body.contrast is not None else contrast
+        af = (body.auto_focus if body and body.auto_focus is not None else (body.autoFocus if body and body.autoFocus is not None else auto_focus))
+        ae = (body.auto_exposure if body and body.auto_exposure is not None else (body.autoExposure if body and body.autoExposure is not None else auto_exposure))
+
+        oak_camera_service.update_controls(
+            exposure=exp,
+            gain=g,
+            focus=f,
+            brightness=b,
+            contrast=c,
+            auto_focus=af,
+            auto_exposure=ae,
+            reset=is_reset,
+        )
+        return {"status": "ok"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /oak/controls: {e}", exc_info=True)
+        realtime_log_service.add_log("camera", "CRASH", f"Camera controls update failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to update controls: {e}")
 
 
 # ==================== Inference ====================
@@ -292,40 +382,86 @@ class InferenceStartBody(BaseModel):
 
 @router.post("/inference/start/{session_id}")
 async def start_inference(session_id: str, body: InferenceStartBody = InferenceStartBody()):
-    loop = asyncio.get_running_loop()
-    # Resolve legacy videoId field as videoPath so old frontend builds still work
-    resolved_video_path = body.videoPath or body.videoId or None
-    result = oak_camera_service.start_inference(
-        session_id, loop,
-        offline=body.offline,
-        video_path=resolved_video_path,
-        folder_path=body.folderPath,
-    )
-    return result
+    try:
+        # If camera device is not running and offline is False, auto-start camera from DB or default USB
+        if not body.offline and not oak_camera_service._is_running:
+            try:
+                from app.core.database import SessionLocal
+                from app.services import camera_service
+                db = SessionLocal()
+                cam = None
+                try:
+                    cam = camera_service.get_camera_config(db)
+                except Exception:
+                    pass
+                finally:
+                    db.close()
+                logger.info(f"[INFERENCE] Auto-starting camera before inference (config={cam})")
+                await oak_camera_service.start(cam)
+            except Exception as e:
+                logger.warning(f"[INFERENCE] Auto-start camera for inference failed: {e}")
+
+        loop = asyncio.get_running_loop()
+        # Resolve legacy videoId field as videoPath so old frontend builds still work
+        resolved_video_path = body.videoPath or body.videoId or None
+        result = oak_camera_service.start_inference(
+            session_id, loop,
+            offline=body.offline,
+            video_path=resolved_video_path,
+            folder_path=body.folderPath,
+        )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /oak/inference/start/{session_id}: {e}", exc_info=True)
+        realtime_log_service.add_log("inference", "CRASH", f"Inference start failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to start inference: {e}")
 
 
 @router.post("/inference/stop")
 def stop_inference():
-    result = oak_camera_service.stop_inference()
-    return result
+    try:
+        result = oak_camera_service.stop_inference()
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /oak/inference/stop: {e}", exc_info=True)
+        realtime_log_service.add_log("inference", "CRASH", f"Inference stop failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to stop inference: {e}")
 
 class ExpectedCountUpdate(BaseModel):
     count: int
 
 @router.post("/inference/update_expected/{session_id}")
 async def update_expected(session_id: str, payload: ExpectedCountUpdate):
-    from app.ml.duck_inference_service import update_expected_ducks
-    update_expected_ducks(session_id, payload.count)
-    return {"message": "Expected duck count updated."}
+    try:
+        from app.ml.camera_inference_service import update_expected_ducks
+        update_expected_ducks(session_id, payload.count)
+        return {"message": "Expected duck count updated."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /oak/inference/update_expected/{session_id}: {e}", exc_info=True)
+        realtime_log_service.add_log("inference", "CRASH", f"Update expected count failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to update expected count: {e}")
 
 
 @router.get("/inference/status/{session_id}")
 async def get_camera_inference_status(session_id: str):
-    from app.ml.duck_inference_service import get_session_status
-    status = get_session_status(session_id)
-    if not status:
-        return {"status": "idle", "session_id": session_id}
-    return status
+    try:
+        from app.ml.camera_inference_service import get_session_status
+        status = get_session_status(session_id)
+        if not status:
+            return {"status": "idle", "session_id": session_id}
+        return status
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API ERROR] GET /oak/inference/status/{session_id}: {e}", exc_info=True)
+        realtime_log_service.add_log("inference", "CRASH", f"Get inference status failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to get inference status: {e}")
 
 
 @router.websocket("/inference/ws/{session_id}")
@@ -367,16 +503,17 @@ async def inference_ws(websocket: WebSocket, session_id: str):
                 f"latency={result.get('metrics', {}).get('latency_ms', '?')}ms"
             )
 
-            if "_raw_frame" in result:
+            ws_result = dict(result)
+            if "_raw_frame" in ws_result:
                 import cv2, base64, asyncio
-                frame = result.pop("_raw_frame")
+                frame = ws_result.pop("_raw_frame")
                 loop = asyncio.get_running_loop()
                 def _encode():
                     _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
                     return "data:image/jpeg;base64," + base64.b64encode(buf).decode()
-                result["frame"] = await loop.run_in_executor(None, _encode)
+                ws_result["frame"] = await loop.run_in_executor(None, _encode)
 
-            await websocket.send_json(result)
+            await websocket.send_json(ws_result)
 
     except WebSocketDisconnect:
         logger.info(f"[INFERENCE WS] Client disconnected — session: {session_id} | total sent: {results_sent}")

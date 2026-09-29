@@ -1,5 +1,43 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-theme="pond-dark"], [data-theme="pond-dark"] *, [data-theme="nature"], [data-theme="nature"] *, .dark, .dark *));
+
+@property --bg-page {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #FAF8F5;
+}
+@property --bg-card {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #FFFFFF;
+}
+@property --bg-card-subtle {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #F4EFEA;
+}
+@property --border-color {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #E2D9CD;
+}
+@property --text-primary {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #142328;
+}
+@property --text-secondary {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #475E66;
+}
+@property --accent-pond {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #17a2b8;
+}
+
 @layer base {
 
   /* 1. Light Theme (Default / Common) */
@@ -30,9 +68,9 @@
     --status-anomaly-border: #FECACA;
     --status-anomaly-text: #DC2626;
 
-    --status-normal-bg: #E8F6F8;
-    --status-normal-border: #BCE3EB;
-    --status-normal-text: #0f6674;
+    --status-normal-bg: #ECFDF5;
+    --status-normal-border: #A7F3D0;
+    --status-normal-text: #059669;
 
     --status-warn-bg: #FEF3C7;
     --status-warn-border: #FDE68A;
@@ -81,11 +119,11 @@
 
     --status-anomaly-bg: rgba(239, 68, 68, 0.16);
     --status-anomaly-border: rgba(239, 68, 68, 0.45);
-    --status-anomaly-text: #FF4D4D;
+    --status-anomaly-text: #DC2626;
 
-    --status-normal-bg: rgba(245, 158, 11, 0.16);
-    --status-normal-border: #B45309;
-    --status-normal-text: #FBBF24;
+    --status-normal-bg: rgba(5, 150, 105, 0.2);
+    --status-normal-border: rgba(16, 185, 129, 0.4);
+    --status-normal-text: #10B981;
 
     --status-warn-bg: rgba(245, 158, 11, 0.16);
     --status-warn-border: #B45309;
@@ -129,11 +167,11 @@
 
     --status-anomaly-bg: rgba(239, 68, 68, 0.16);
     --status-anomaly-border: rgba(239, 68, 68, 0.45);
-    --status-anomaly-text: #FF4D4D;
+    --status-anomaly-text: #DC2626;
 
-    --status-normal-bg: rgba(240, 228, 145, 0.16);
-    --status-normal-border: #B5A54D;
-    --status-normal-text: #F0E491;
+    --status-normal-bg: rgba(5, 150, 105, 0.2);
+    --status-normal-border: rgba(16, 185, 129, 0.4);
+    --status-normal-text: #10B981;
 
     --status-warn-bg: rgba(240, 228, 145, 0.16);
     --status-warn-border: #B5A54D;
@@ -175,12 +213,18 @@
     overflow-x: hidden;
   }
 
-  /* Smooth Theme Transitions — purely for color morphing (180ms) */
+  /* Smooth Theme Transitions — velvety color & shadow morphing (350ms) */
+  html,
+  body {
+    transition: background-color 350ms cubic-bezier(0.4, 0, 0.2, 1),
+                color 350ms cubic-bezier(0.4, 0, 0.2, 1) !important;
+  }
+
   *,
   *::before,
   *::after {
-    transition-property: background-color, border-color, color, fill, stroke !important;
-    transition-duration: 180ms !important;
+    transition-property: background-color, border-color, color, fill, stroke, box-shadow !important;
+    transition-duration: 350ms !important;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1) !important;
   }
 
@@ -196,7 +240,9 @@
   [data-no-transition],
   .animate-pond-ripple,
   .animate-duck-swim,
-  .animate-duck-swim * {
+  .animate-duck-swim *,
+  .animate-spin,
+  .animate-pulse {
     transition: none !important;
   }
 
@@ -261,6 +307,60 @@
 
 .animate-duck-swim {
   animation: duckSwim 4s ease-in-out infinite;
+}
+
+/* Custom range slider — theme-aware track & thumb */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+  border: none !important;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 4px;
+  background: transparent; /* inline style handles the gradient */
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent-pond);
+  border: 2px solid white;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  margin-top: -5px;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+/* Firefox */
+input[type="range"]::-moz-range-track {
+  height: 6px;
+  border-radius: 4px;
+  background: transparent;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent-pond);
+  border: 2px solid white;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
 }
 
 /* Custom sleek scrollbar */

@@ -1,20 +1,38 @@
 @echo off
-echo Starting Vision Monitor Development Servers...
+setlocal enabledelayedexpansion
+title Vision Monitor
 
-cd /d "%~dp0vision-ai-backend"
-echo Starting Backend...
-start "Vision Monitor Backend" cmd /c ".venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000"
+echo =======================================================
+echo          Starting Vision Monitor Development Mode
+echo =======================================================
+echo.
 
-cd /d "%~dp0vision-ai-frontend"
-echo Starting Frontend...
-start "Vision Monitor Frontend" cmd /c "npm run dev"
+cd /d "%~dp0"
+
+if not exist "%~dp0vision-ai-backend\.venv\Scripts\python.exe" (
+    echo [ERROR] Virtual environment not found!
+    echo Please run setup.bat first to configure the environment.
+    echo.
+    pause
+    exit /b 1
+)
+
+echo [1/2] Starting Vision Monitor Backend API (Port 8000)...
+start "Vision Monitor - Backend API" /d "%~dp0vision-ai-backend" cmd /c ".venv\Scripts\python.exe -m uvicorn app.main:app --reload --reload-dir app --port 8000"
+
+echo [2/2] Starting Vision Monitor Frontend UI (Port 5173)...
+start "Vision Monitor - Frontend UI" /d "%~dp0vision-ai-frontend" cmd /c "npm run dev"
 
 echo.
-echo ==================================================
-echo Vision Monitor is running!
-echo Backend API: http://localhost:8000
-echo Frontend UI: http://localhost:5173
+echo =======================================================
+echo [SUCCESS] Vision Monitor development servers are running!
 echo.
-echo Close the two command prompt windows to stop the servers.
-echo ==================================================
+echo   • Frontend Application : http://localhost:5173
+echo   • Backend Health Check : http://localhost:8000/health
+echo   • API Documentation    : http://localhost:8000/docs
+echo.
+echo Keep both console windows open while working.
+echo To stop all servers, simply close the two console windows.
+echo =======================================================
+echo.
 pause

@@ -2,10 +2,26 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import ResponseValidationError, RequestValidationError
 import os
 import sys
+import uuid
 import subprocess
 from pathlib import Path
+
+# --- PyInstaller PyTorch CUDA DLL Fix ---
+if getattr(sys, 'frozen', False):
+    bundle_dir = sys._MEIPASS
+    torch_lib = os.path.join(bundle_dir, 'torch', 'lib')
+    if os.path.exists(torch_lib):
+        os.environ["PATH"] = torch_lib + os.pathsep + os.environ.get("PATH", "")
+        if hasattr(os, 'add_dll_directory'):
+            try:
+                os.add_dll_directory(torch_lib)
+            except Exception:
+                pass
+# ----------------------------------------
+
 from app.api.router import router
 from app.core.database import Base, engine
 from app.utils.exceptions import AppException
@@ -15,6 +31,7 @@ from app.models.recording_model import Recording
 from app.utils.resource_path import resource_path
 import time
 from app.core.logger import setup_logger
+from app.services.realtime_log_service import realtime_log_service
 
 logger = setup_logger("vision-ai")
 
@@ -41,16 +58,10 @@ def _ensure_env_file():
             "DEBUG=True\n",
             encoding="utf-8",
         )
-        pass
-    else:
-        pass
 
 _ensure_env_file()
 
 
-# ─────────────────────────────────────────
-# BOOTSTRAP: DB tables (create_all — no Alembic needed)
-# ─────────────────────────────────────────
 # ─────────────────────────────────────────
 # BOOTSTRAP: DB tables + auto column migration
 # ─────────────────────────────────────────
@@ -81,16 +92,19 @@ def _ensure_tables():
                     "ADD COLUMN recording_video_testing_path VARCHAR"
                 )
 
+            if "recording_format" not in existing_camera_columns:
+                camera_migrations.append(
+                    "ALTER TABLE cameras "
+                    "ADD COLUMN recording_format VARCHAR(20) DEFAULT 'MP4'"
+                )
+
             if camera_migrations:
                 with engine.begin() as conn:
                     for sql in camera_migrations:
                         conn.execute(text(sql))
-                        pass
-
-        pass
 
     except Exception as e:
-        pass
+        logger.warning(f"[BOOTSTRAP] Table migration check: {e}")
 
 _ensure_tables()
 
@@ -99,11 +113,143 @@ _ensure_tables()
 
 
 # ---------------------------------------------------
-#  FastAPI App
+#  FastAPI App — with startup lifespan
 # ---------------------------------------------------
+import threading
+from contextlib import asynccontextmanager
+
+# Set to True once the ML model + GPU are fully warmed up at startup.
+# /health returns "starting" until this is True.
+_backend_ready = False
+
+def _preload_model_background():
+    """Runs in a daemon thread at startup: loads DuckAnalyzer (and warms up the
+    GPU if CUDA is available) so inference is instant when the user clicks Start.
+    Sets _backend_ready=True when done so /health flips to 'ready'."""
+    global _backend_ready
+    try:
+        import yaml
+        from app.utils.resource_path import resource_path
+
+        # Resolve config path (works both frozen PyInstaller and dev mode)
+        cfg_path = resource_path("app/ml/config/config.yaml")
+        if not os.path.exists(cfg_path):
+            cfg_path = os.path.join(os.path.dirname(__file__), "ml", "config", "config.yaml")
+
+        try:
+            from duck_analyzer import DuckAnalyzer
+        except ImportError:
+            try:
+                from app.ml.debug.extracted.duck_analyzer.analyzer import DuckAnalyzer
+            except ImportError:
+                DuckAnalyzer = None
+
+        if DuckAnalyzer is not None and os.path.exists(cfg_path):
+            logger.info("[STARTUP] Preloading ML model into memory (GPU if available)...")
+            try:
+                with open(cfg_path, "r") as f:
+                    cfg = yaml.safe_load(f) or {}
+                expected = int(cfg.get("expected_duck_count") or 18)
+            except Exception:
+                cfg = {}
+                expected = 18
+            cfg["expected_duck_count"] = expected
+
+            # Resolve model_path portably to absolute path
+            ml_dir = os.path.join(os.path.dirname(__file__), "ml")
+            model_candidates = [
+                resource_path("app/ml/model/best.pt"),
+                os.path.join(ml_dir, "model", "best.pt"),
+                os.path.join(ml_dir, "debug", "best.pt"),
+                os.path.join(ml_dir, "models", "best.pt"),
+            ]
+            if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+                model_candidates.insert(0, os.path.join(sys._MEIPASS, "app", "ml", "model", "best.pt"))
+                model_candidates.insert(1, os.path.join(sys._MEIPASS, "app", "ml", "models", "best.pt"))
+
+            resolved_model = next((c for c in model_candidates if c and os.path.exists(c)), None)
+            if resolved_model:
+                cfg["model_path"] = resolved_model
+
+            # Resolve roi_path portably
+            roi_raw = cfg.get("roi_path", "model/hand_roi.json")
+            roi_candidates = [
+                resource_path("app/ml/model/hand_roi.json"),
+                os.path.join(ml_dir, "model", "hand_roi.json"),
+                os.path.join(ml_dir, "hand_roi.json"),
+            ]
+            if roi_raw and os.path.isabs(roi_raw) and os.path.exists(roi_raw):
+                cfg["roi_path"] = roi_raw
+            else:
+                resolved_roi = next((r for r in roi_candidates if r and os.path.exists(r)), None)
+                if resolved_roi:
+                    cfg["roi_path"] = resolved_roi
+
+            # Determine device
+            try:
+                from app.ml.video_inference_service import is_cuda_operational
+                device_val = 0 if is_cuda_operational() else "cpu"
+            except Exception:
+                device_val = "cpu"
+            cfg["device"] = device_val
+            cfg["save_local"] = False
+
+            # Write temporary config with absolute paths for DuckAnalyzer
+            import tempfile
+            preload_cfg_path = os.path.join(tempfile.gettempdir(), "vision_preload_config.yaml")
+            with open(preload_cfg_path, "w") as f:
+                yaml.dump(cfg, f)
+
+            # Instantiating DuckAnalyzer loads YOLO weights + optionally CUDA
+            _analyzer = DuckAnalyzer(preload_cfg_path, expected_duck_count=expected)
+
+            # Warm up: run one dummy inference so CUDA kernels are compiled.
+            # process_frame(frame) takes only the frame, no extra kwargs.
+            try:
+                import numpy as np
+                dummy = np.zeros((640, 640, 3), dtype=np.uint8)
+                _analyzer.process_frame(dummy)
+                logger.info(f"[STARTUP] ML model warm-up complete — GPU kernels compiled (device={device_val}).")
+            except Exception as warm_err:
+                logger.warning(f"[STARTUP] Warm-up inference failed (non-fatal): {warm_err}")
+
+            # Store it as the shared analyzer so VideoInferenceService reuses it
+            try:
+                from app.ml.video_inference_service import _set_shared_analyzer
+                _set_shared_analyzer(_analyzer)
+            except Exception:
+                pass  # Not critical — service will create its own instance on first use
+
+            # Also inject into camera_inference_service so live camera sessions
+            # don't reload the model either.
+            try:
+                from app.ml.camera_inference_service import _set_camera_analyzer
+                _set_camera_analyzer(_analyzer)
+            except Exception:
+                pass  # Non-critical fallback
+        else:
+            logger.info("[STARTUP] DuckAnalyzer not available or config missing — skipping preload.")
+    except Exception as e:
+        logger.error(f"[STARTUP] Model preload failed: {e}", exc_info=True)
+    finally:
+        _backend_ready = True
+        logger.info("[STARTUP] Backend ready.")
+
+
+@asynccontextmanager
+async def lifespan(app_instance):
+    """FastAPI lifespan: kick off model preload in background, yield (app accepts
+    requests), then clean up on shutdown."""
+    thread = threading.Thread(target=_preload_model_background, daemon=True, name="model-preload")
+    thread.start()
+    yield
+    # Shutdown: nothing special needed — daemon thread exits with the process
+
+
 app = FastAPI(
     title="Vision AI Command Center",
-    version="1.0"
+    version="1.0",
+    lifespan=lifespan,
 )
 
 
@@ -112,26 +258,77 @@ app = FastAPI(
 # ---------------------------------------------------
 @app.exception_handler(AppException)
 async def app_exception_handler(request: Request, exc: AppException):
+    req_id = getattr(request.state, "request_id", "req_unknown")
     logger.warning(
-        f"[APP EXCEPTION] {request.method} {request.url.path} -> {exc.status_code}: {exc.message}"
+        f"[APP EXCEPTION] [{req_id}] {request.method} {request.url.path} -> {exc.status_code}: {exc.message}"
+    )
+    realtime_log_service.add_log(
+        "system",
+        "WARN",
+        f"{request.method} {request.url.path} -> {exc.message}",
+        "warning"
     )
     return JSONResponse(
         status_code=exc.status_code,
-        content={"status": False, "message": exc.message, "data": None}
+        content={"status": False, "message": exc.message, "data": None, "request_id": req_id}
+    )
+
+
+@app.exception_handler(ResponseValidationError)
+async def response_validation_exception_handler(request: Request, exc: ResponseValidationError):
+    req_id = getattr(request.state, "request_id", "req_unknown")
+    logger.error(
+        f"[RESPONSE VALIDATION ERROR] [{req_id}] {request.method} {request.url.path}: {exc}",
+        exc_info=True
+    )
+    realtime_log_service.add_log(
+        "system",
+        "CRASH",
+        f"Validation error on {request.method} {request.url.path}",
+        "error"
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "status": False,
+            "message": "Response validation error (endpoint returned invalid data)",
+            "request_id": req_id,
+            "detail": str(exc)
+        }
     )
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    req_id = getattr(request.state, "request_id", "req_unknown")
     logger.error(
-        f"[CRASH 500] Unhandled exception in {request.method} {request.url.path}: {exc}",
+        f"[CRASH 500] [{req_id}] Unhandled exception in {request.method} {request.url.path}: {exc}",
         exc_info=True
+    )
+    realtime_log_service.add_log(
+        "system",
+        "CRASH",
+        f"500 on {request.method} {request.url.path}: {exc}",
+        "error"
     )
     return JSONResponse(
         status_code=500,
-        content={"status": False, "message": "Internal Server Error", "data": None}
+        content={"status": False, "message": "Internal Server Error", "request_id": req_id, "data": None}
     )
 
+
+import json
+from starlette.responses import Response, StreamingResponse
+from app.core.logger import setup_logger, current_request_id
+
+# Paths whose responses must NOT be buffered/read (streaming / binary / websocket-adjacent)
+STREAMING_PATH_PREFIXES = (
+    "/oak/stream",
+    "/video/stream",
+    "/oak/inference/ws",
+    "/oak/snapshot",
+    "/video/last_frame",
+)
 
 # ---------------------------------------------------
 #  API REQUEST & CRASH LOGGING MIDDLEWARE
@@ -139,33 +336,92 @@ async def global_exception_handler(request: Request, exc: Exception):
 @app.middleware("http")
 async def api_logging_middleware(request: Request, call_next):
     start_time = time.time()
+    req_id = request.headers.get("X-Request-ID") or f"req_{uuid.uuid4().hex[:8]}"
+    request.state.request_id = req_id
+    token = current_request_id.set(req_id)
     method = request.method
     path = request.url.path
 
     try:
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception as e:
+            duration_ms = round((time.time() - start_time) * 1000, 1)
+            logger.error(
+                f"[API CRASH] {method} {path} failed after {duration_ms}ms: {e}",
+                exc_info=True,
+            )
+            realtime_log_service.add_log(
+                "system",
+                "CRASH",
+                f"Unhandled error in {method} {path}: {e}",
+                "error"
+            )
+            raise e
+
         duration_ms = round((time.time() - start_time) * 1000, 1)
 
-        # Mute routine polling noise when 200 OK so logs don't drown in polling checks
-        is_routine_poll = (
-            path in ("/health", "/oak/health")
-            or path.startswith("/video/status/")
-            or path.startswith("/oak/inference/status/")
-            or path.startswith("/video/last_frame/")
+        # Never buffer streaming or binary responses — just log status/timing
+        is_streaming = (
+            isinstance(response, StreamingResponse)
+            or any(path.startswith(p) for p in STREAMING_PATH_PREFIXES)
         )
-        if is_routine_poll and response.status_code < 400:
+
+        if is_streaming:
+            if response.status_code >= 400:
+                logger.warning(f"[API WARN] {method} {path} -> {response.status_code} ({duration_ms}ms)")
+            else:
+                logger.info(f"[API] {method} {path} -> {response.status_code} ({duration_ms}ms)")
+            response.headers["X-Request-ID"] = req_id
             return response
-        elif response.status_code >= 500:
-            logger.error(f"[API ERROR] {method} {path} -> {response.status_code} ({duration_ms}ms)")
-        elif response.status_code >= 400:
-            logger.warning(f"[API WARN] {method} {path} -> {response.status_code} ({duration_ms}ms)")
+
+        if response.status_code >= 400:
+            body = b""
+            async for chunk in response.body_iterator:
+                body += chunk
+
+            try:
+                parsed = json.loads(body)
+                if isinstance(parsed, dict):
+                    detail = parsed.get("detail") or parsed.get("message") or parsed
+                else:
+                    detail = parsed
+            except Exception:
+                detail = body.decode(errors="ignore")[:300]
+
+            if response.status_code >= 500:
+                logger.error(
+                    f"[API ERROR] {method} {path} -> {response.status_code} ({duration_ms}ms) | {detail}"
+                )
+            else:
+                logger.warning(
+                    f"[API WARN] {method} {path} -> {response.status_code} ({duration_ms}ms) | {detail}"
+                )
+
+            # Rebuild response since body_iterator was consumed
+            headers = dict(response.headers)
+            headers["content-length"] = str(len(body))
+            headers["X-Request-ID"] = req_id
+            response = Response(
+                content=body,
+                status_code=response.status_code,
+                headers=headers,
+                media_type=response.media_type,
+            )
+            return response
         else:
-            logger.info(f"[API] {method} {path} -> {response.status_code} ({duration_ms}ms)")
-        return response
-    except Exception as e:
-        duration_ms = round((time.time() - start_time) * 1000, 1)
-        logger.error(f"[API CRASH] {method} {path} failed after {duration_ms}ms: {e}", exc_info=True)
-        raise e
+            is_routine_poll = (
+                path in ("/health", "/oak/health")
+                or path.startswith("/video/status/")
+                or path.startswith("/oak/inference/status/")
+            )
+            if not is_routine_poll:
+                logger.info(f"[API] {method} {path} -> {response.status_code} ({duration_ms}ms)")
+
+            response.headers["X-Request-ID"] = req_id
+            return response
+    finally:
+        current_request_id.reset(token)
 
 
 # ---------------------------------------------------
@@ -211,8 +467,16 @@ def health_check():
 
 
 @app.get("/health")
-def get_health():
-    """Health check endpoint for frontend readiness polling."""
+async def get_health():
+    """Health check endpoint for frontend readiness polling.
+    Returns 'starting' while the ML model is loading, 'ready' once it is done.
+    Electron's waitForBackend() polls this until it sees 'ready'."""
+    if not _backend_ready:
+        # FastAPI is up but model is still loading — tell Electron to keep waiting
+        return JSONResponse(
+            status_code=503,
+            content={"status": "starting", "message": "Backend is loading ML model...", "data": None}
+        )
     return {"status": "ready", "message": "Backend is healthy", "data": None}
 
 

@@ -84,20 +84,14 @@ APP_DIR.mkdir(parents=True, exist_ok=True)
 DATABASE_PATH = APP_DIR / "vision_ai.db"
 
 
+from datetime import datetime
+
+
 def get_ml_output_dir() -> Path:
-    """Return a guaranteed WRITABLE output directory for ML inference sessions (videos, thumbnails, results.json)."""
-    if getattr(sys, "frozen", False):
-        out = APP_DIR / "output"
-    else:
-        dev_out = Path(__file__).resolve().parent.parent / "ml" / "output"
-        try:
-            dev_out.mkdir(parents=True, exist_ok=True)
-            test_file = dev_out / ".write_test"
-            test_file.touch()
-            test_file.unlink()
-            return dev_out
-        except Exception:
-            out = APP_DIR / "output"
+    """Return the output directory for ML inference sessions (videos, thumbnails, results.json) directly on Desktop."""
+    desktop = get_desktop_dir()
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    out = desktop / "inference_results" / today_str
     out.mkdir(parents=True, exist_ok=True)
     return out
 
@@ -107,3 +101,19 @@ def get_ml_session_config_dir() -> Path:
     cfg_dir = APP_DIR / "sessions"
     cfg_dir.mkdir(parents=True, exist_ok=True)
     return cfg_dir
+
+
+def get_logs_dir() -> Path:
+    """Return logs directory: project root 'logs' during development, APP_DIR 'logs' in production/frozen."""
+    if getattr(sys, "frozen", False):
+        log_dir = APP_DIR / "logs"
+    else:
+        dev_dir = Path(__file__).resolve().parent.parent.parent / "logs"
+        try:
+            dev_dir.mkdir(parents=True, exist_ok=True)
+            return dev_dir
+        except Exception:
+            log_dir = APP_DIR / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir
+

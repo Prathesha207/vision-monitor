@@ -37,7 +37,7 @@ class RecordingSession:
         height: int,
         fps: float = 30.0,           # kept for API compatibility; not used for timestamps
         root_path: str = None,
-        recording_format: str = "MJPEG",
+        recording_format: str = "MP4",
     ):
         now = datetime.now()
         if not root_path:
@@ -46,35 +46,66 @@ class RecordingSession:
         folder = os.path.join(root_path, now.strftime("%Y-%m-%d"))
         os.makedirs(folder, exist_ok=True)
 
-        fmt = (recording_format or "AVI").upper()
+        fmt = (recording_format or "MP4").upper()
 
         options = {}
-        if fmt in ("MP4", "H264", "LIBX264"):
-            fmt        = "MP4"
-            codec_name = "libx264"
-            pix_fmt    = "yuv420p"
-            ext        = ".mp4"
-            options    = {"preset": "ultrafast", "crf": "18"}
+        if fmt in ("AVI", "MJPEG"):
+            fmt        = "AVI"
+            codec_name = "mjpeg"
+            pix_fmt    = "yuvj420p"
+            ext        = ".avi"
+            options    = {"qmin": "2", "qmax": "3"}
         elif fmt in ("FFV1", "MKV"):
             fmt        = "FFV1"
             codec_name = "ffv1"
             pix_fmt    = "yuv420p"
             ext        = ".mkv"
             options    = {"level": "3"}
-        else:  # Default: AVI (MJPEG)
-            fmt        = "AVI"
-            codec_name = "mjpeg"
-            pix_fmt    = "yuvj420p"
-            ext        = ".avi"
+        else:  # Default: MP4 (H.264)
+            fmt        = "MP4"
+            codec_name = "libx264"
+            pix_fmt    = "yuv420p"
+            ext        = ".mp4"
+            options    = {"preset": "veryfast", "crf": "16"}
 
         self.filename = now.strftime(f"session_%Y-%m-%d_%H-%M-%S{ext}")
         self.video_path = os.path.join(folder, self.filename)
         self.width  = width
         self.height = height
-        self.fmt    = fmt
+        # BUGFIX: `fmt` was only ever a local variable in __init__ -- stop()
+        # reads self.fmt when building its return dict, which raised
+        # AttributeError on every single recording stop (this was thrown
+        # after the file was already correctly flushed/closed by the worker
+        # thread, so the .mp4/.avi/.mkv on disk was actually fine -- but the
+        # exception then propagated out of RecordingSession.stop() ->
+        # recording_service.stop_recording() -> oak_camera_service's
+        # stop_recording()/stop(), which has no try/except around this call.
+        # When stop() is the camera-shutdown path, that exception aborted
+        # shutdown BEFORE _close_stream_queue()/_stop_capture_threads()/
+        # _cleanup_pipeline()/disconnect() could run -- leaving the pipeline
+        # and device connected, which is exactly the kind of state that makes
+        # the next camera start fail or the app look wedged.
+        self.fmt = fmt
+        # Initialize all state stop()/add_frame() touch BEFORE attempting to open
+        # the container, so a failed open leaves a fully-formed (just inert)
+        # object instead of a half-built one that crashes on the first stop().
+        # maxsize=150 keeps memory bounded under ~1 GB at 1080p BGR while tolerating transient stalls
+        self.frame_queue = queue.Queue(maxsize=150)
+        self.is_running  = False
+        # Set start clock at session creation — not on first frame — so the
+        # container duration matches the wall-clock recording time exactly.
+        self._start_mono: float = time.monotonic()
+        self._frames_written = 0
+        self._last_bgr = None       # last frame received, used for pad-frame on stop
+        self._last_pts_ms: int = 0  # PTS of that frame
+        self.thread = None
 
         try:
-            self.container = av.open(self.video_path, mode="w")
+            container_options = {}
+            if fmt == "MP4":
+                # Fragmented MP4 writes playable chunks at each keyframe so video is crash-resilient
+                container_options = {"movflags": "frag_keyframe+empty_moov"}
+            self.container = av.open(self.video_path, mode="w", options=container_options)
             # rate=1000 → time_base = 1/1000 s = 1 ms per PTS unit.
             # VFR timestamps allow precise wall-clock synchronization.
             self.stream = self.container.add_stream(codec_name, rate=1000)
@@ -85,18 +116,9 @@ class RecordingSession:
                 self.stream.options = options
         except Exception as e:
             logger.error(f"[RECORD] Failed to open container: {e}")
-            self.is_running = False
             return
 
-        self.frame_queue = queue.Queue(maxsize=1000)
-        self.is_running  = True
-        # Set start clock at session creation — not on first frame — so the
-        # container duration matches the wall-clock recording time exactly.
-        self._start_mono: float = time.monotonic()
-        self._frames_written = 0
-        self._last_bgr = None       # last frame received, used for pad-frame on stop
-        self._last_pts_ms: int = 0  # PTS of that frame
-
+        self.is_running = True
         self.thread = threading.Thread(target=self._worker, daemon=True)
         self.thread.start()
         logger.info(f"[RECORD] Started: {self.video_path} | format={fmt} ({codec_name}) | {width}x{height}")
@@ -192,9 +214,15 @@ class RecordingSession:
             f"[RECORD] Stopping — {self.frame_queue.qsize()} frames still in queue"
         )
         self.is_running = False
-        self.thread.join(timeout=30.0)
-        if self.thread.is_alive():
-            logger.warning("[RECORD] Worker thread did not finish within 30 s")
+        if self.thread is not None:
+            self.thread.join(timeout=30.0)
+            if self.thread.is_alive():
+                logger.warning("[RECORD] Worker thread did not finish within 30 s")
+        else:
+            logger.warning(
+                f"[RECORD] stop() called on a session whose container never "
+                f"opened successfully: {self.video_path}"
+            )
         # Container is already closed by the worker's finally block
         duration = time.monotonic() - self._start_mono
         return {
@@ -246,7 +274,7 @@ def start_recording(
     height: int,
     fps: float = 30.0,
     root_path: str = None,
-    recording_format: str = "AVI",
+    recording_format: str = "MP4",
 ) -> str:
     logger.info(f"[RECORD] Creating session: {session_id} | format={recording_format}")
     if session_id in active_recordings:
@@ -255,6 +283,24 @@ def start_recording(
 
     root_path = _resolve_recording_path(root_path)
     session = RecordingSession(session_id, width, height, fps, root_path, recording_format)
+
+    # BUGFIX: if av.open() failed inside RecordingSession.__init__, it logs
+    # and returns early, leaving is_running=False and thread=None -- but this
+    # function used to store that broken session into active_recordings and
+    # return session.video_path unconditionally, exactly as if recording had
+    # started. The caller (oak_camera_service.start_recording) then logs
+    # "[RECORD] Session active" and happily feeds it frames for the entire
+    # session -- every one of them silently dropped by add_frame()'s
+    # `if not self.is_running: return` guard -- producing a recording button
+    # that appears to work but writes nothing, with no error anywhere.
+    if not session.is_running:
+        raise RuntimeError(
+            f"Recording container failed to open for session {session_id} "
+            "(see the '[RECORD] Failed to open container' log line above for "
+            "the underlying cause) -- refusing to report a successful start "
+            "for a session that would silently record zero frames."
+        )
+
     active_recordings[session_id] = session
     return session.video_path
 

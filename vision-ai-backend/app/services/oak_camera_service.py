@@ -52,7 +52,7 @@ class OakCameraService:
         self._control_queue = None
 
         # ---- Inter-thread queue (hires capture -> converter) ----
-        self._hires_packet_queue: Queue = Queue(maxsize=1000)
+        self._hires_packet_queue: Queue = Queue(maxsize=16)
 
         # ---- Offline frame queue (synchronized, every frame processed once) ----
         self._offline_frame_queue: Queue = Queue(maxsize=32) 
@@ -74,16 +74,25 @@ class OakCameraService:
         self._hires_stop = threading.Event()
         self._convert_stop = threading.Event()
 
-        # ---- Latest BGR frame (GIL-safe, no lock needed for single ref assign) ----
+        # ---- Latest BGR & JPEG frame caches (GIL-safe single ref assign) ----
         self._latest_bgr: np.ndarray | None = None
+        self._latest_jpeg: bytes | None = None
+        self._latest_bgr_seq: int = 0
+        self._pipeline_width: int = 1920
+        self._pipeline_height: int = 1080
 
         # ---- Camera settings ----
         self.control_mode: str = "auto"
         self.current_brightness: int = 0
-        self.current_contrast: int = 0
+        self.current_contrast: int = 50
         self.current_fps: float = 0.0
         self._configured_fps: int = 30
         self._ae_limit_us: int | None = None  # None = manual mode
+        self.current_exposure_us: int = 10000  # Default 10ms manual shutter
+        self.current_gain: int = 100          # Default ISO 100 manual gain
+        self.current_focus: int = 120         # Default lens position (0-255)
+        self.auto_exposure_enabled: bool = True
+        self.auto_focus_enabled: bool = True
 
         # ---- Recording ----
         self._active_recording = None  # RecordingSession instance when active
@@ -126,6 +135,25 @@ class OakCameraService:
                 self.device.setLogLevel(dai.LogLevel.WARN)
                 self.device.setLogOutputLevel(dai.LogLevel.WARN)
                 self.is_connected = True
+
+                try:
+                    usb_speed = self.device.getUsbSpeed()
+                    logger.info(f"[DEVICE] Connected link speed: {usb_speed}")
+                    if usb_speed == dai.UsbSpeed.HIGH:
+                        logger.warning(
+                            "[DEVICE] ⚠️ Camera connected via USB 2.0 (HIGH speed: ~35-40 MB/s). "
+                            "Uncompressed 1080p stream exceeds USB 2.0 bandwidth and will cause X_LINK_ERROR. "
+                            "Please connect camera to a blue USB 3.0 port using a USB 3.0 SuperSpeed cable."
+                        )
+                        realtime_log_service.add_log(
+                            "camera",
+                            "WARN",
+                            "OAK connected at USB 2.0 speed! Use a USB 3.0 port and cable for stability.",
+                            "warning"
+                        )
+                except Exception as speed_err:
+                    logger.debug(f"[DEVICE] Could not determine USB speed: {speed_err}")
+
                 logger.info(f"[DEVICE] Connected to {ip}")
                 realtime_log_service.add_log(
                     "camera",
@@ -133,13 +161,28 @@ class OakCameraService:
                     f"Camera connected ({ip})",
                     "success"
                 )
+                self._last_connection_error = None
                 return True
             except Exception as e:
                 err_str = str(e)
-                if attempt == 0 and ("already used" in err_str.lower() or "in use" in err_str.lower()):
-                    logger.warning(f"[DEVICE] Device is reported in use, waiting 1.5s to retry: {e}")
-                    await asyncio.sleep(1.5)
-                    continue
+                if "already used" in err_str.lower() or "in use" in err_str.lower():
+                    clean_msg = "Device is already used by another application/process. Make sure to close all applications/processes using the device before starting a new one."
+                    self._last_connection_error = clean_msg
+                    if attempt == 0:
+                        logger.warning(f"[DEVICE] Device is reported in use, waiting 1.5s to retry: {clean_msg}")
+                        await asyncio.sleep(1.5)
+                        continue
+                    else:
+                        logger.warning(f"[DEVICE] Connection failed: {clean_msg}")
+                        realtime_log_service.add_log(
+                            "camera",
+                            "CAMERA",
+                            clean_msg,
+                            "error"
+                        )
+                        self.is_connected = False
+                        return False
+
                 logger.error(f"[DEVICE] Connection failed: {e}")
                 realtime_log_service.add_log(
                     "camera",
@@ -150,7 +193,7 @@ class OakCameraService:
                 self.is_connected = False
                 self._last_connection_error = err_str
                 return False
-        self._last_connection_error = "Failed after retries"
+        self._last_connection_error = self._last_connection_error or "Failed after retries"
         return False
 
     @staticmethod
@@ -192,7 +235,7 @@ class OakCameraService:
     async def disconnect(self) -> None:
         try:
             if self.device is not None:
-                self.device.close()
+                await asyncio.to_thread(self.device.close)
                 logger.info("[DEVICE] Disconnected")
                 realtime_log_service.add_log(
                     "camera",
@@ -226,6 +269,8 @@ class OakCameraService:
             except Exception:
                 logger.warning("[PIPELINE] Bad resolution — fallback 1920x1080")
                 width, height = 1920, 1080
+            self._pipeline_width = width
+            self._pipeline_height = height
             fps = int(config.fps or 30)
             self._configured_fps = fps
             logger.info(f"[PIPELINE] {width}x{height} @ {fps}fps")
@@ -274,16 +319,14 @@ class OakCameraService:
                     raise cam_err
 
             if control_mode == "auto":
-                init_ctrl.setAutoExposureEnable()
-                init_ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.CONTINUOUS_VIDEO)
-                # Cap shutter to frame period — prevents AE from picking 300ms in dim scenes.
-                ae_limit_us = max(1_000, int(1_000_000 / max(fps, 1)) - 2_000)
-                self._ae_limit_us = ae_limit_us
-                try:
-                    init_ctrl.setAutoExposureLimit(ae_limit_us)
-                    logger.info(f"[PIPELINE] Auto exposure + focus | AE shutter hint: {ae_limit_us} µs")
-                except AttributeError:
-                    logger.warning("[PIPELINE] setAutoExposureLimit not on initialControl — will send via runtime control only")
+                # For standard inspection stream: Do NOT run CONTINUOUS_VIDEO autofocus (causes focus hunting on moving objects).
+                # Keep autofocus OFF and lock to calibrated standard focus (120) and standard exposure (16ms, 400 ISO)
+                # so the image remains perfectly steady and never hunts or flickers when objects move.
+                self._ae_limit_us = None
+                init_ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
+                init_ctrl.setManualFocus(120)
+                init_ctrl.setManualExposure(16000, 400)
+                logger.info("[PIPELINE] Auto mode: calibrated steady stream (Focus=120, Exp=16ms, Gain=400 ISO, continuous AF hunting disabled)")
             else:
                 self._ae_limit_us = None
                 try:
@@ -297,9 +340,27 @@ class OakCameraService:
                 init_ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
                 init_ctrl.setManualExposure(exposure, gain)
                 init_ctrl.setManualFocus(focus)
-                init_ctrl.setBrightness(int(config.brightness or 0))
-                init_ctrl.setContrast(int(config.contrast or 0))
+                hw_b = max(-10, min(10, int(round(int(config.brightness or 0) / 5.0))))
+                hw_c = max(-10, min(10, int(round((int(config.contrast or 50) - 50) / 5.0))))
+                init_ctrl.setBrightness(hw_b)
+                init_ctrl.setContrast(hw_c)
                 logger.info(f"[PIPELINE] Manual: exp={exposure}, gain={gain}, focus={focus}")
+
+            is_usb2 = False
+            if self.device is not None:
+                try:
+                    if self.device.getUsbSpeed() == dai.UsbSpeed.HIGH:
+                        is_usb2 = True
+                        logger.warning(
+                            "[PIPELINE] ⚠️ Detected USB 2.0 connection. "
+                            "Uncompressed 1080p @ 30fps requires ~93 MB/s which exceeds USB 2.0 bandwidth (~35 MB/s). "
+                            "Throttling raw frame output rate to 10 FPS to prevent XLink communication buffer overflows. "
+                            "Please connect camera to a blue USB 3.0 port with a SuperSpeed cable for full 30 FPS."
+                        )
+                except Exception:
+                    pass
+
+            raw_fps = min(fps, 10) if is_usb2 else fps
 
             encoder = pipeline.create(dai.node.VideoEncoder)
             encoder.setDefaultProfilePreset(fps, dai.VideoEncoderProperties.Profile.MJPEG)
@@ -315,14 +376,14 @@ class OakCameraService:
 
                 # --- Node 2: Raw NV12 → inference / recording ---
                 raw_out = cam.requestOutput(
-                    (width, height), type=dai.ImgFrame.Type.NV12, fps=fps
+                    (width, height), type=dai.ImgFrame.Type.NV12, fps=raw_fps
                 )
-                self._raw_dai_queue = raw_out.createOutputQueue(maxSize=4, blocking=False)
-                logger.info("[PIPELINE] Node 2: Raw NV12 ready")
+                self._raw_dai_queue = raw_out.createOutputQueue(maxSize=2, blocking=False)
+                logger.info(f"[PIPELINE] Node 2: Raw NV12 ready (fps={raw_fps})")
             else:
                 cam.video.link(encoder.input)
                 self._mjpeg_dai_queue = encoder.bitstream.createOutputQueue(maxSize=4, blocking=False)
-                self._raw_dai_queue = cam.video.createOutputQueue(maxSize=4, blocking=False)
+                self._raw_dai_queue = cam.video.createOutputQueue(maxSize=2, blocking=False)
                 logger.info("[PIPELINE] ColorCamera outputs wired successfully")
 
             # --- Camera control input ---
@@ -351,7 +412,64 @@ class OakCameraService:
                 self._mjpeg_dai_queue = None
                 self._raw_dai_queue = None
                 self._control_queue = None
+                self._latest_jpeg = None
+                self._latest_bgr = None
             logger.info("[PIPELINE] Cleaned up")
+
+    def _on_device_lost(self, reason: str = "Device disconnected") -> None:
+        """Central teardown when DepthAI device disconnects, XLink crashes, or queues close."""
+        with self._pipeline_lock:
+            if not self._is_running and not self.is_connected:
+                return
+            logger.warning(f"[DEVICE] Teardown triggered: {reason}")
+            self._is_running = False
+            self.is_connected = False
+            self._is_streaming = False
+
+            # Signal capture & inference loops to stop
+            self._mjpeg_stop.set()
+            self._hires_stop.set()
+            self._convert_stop.set()
+            self._inference_stop.set()
+
+            # Invalidate queues so callers know device is unavailable
+            self._mjpeg_dai_queue = None
+            self._raw_dai_queue = None
+            self._control_queue = None
+            self._pipeline = None
+            self._latest_jpeg = None
+            self._latest_bgr = None
+
+            # Wake up any streaming client queues with None sentinel so generators exit cleanly (thread-safe)
+            loop = self._server_loop
+            for q in list(self._stream_subscribers):
+                if loop is not None and not loop.is_closed():
+                    try:
+                        loop.call_soon_threadsafe(q.put_nowait, None)
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        q.put_nowait(None)
+                    except Exception:
+                        pass
+            self._stream_subscribers.clear()
+            self._stream_queue = None
+
+            # Close device handle safely if not already closed
+            if self.device is not None:
+                try:
+                    self.device.close()
+                except Exception:
+                    pass
+                self.device = None
+
+            realtime_log_service.add_log(
+                "camera",
+                "CAMERA",
+                f"Camera device disconnected: {reason}",
+                "error"
+            )
 
     
 
@@ -388,8 +506,8 @@ class OakCameraService:
     # ==================== Capture Threads ====================
 
     def _start_capture_threads(self) -> bool:
-        if not self._is_running:
-            logger.error("[CAPTURE] Cannot start — pipeline not running")
+        if not self._is_running or not self.is_connected or self._mjpeg_dai_queue is None:
+            logger.warning("[CAPTURE] Cannot start — pipeline or device queue not running")
             return False
 
         mjpeg_alive = self._mjpeg_thread and self._mjpeg_thread.is_alive()
@@ -445,6 +563,7 @@ class OakCameraService:
         self._hires_thread = None
 
         self._latest_bgr = None
+        self._latest_jpeg = None
         self._drain_hires_packet_queue()
 
         logger.info("[CAPTURE] Threads stopped")
@@ -465,16 +584,11 @@ class OakCameraService:
     def _mjpeg_loop(self) -> None:
         """Drains MJPEG DAI queue and pushes JPEG bytes into the asyncio stream_queue."""
         logger.info("[MJPEG] Thread running")
-        realtime_log_service.add_log(
-            "stream",
-            "NETWORK",
-            "Connection stable - Bitrate: 4.2 Mbps",
-            "info"
-        )
         frames = 0
         frames_pushed = 0
         frames_dropped = 0
         last_log = time.time()
+        last_frame_ts = time.time()
 
         try:
             while not self._mjpeg_stop.is_set():
@@ -484,18 +598,32 @@ class OakCameraService:
 
                 pkt = self._mjpeg_dai_queue.tryGet()
                 if pkt is None:
+                    # Watchdog: detect frozen camera if no frames from camera for 3.0s
+                    if time.time() - last_frame_ts > 3.0:
+                        logger.error("[MJPEG] Watchdog: No MJPEG frames from camera for 3.0s — device connection frozen")
+                        self._on_device_lost("No MJPEG frames from camera for 3.0s")
+                        break
                     time.sleep(0.001)
                     continue
 
+                last_frame_ts = time.time()
                 jpeg = bytes(pkt.getData())
+                self._latest_jpeg = jpeg
                 frames += 1
 
+                # Push to all subscribed client queues thread-safely
+                # Keep stream/event loop errors completely isolated from camera hardware errors!
                 has_subscribers = bool(self._stream_subscribers) or (self._stream_queue is not None)
-                if has_subscribers and self._server_loop is not None:
-                    asyncio.run_coroutine_threadsafe(
-                        self._async_stream_push(jpeg), self._server_loop
-                    )
-                    frames_pushed += 1
+                loop = self._server_loop
+                if has_subscribers and loop is not None and not loop.is_closed():
+                    try:
+                        loop.call_soon_threadsafe(self._push_sync, jpeg)
+                        frames_pushed += 1
+                    except RuntimeError:
+                        # Event loop closed / server reload — do NOT treat as camera device failure!
+                        pass
+                    except Exception as push_err:
+                        logger.debug(f"[MJPEG] Stream push error: {push_err}")
                 else:
                     frames_dropped += 1
 
@@ -503,24 +631,37 @@ class OakCameraService:
                 if now - last_log >= 5.0:
                     elapsed = now - last_log
                     sub_count = len(self._stream_subscribers)
+                    fps_val = frames / max(elapsed, 0.001)
+                    bitrate_mbps = (frames_pushed * len(jpeg) * 8) / (max(elapsed, 0.001) * 1_000_000)
                     logger.info(
-                        f"[MJPEG] FPS: {frames / elapsed:.1f} | "
+                        f"[MJPEG] FPS: {fps_val:.1f} | "
+                        f"bitrate: {bitrate_mbps:.1f} Mbps | "
                         f"pushed: {frames_pushed} | "
                         f"dropped (no client): {frames_dropped} | "
                         f"subscribers: {sub_count}"
+                    )
+                    realtime_log_service.add_log(
+                        "stream",
+                        "NETWORK",
+                        f"Live Stream: {fps_val:.1f} FPS, {bitrate_mbps:.1f} Mbps",
+                        "info"
                     )
                     frames = 0
                     frames_pushed = 0
                     frames_dropped = 0
                     last_log = now
 
-
         except Exception as e:
-            logger.error(f"[MJPEG] Thread error: {e}", exc_info=True)
+            err_msg = str(e)
+            if "closed" in err_msg.lower() or "xlink" in err_msg.lower():
+                logger.warning(f"[MJPEG] Device connection lost: {err_msg}")
+            else:
+                logger.error(f"[MJPEG] Thread error: {e}", exc_info=True)
+            self._on_device_lost(f"MJPEG queue closed: {err_msg}")
             realtime_log_service.add_log(
                 "stream",
                 "NETWORK",
-                "MJPEG Thread error",
+                "MJPEG Thread disconnected",
                 "error"
             )
         finally:
@@ -554,7 +695,12 @@ class OakCameraService:
                         pass
 
         except Exception as e:
-            logger.error(f"[HIRES] Thread error: {e}", exc_info=True)
+            err_msg = str(e)
+            if "closed" in err_msg.lower() or "xlink" in err_msg.lower():
+                logger.warning(f"[HIRES] Device connection lost: {err_msg}")
+            else:
+                logger.error(f"[HIRES] Thread error: {e}", exc_info=True)
+            self._on_device_lost(f"Hi-res queue closed: {err_msg}")
         finally:
             logger.info("[HIRES] Thread ended")
 
@@ -576,22 +722,29 @@ class OakCameraService:
                     continue
 
                 try:
-                    bgr = pkt.getCvFrame()
+                    raw_bgr = pkt.getCvFrame()
                 except Exception as e:
                     logger.warning(f"[CONVERT] getCvFrame failed: {e}")
                     continue
 
                 if not _first_frame_logged:
-                    logger.info(f"[CONVERT] First frame received — shape={bgr.shape} | ae_limit_us={self._ae_limit_us} | configured_fps={self._configured_fps}")
+                    logger.info(f"[CONVERT] First frame received — shape={raw_bgr.shape} | ae_limit_us={self._ae_limit_us} | configured_fps={self._configured_fps}")
                     _first_frame_logged = True
 
-                if self.control_mode == "manual":
-                    bgr = self._apply_adjustments(bgr)
+                # Apply software adjustments ONLY when explicitly non-neutral and in manual mode.
+                # Default contrast (50 or 0) and brightness 0 is neutral.
+                is_neutral = (self.current_brightness == 0) and (self.current_contrast in (0, 50))
+                if not is_neutral and self.control_mode == "manual":
+                    display_bgr = self._apply_adjustments(raw_bgr)
+                else:
+                    display_bgr = raw_bgr
 
-                self._latest_bgr = bgr  # GIL-safe single reference assignment
+                self._latest_bgr = display_bgr  # GIL-safe single reference assignment
+                self._latest_bgr_seq += 1
 
                 if self._active_recording is not None:
-                    self._active_recording.add_frame(bgr)
+                    # Feed the authentic, unmodified camera stream frame to the recording
+                    self._active_recording.add_frame(raw_bgr)
                     record_frames += 1
 
                 frames += 1
@@ -618,8 +771,10 @@ class OakCameraService:
 
     # ==================== Stream Queue ====================
 
-    async def _async_stream_push(self, jpeg: bytes) -> None:
-        """Drop-oldest push into all subscribed asyncio stream queues."""
+    def _push_sync(self, jpeg: bytes) -> None:
+        """Runs on the asyncio event loop thread — drop-oldest push into all client queues.
+        Invoked via loop.call_soon_threadsafe so no Futures/Tasks are created.
+        """
         for q in list(self._stream_subscribers):
             if q.full():
                 try:
@@ -641,12 +796,15 @@ class OakCameraService:
             except asyncio.QueueFull:
                 pass
 
+    async def _async_stream_push(self, jpeg: bytes) -> None:
+        """Async fallback for pushing into client queues."""
+        self._push_sync(jpeg)
+
     def subscribe_stream(self) -> asyncio.Queue:
-        if self._server_loop is None:
-            try:
-                self._server_loop = asyncio.get_running_loop()
-            except RuntimeError:
-                pass
+        try:
+            self._server_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
         q: asyncio.Queue = asyncio.Queue(maxsize=4)
         self._stream_subscribers.add(q)
         self._stream_queue = q
@@ -670,7 +828,10 @@ class OakCameraService:
                         break
             self._stream_subscribers.clear()
 
-        if not self._stream_subscribers:
+        # Bugfix: Point _stream_queue to an existing active subscriber, not a dead queue!
+        if self._stream_subscribers:
+            self._stream_queue = next(iter(self._stream_subscribers))
+        else:
             self._stream_queue = None
         logger.info(f"[STREAM] Client unsubscribed — remaining subscribers: {len(self._stream_subscribers)}")
 
@@ -681,6 +842,8 @@ class OakCameraService:
         self.unsubscribe_stream(q)
 
     async def get_stream_frame(self, timeout: float = 1.0) -> bytes | None:
+        if self._latest_jpeg is not None:
+            return self._latest_jpeg
         if self._stream_queue is not None:
             try:
                 return await asyncio.wait_for(self._stream_queue.get(), timeout=timeout)
@@ -688,9 +851,12 @@ class OakCameraService:
                 pass
         if self._latest_bgr is not None:
             try:
-                ret, buf = cv2.imencode(".jpg", self._latest_bgr, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                if ret:
-                    return buf.tobytes()
+                frame_copy = self._latest_bgr.copy()
+                loop = asyncio.get_running_loop()
+                def _encode():
+                    ret, buf = cv2.imencode(".jpg", frame_copy, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                    return buf.tobytes() if ret else None
+                return await loop.run_in_executor(None, _encode)
             except Exception:
                 pass
         return None
@@ -705,11 +871,59 @@ class OakCameraService:
     # ==================== Image Adjustments ====================
 
     def _apply_adjustments(self, frame: np.ndarray) -> np.ndarray:
-        alpha = 1.0 + (self.current_contrast / 100.0)
-        beta = float(self.current_brightness)
+        c = self.current_contrast
+        b = self.current_brightness
+
+        # If neutral, return frame directly without copying or modifying
+        if (c == 0 or c == 50) and b == 0:
+            return frame
+
+        # Contrast: 50 is neutral (1.0x). 0..100 maps to 0.0x..2.0x
+        alpha = (float(c) / 50.0) if c > 0 else 1.0
+        beta = float(b)
+
+        if abs(alpha - 1.0) < 0.01 and abs(beta) < 0.01:
+            return frame
+
         return cv2.convertScaleAbs(frame, alpha=alpha, beta=beta)
 
     # ==================== Camera Controls ====================
+
+    def reset_controls(self) -> dict:
+        """Resets physical camera controls to calibrated standard stream defaults (Focus=120, Exp=16ms, Gain=400).
+        Disables continuous AF hunting and AE fluctuations so object movement does not cause blur or flicker.
+        """
+        self.current_brightness = 0
+        self.current_contrast = 50
+        self.current_gain = 400
+        self.current_focus = 120
+        self.current_exposure_us = 16000
+        self.auto_exposure_enabled = False
+        self.auto_focus_enabled = False
+        self.control_mode = "auto"
+
+        if not self._is_running or not self.is_connected or self._control_queue is None:
+            return {"status": "ok", "message": "Controls reset to default steady stream"}
+
+        ctrl = dai.CameraControl()
+        try:
+            ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
+            ctrl.setManualFocus(120)
+            ctrl.setManualExposure(16000, 400)
+            try:
+                ctrl.setAutoWhiteBalanceMode(dai.CameraControl.AutoWhiteBalanceMode.AUTO)
+                ctrl.setAutoWhiteBalanceLock(False)
+            except Exception:
+                pass
+            ctrl.setBrightness(0)
+            ctrl.setContrast(0)
+
+            self._control_queue.send(ctrl)
+            logger.info("[CONTROL] 🔄 Camera reset to standard steady stream (Focus=120, Exp=16ms, Gain=400, AF hunting OFF)")
+            return {"status": "ok", "message": "Camera hardware reset to steady stream defaults"}
+        except Exception as e:
+            logger.warning(f"[CONTROL] Factory reset send failed: {e}")
+            return {"status": "error", "message": str(e)}
 
     def update_controls(
         self,
@@ -718,34 +932,121 @@ class OakCameraService:
         focus: int | None = None,
         brightness: int | None = None,
         contrast: int | None = None,
+        auto_focus: bool | None = None,
+        auto_exposure: bool | None = None,
+        reset: bool | None = None,
     ) -> None:
-        if self._control_queue is None:
-            logger.warning("[CONTROL] Queue not available")
+        """Update hardware camera controls (Exposure, Gain, Focus, Brightness, Contrast)."""
+        if reset:
+            self.reset_controls()
+            return
+        # 1. Update internal state
+        if brightness is not None:
+            self.current_brightness = max(-50, min(50, int(brightness)))
+
+        if contrast is not None:
+            self.current_contrast = max(0, min(100, int(contrast)))
+
+        if gain is not None:
+            self.current_gain = max(100, min(1600, int(gain)))
+
+        if focus is not None:
+            self.current_focus = max(0, min(255, int(focus)))
+
+        if exposure is not None:
+            val = int(exposure)
+            if val <= 100:
+                exp_us = val * 1000
+            elif val < 1000:
+                exp_us = val * 1000
+            else:
+                exp_us = val
+            max_period_us = max(1000, int(1_000_000 / max(self._configured_fps, 1)))
+            self.current_exposure_us = max(100, min(max_period_us, exp_us))
+
+        if not self._is_running or not self.is_connected or self._control_queue is None:
             return
 
         ctrl = dai.CameraControl()
+        should_send = False
 
-        if exposure is not None and gain is not None:
-            ctrl.setManualExposure(int(exposure), int(gain))
-            logger.info(f"[CONTROL] Exposure={exposure}, Gain={gain}")
+        # 2. Exposure & Gain Logic
+        if auto_exposure is True:
+            self.auto_exposure_enabled = True
+            self.control_mode = "auto"
+            try:
+                ctrl.setAutoExposureEnable()
+                if self._ae_limit_us is not None:
+                    try:
+                        ctrl.setAutoExposureLimit(self._ae_limit_us)
+                    except Exception:
+                        pass
+                should_send = True
+            except Exception as e:
+                logger.warning(f"[CONTROL] setAutoExposureEnable failed: {e}")
+        elif auto_exposure is False or (auto_exposure is None and (exposure is not None or gain is not None)):
+            self.auto_exposure_enabled = False
+            self.control_mode = "manual"
+            try:
+                ctrl.setAutoExposureLock(False)
+                ctrl.setManualExposure(self.current_exposure_us, self.current_gain)
+                should_send = True
+            except Exception as e:
+                logger.warning(f"[CONTROL] setManualExposure failed: {e}")
 
-        if focus is not None:
-            ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
-            ctrl.setManualFocus(int(focus))
-            logger.info(f"[CONTROL] Focus={focus}")
+        # 3. Focus Logic (Both auto_focus toggle and manual focus position)
+        if auto_focus is True:
+            self.auto_focus_enabled = True
+            try:
+                ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.CONTINUOUS_VIDEO)
+                try:
+                    ctrl.setAutoFocusTrigger()
+                except Exception:
+                    pass
+                should_send = True
+            except Exception as e:
+                logger.warning(f"[CONTROL] setAutoFocusMode failed: {e}")
+        elif auto_focus is False or (auto_focus is None and focus is not None):
+            self.auto_focus_enabled = False
+            try:
+                ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
+                ctrl.setManualFocus(self.current_focus)
+                should_send = True
+            except Exception as e:
+                logger.warning(f"[CONTROL] setManualFocus failed: {e}")
 
+        # 4. Hardware Brightness (-10 to 10)
         if brightness is not None:
-            self.current_brightness = int(brightness)
-            ctrl.setBrightness(self.current_brightness)
-            logger.info(f"[CONTROL] Brightness={brightness}")
+            try:
+                hw_b = max(-10, min(10, int(round(self.current_brightness / 5.0))))
+                ctrl.setBrightness(hw_b)
+                should_send = True
+            except Exception as e:
+                logger.debug(f"[CONTROL] setBrightness failed: {e}")
 
+        # 5. Hardware Contrast (-10 to 10)
         if contrast is not None:
-            self.current_contrast = int(contrast)
-            ctrl.setContrast(self.current_contrast)
-            logger.info(f"[CONTROL] Contrast={contrast}")
+            try:
+                hw_c = max(-10, min(10, int(round((self.current_contrast - 50) / 5.0))))
+                ctrl.setContrast(hw_c)
+                should_send = True
+            except Exception as e:
+                logger.debug(f"[CONTROL] setContrast failed: {e}")
 
-        self._control_queue.send(ctrl)
-        logger.info("[CONTROL] Sent to device")
+        # 6. Send to device
+        if should_send:
+            try:
+                self._control_queue.send(ctrl)
+                logger.info(
+                    f"[CONTROL] Dispatched -> exp={self.current_exposure_us}µs, "
+                    f"gain={self.current_gain} ISO, focus={self.current_focus}, "
+                    f"auto_exp={self.auto_exposure_enabled}, auto_focus={self.auto_focus_enabled}"
+                )
+            except Exception as e:
+                if "closed" in str(e).lower() or "xlink" in str(e).lower():
+                    self._on_device_lost("Control queue closed")
+                else:
+                    logger.warning(f"[CONTROL] Device send failed: {e}")
 
     # ==================== Inference ====================
 
@@ -754,7 +1055,7 @@ class OakCameraService:
     #     Also auto-manages processed video recording based on result['record'] flag.
     #     No frame skipping — inference itself is slow enough that _latest_bgr is always fresh.
     #     """
-    #     from app.ml.duck_inference_service import run_inference
+    #     from app.ml.camera_inference_service import run_inference
     #     from app.services.inference_recording_service import InferenceRecorder, draw_overlay
     #     from app.services import inference_config_service
     #     from app.core.database import SessionLocal
@@ -866,7 +1167,7 @@ class OakCameraService:
     # ─────────────────────────────────────────────────────────────────────────────
 
     def _inference_worker(self, session_id: str) -> None:
-        from app.ml.duck_inference_service import run_inference
+        from app.ml.camera_inference_service import run_inference
         from app.services.inference_recording_service import InferenceRecorder, draw_overlay
         import base64
 
@@ -891,6 +1192,7 @@ class OakCameraService:
 
         recorder: InferenceRecorder | None = None
         recording_active = False
+        last_seen_seq = -1
 
         try:
             while not self._inference_stop.is_set():
@@ -913,7 +1215,7 @@ class OakCameraService:
                             _got_eof = True
                             break
                         elif item is _VIDEO_BOUNDARY:
-                            from app.ml.duck_inference_service import reset_session_for_next_video
+                            from app.ml.camera_inference_service import reset_session_for_next_video
                             reset_session_for_next_video(session_id)
                             logger.info("[INFERENCE] Video boundary — session reset, cycle counter carried forward")
                             _got_boundary = True
@@ -944,10 +1246,11 @@ class OakCameraService:
                         break
                     self._latest_bgr = frame
                 else:
-                    frame = self._latest_bgr
-                    if frame is None:
-                        time.sleep(0.01)
+                    if self._latest_bgr is None or self._latest_bgr_seq == last_seen_seq:
+                        time.sleep(0.005)
                         continue
+                    last_seen_seq = self._latest_bgr_seq
+                    frame = self._latest_bgr
 
                 # ── Online frame normalization ────────────────────────────────
                 if not self._inference_offline:
@@ -1387,50 +1690,90 @@ class OakCameraService:
         }
 
     def stop_inference(self) -> dict:
-        from app.ml.duck_inference_service import clear_session
+        from app.ml.camera_inference_service import clear_session
 
         logger.info("[INFERENCE] Stopping...")
         self._inference_stop.set()
         
+        # Stop offline feed thread immediately so it stops queueing frames
+        if self._offline_thread and self._offline_thread.is_alive():
+            self._stop_offline_thread()
 
+        # BUGFIX: this used to join(timeout=2.0), log a warning if the thread
+        # was still alive, and then fall through anyway to unconditionally
+        # call clear_session() -> app_state.exit_inference("camera") and null
+        # out self._inference_thread. That releases the cross-kind GPU claim
+        # (and defeats start_inference()'s "already_running" guard) while the
+        # worker thread can still be mid-call inside analyzer.process_frame()
+        # on the GPU. The very next /video/start can then pass
+        # try_enter_inference("video") and load a second DuckAnalyzer onto
+        # the same GPU while the camera thread is still using it -- two
+        # threads hitting the same CUDA context concurrently, which is
+        # exactly the kind of thing that can wedge the whole process badly
+        # enough to look like "backend OFFLINE". This is the backend half of
+        # the race useInferenceLoop.ts's "GPU-contention fix" comment was
+        # working around from the frontend side.
+        #
+        # Fix: only release the claim / clear the session once the thread is
+        # actually confirmed dead. If it's still alive after the timeout, we
+        # leave self._inference_thread pointing at it (so start_inference()'s
+        # existing "already_running" guard keeps correctly refusing a new
+        # start) and hand off to a background watcher that does an unbounded
+        # join and releases the claim only when the thread genuinely exits.
+        thread_confirmed_dead = True
         if self._inference_thread and self._inference_thread.is_alive():
-            self._inference_thread.join(timeout=10.0)
+            self._inference_thread.join(timeout=2.0)
             if self._inference_thread.is_alive():
-                logger.warning("[INFERENCE] Thread did not stop in time — will self-terminate")
+                thread_confirmed_dead = False
+                stuck_thread = self._inference_thread
+                stuck_session_id = self._inference_session_id
+                logger.warning(
+                    "[INFERENCE] Worker thread did not stop within 2s -- it is "
+                    "still using the GPU. NOT releasing the camera's GPU claim "
+                    "yet; a background watcher will release it once the thread "
+                    "actually exits."
+                )
 
-        # ── Clean up inference session ──
-        if self._inference_session_id:
+                def _wait_and_release(thread=stuck_thread, session_id=stuck_session_id):
+                    thread.join()  # unbounded -- the native call WILL return eventually
+                    logger.info(
+                        f"[INFERENCE] Delayed-stopped worker thread for session "
+                        f"{session_id} has now actually exited -- releasing GPU claim."
+                    )
+                    try:
+                        clear_session(session_id)
+                    except Exception as e:
+                        logger.error(f"[INFERENCE] clear_session during delayed release failed: {e}")
+
+                threading.Thread(
+                    target=_wait_and_release,
+                    name="oak-inference-delayed-release",
+                    daemon=True,
+                ).start()
+
+        # ── Clean up inference session (only if the thread is actually gone) ──
+        if thread_confirmed_dead and self._inference_session_id:
             logger.info(f"[INFERENCE] Clearing session: {self._inference_session_id}")
             clear_session(self._inference_session_id)
-        
-        try:
-            import torch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                logger.info("[INFERENCE] GPU cache cleared")
-        except Exception:
-            pass
 
-        self._inference_thread = None
+        # Only forget the thread reference once it's confirmed dead -- otherwise
+        # start_inference()'s already_running guard must keep seeing it so a
+        # second worker can't start on top of the still-running one.
+        if thread_confirmed_dead:
+            self._inference_thread = None
         self._inference_watchdog_thread = None
         self._inference_result_queue = None
         self._inference_session_id = None
         self._inference_offline = False
-        
 
-        # Stop offline thread if it was running
-        offline_was_running = self._offline_thread and self._offline_thread.is_alive()
-        if offline_was_running:
-            self._stop_offline_thread()
+        streaming_active = bool(self._is_streaming or self._stream_subscribers or (self._stream_queue is not None))
+        recording_active = self._active_recording is not None
+        # Keep capture threads alive if streaming or camera pipeline is running
+        if not streaming_active and not recording_active and not self._is_running:
+            logger.info("[INFERENCE] Camera not streaming or running — stopping capture threads")
+            self._stop_capture_threads()
         else:
-            streaming_active = bool(self._is_streaming or self._stream_subscribers or (self._stream_queue is not None))
-            recording_active = self._active_recording is not None
-            # Keep capture threads alive if streaming or camera pipeline is running
-            if not streaming_active and not recording_active and not self._is_running:
-                logger.info("[INFERENCE] Camera not streaming or running — stopping capture threads")
-                self._stop_capture_threads()
-            else:
-                logger.info(f"[INFERENCE] Camera active (streaming={streaming_active}, recording={recording_active}, running={self._is_running}) — keeping capture threads running")
+            logger.info(f"[INFERENCE] Camera active (streaming={streaming_active}, recording={recording_active}, running={self._is_running}) — keeping capture threads running")
 
         logger.info("[INFERENCE] Stopped")
         self._stop_gpu_sampler()
@@ -1475,7 +1818,7 @@ class OakCameraService:
                 db.close()
         except Exception:
             pass
-        return "AVI"
+        return "MP4"
 
     def start_recording(
         self,
@@ -1490,6 +1833,22 @@ class OakCameraService:
 
         root_path = self._resolve_recording_path()
         rec_fmt = self._resolve_recording_format(recording_format)
+
+        # Ensure recording resolution matches the actual camera pipeline to prevent PyAV rescaling
+        if hasattr(self, "_pipeline_width") and self._pipeline_width and hasattr(self, "_pipeline_height") and self._pipeline_height:
+            if (width, height) != (self._pipeline_width, self._pipeline_height):
+                logger.warning(
+                    f"[RECORD] Requested resolution {width}x{height} differs from camera pipeline "
+                    f"{self._pipeline_width}x{self._pipeline_height} — overriding to match camera."
+                )
+                width = self._pipeline_width
+                height = self._pipeline_height
+
+        if self._latest_bgr is not None:
+            actual_h, actual_w = self._latest_bgr.shape[:2]
+            if (width, height) != (actual_w, actual_h):
+                logger.warning(f"[RECORD] Resolution adjusted to actual frame size: {actual_w}x{actual_h}")
+                width, height = actual_w, actual_h
 
         logger.info(f"[RECORD] Starting recording — session: {session_id}, {width}x{height} @ {fps}fps | format={rec_fmt}")
         logger.info(f"[RECORD] Pipeline running: {self._is_running}")
@@ -1553,12 +1912,21 @@ class OakCameraService:
         """App startup — connect device and build pipeline only. Does NOT start capture threads."""
         async with self._lifecycle_lock:
             if self._is_running:
-                logger.warning("[START] Pipeline already running")
+                logger.info("[START] Pipeline already running")
                 return {"status": "already_running"}
 
             try:
                 if not self.is_connected:
                     if not await self.connect(config.ip_address):
+                        # If device is already in use by another process, do NOT attempt USB fallback
+                        # as it will only repeat the exact same failure and spam logs.
+                        if "already used" in (self._last_connection_error or "").lower() or "in use" in (self._last_connection_error or "").lower():
+                            return {
+                                "status": "error",
+                                "message": self._last_connection_error or "Device is already used by another application/process. Make sure to close all applications/processes using the device before starting a new one.",
+                                "error_code": "DEVICE_IN_USE",
+                            }
+
                         # Older databases may select a locked/unavailable
                         # network camera as the newest row. Prefer a local USB
                         # OAK when one is available so startup still works.
@@ -1568,12 +1936,12 @@ class OakCameraService:
                                 f"[START] Could not connect to {config.ip_address}; trying USB OAK"
                             )
                             if not await self.connect("usb"):
-                                return {"status": "error", "message": "Device connection failed"}
+                                return {"status": "error", "message": self._last_connection_error or "Device connection failed"}
                         else:
-                            return {"status": "error", "message": "Device connection failed"}
+                            return {"status": "error", "message": self._last_connection_error or "Device connection failed"}
 
                 self.current_brightness = int(config.brightness or 0)
-                self.current_contrast = int(config.contrast or 0)
+                self.current_contrast = int(config.contrast if config.contrast is not None and config.contrast != 0 else 50)
 
                 with self._pipeline_lock:
                     self._pipeline = dai.Pipeline(self.device)
@@ -1613,9 +1981,18 @@ class OakCameraService:
         """App shutdown — stop capture threads if running, cleanup pipeline, disconnect device."""
         async with self._lifecycle_lock:
             try:
+                await asyncio.to_thread(self.stop_inference)
+                
+                # If a recording is active, we should attempt to stop it gracefully
+                if self._active_recording and getattr(self._active_recording, "session_id", None):
+                    await asyncio.to_thread(self.stop_recording, self._active_recording.session_id)
+                elif self._inference_session_id:
+                    await asyncio.to_thread(self.stop_recording, self._inference_session_id)
+                    
                 self._close_stream_queue()
-                self._stop_capture_threads()
-                self._cleanup_pipeline()
+                self._latest_jpeg = None
+                await asyncio.to_thread(self._stop_capture_threads)
+                await asyncio.to_thread(self._cleanup_pipeline)
                 await self.disconnect()
                 logger.info("[STOP] Camera stopped")
                 realtime_log_service.add_log(
@@ -1642,8 +2019,7 @@ class OakCameraService:
         if self._ae_limit_us is None:
             logger.info("[AE] Control mode is manual — no AE limit to enforce")
             return
-        if self._control_queue is None:
-            logger.warning("[AE] Control queue not available — cannot enforce AE limit")
+        if not self._is_running or not self.is_connected or self._control_queue is None:
             return
         try:
             ctrl = dai.CameraControl()
@@ -1656,7 +2032,10 @@ class OakCameraService:
                 f"guarantees {self._configured_fps} fps)"
             )
         except Exception as e:
-            logger.warning(f"[AE] Runtime AE limit failed: {e}")
+            if "closed" in str(e).lower() or "xlink" in str(e).lower():
+                self._on_device_lost("Control queue closed during AE enforcement")
+            else:
+                logger.warning(f"[AE] Runtime AE limit failed: {e}")
 
     # ==================== Stream Lifecycle (capture threads) ====================
 
@@ -1687,6 +2066,7 @@ class OakCameraService:
     async def stop_streaming(self) -> dict:
         """User clicks Stop Streaming — close stream queue, stop threads if recording and inference also inactive."""
         self._is_streaming = False
+        self._latest_jpeg = None
         for q in list(self._stream_subscribers):
             try:
                 q.put_nowait(None)
@@ -1699,7 +2079,7 @@ class OakCameraService:
         inference_active = bool(self._inference_thread and self._inference_thread.is_alive())
         if not recording_active and not inference_active:
             logger.info("[STREAMING] No active recording or inference — stopping capture threads")
-            self._stop_capture_threads()
+            await asyncio.to_thread(self._stop_capture_threads)
         else:
             logger.info(f"[STREAMING] Keeping capture threads running (recording={recording_active}, inference={inference_active})")
 
@@ -1722,6 +2102,7 @@ class OakCameraService:
             "inference_watchdog_thread": bool(self._inference_watchdog_thread and self._inference_watchdog_thread.is_alive()),
             "streaming": self._is_streaming,
             "fps": round(self.current_fps, 1),
+            "last_error": getattr(self, "_last_connection_error", None),
         }
 
 

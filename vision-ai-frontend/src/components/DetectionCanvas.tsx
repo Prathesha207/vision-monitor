@@ -1,8 +1,8 @@
-import React, { useRef, useEffect, useState, useMemo } from 'react';
-import type { DuckEntity, StreamSourceType, AnomalyStatus } from '../types';
+import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
+import type { DuckEntity, StreamSourceType, AnomalyStatus, CameraConfig } from '../types';
 import { getApiBaseUrl } from '../lib/api';
+import { showToast } from '../lib/toast';
 import { useInferenceStore } from '../store/inferenceStore';
-import { useRecording } from './hooks/useRecording';
 import { playWaterDropSound } from '../utils/audio';
 import { cameraService } from './service/cameraService';
 
@@ -14,7 +14,7 @@ import { VideoUploadCard } from './canvas/VideoUploadCard';
 import { CameraOfflineCard } from './canvas/CameraOfflineCard';
 import { CameraStandbyCard } from './canvas/CameraStandbyCard';
 import { TopToolbar } from './canvas/TopToolbar';
-import { StatusBar } from './canvas/StatusBar';
+// import { StatusBar } from './canvas/StatusBar';
 import { LoadingOverlay } from './canvas/LoadingOverlay';
 
 // Extracted Canvas Hooks
@@ -44,7 +44,7 @@ interface DetectionCanvasProps {
   customVideoName?: string;
   selectedDuckId: string | null;
   onSelectDuck: (id: string | null) => void;
-  onCustomVideoUploaded?: (videoUrl: string, fileName: string, sessionId?: string, isCameraRecording?: boolean) => void;
+  onCustomVideoUploaded?: (videoUrl: string, fileName: string, sessionId?: string, isCameraRecording?: boolean) => void | Promise<void>;
   onClearCustomVideo?: () => void;
   cameraStartingState?: 'idle' | 'waking_camera' | 'waiting_frame' | 'ready';
   onCameraDeviceChange?: (active: boolean) => void;
@@ -55,6 +55,9 @@ interface DetectionCanvasProps {
   isBackendConnected?: boolean;
   onRegisterTriggerUpload?: (trigger: () => void) => void;
   lastCameraFrame?: string;
+  lastVideoFrame?: string;
+  onCaptureVideoFrame?: (frame: string) => void;
+  onCaptureCameraFrame?: (frame: string) => void;
   onRetryConnection?: () => void;
   framesProcessed?: number;
   cameraRecordSessionId?: string | null;
@@ -63,6 +66,10 @@ interface DetectionCanvasProps {
   onClearCameraRecord?: () => void;
   cameraTargetFps?: number;
   recordingFormat?: 'AVI' | 'MP4' | 'FFV1';
+  recordedFile?: File | null;
+  clearRecording?: () => void;
+  cameraError?: string | null;
+  cameraConfig?: CameraConfig;
 }
 
 export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
@@ -97,6 +104,9 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   isBackendConnected = true,
   onRegisterTriggerUpload,
   lastCameraFrame,
+  lastVideoFrame,
+  onCaptureVideoFrame,
+  onCaptureCameraFrame,
   onRetryConnection,
   framesProcessed = 0,
   cameraRecordSessionId,
@@ -104,7 +114,11 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   cameraRecordName,
   onClearCameraRecord,
   cameraTargetFps,
-  recordingFormat = 'AVI',
+  recordingFormat = 'MP4',
+  recordedFile,
+  clearRecording,
+  cameraError,
+  cameraConfig,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -117,6 +131,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   const [videoAspect, setVideoAspect] = useState<number | null>(null);
   const [isFirstFrameLoaded, setIsFirstFrameLoaded] = useState<boolean>(false);
   const [streamCacheBuster, setStreamCacheBuster] = useState<number>(Date.now());
+  const [streamError, setStreamError] = useState<boolean>(false);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -125,7 +140,6 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
     };
   }, []);
 
-  const { isRecording, recordedFile, recordingDuration, startRecording, stopRecording, clearRecording } = useRecording();
   const backendStats = useInferenceStore((state) => state.stats);
 
   const isVideoSource = sourceType === 'uploaded-video' || sourceType === 'sample-pond';
@@ -184,6 +198,21 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
     }
   }, [backendStats?.status, isRunning]);
 
+  // When window is un-minimized or focused, immediately refresh stream URL to display latest frame
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        setStreamCacheBuster(Date.now());
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
+    };
+  }, []);
+
   const effectiveVideoUrl = useMemo(() => {
     if (!hasActiveVideo) return undefined;
     if (videoSessionId) {
@@ -194,6 +223,50 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
     }
     return customVideoUrl;
   }, [customVideoUrl, hasActiveVideo, isRunning, videoSessionId, streamCacheBuster]);
+
+  useEffect(() => {
+    setStreamError(false);
+  }, [effectiveVideoUrl, streamCacheBuster, isRunning, sourceType]);
+
+  const activeLastFrame = isCameraSource ? lastCameraFrame : lastVideoFrame;
+  const fallbackLastFrameUrl = !isRunning && isVideoSource && videoSessionId
+    ? `${getApiBaseUrl()}/video/last_frame/${videoSessionId}?t=${streamCacheBuster}`
+    : undefined;
+  const effectiveBackdrop = activeLastFrame || fallbackLastFrameUrl;
+
+  const captureFrame = useCallback(() => {
+    const img = cameraImgRef.current;
+    if (!img || !img.naturalWidth || !img.naturalHeight) return;
+    try {
+      const offscreen = document.createElement('canvas');
+      offscreen.width = img.naturalWidth;
+      offscreen.height = img.naturalHeight;
+      const ctx = offscreen.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0);
+        const dataUrl = offscreen.toDataURL('image/jpeg', 0.85);
+        if (dataUrl && dataUrl.length > 200) {
+          if (isCameraSource) {
+            onCaptureCameraFrame?.(dataUrl);
+          } else {
+            onCaptureVideoFrame?.(dataUrl);
+          }
+        }
+      }
+    } catch {
+      // Ignore if tainted or cross-origin canvas security restriction
+    }
+  }, [isCameraSource, onCaptureCameraFrame, onCaptureVideoFrame]);
+
+  // When inference stops, capture the current frame
+  useEffect(() => {
+    if (!isRunning && (videoSessionId || hasActiveVideo)) {
+      const timer = setTimeout(() => {
+        captureFrame();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isRunning, videoSessionId, hasActiveVideo, captureFrame]);
 
   // Reset states on source change
   useEffect(() => {
@@ -236,8 +309,13 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
     <div
       ref={containerRef}
       id="detection-hero-viewport"
-      className={`relative w-full flex-1 h-full min-h-[350px] lg:min-h-0 overflow-hidden border select-none group ${isFullscreen ? 'rounded-none border-none' : 'rounded-3xl'
-        } border-[var(--border-color)] shadow-sm`}
+      className={`relative w-full flex-1 h-full min-h-[350px] lg:min-h-0 overflow-hidden border select-none group transition-colors duration-200 ${
+        isFullscreen ? 'rounded-none border-none' : 'rounded-3xl'
+      } ${
+        isHandPresent && !isOverlayShowing
+          ? 'border-amber-500'
+          : 'border-[var(--border-color)] shadow-sm'
+      }`}
       style={{
         backgroundColor: (isWaitingForVideo || (!isCameraConnected && isCameraSource)) ? 'var(--bg-card)' : '#000000',
         ...(isFullscreen ? { width: '100%', height: '100%', minHeight: '100vh', maxHeight: '100vh' } : {})
@@ -245,13 +323,12 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
     >
       <input type="file" ref={fileInputRef} onChange={handleFileInputChange} accept="video/*" className="hidden" />
 
-      {/* Video Upload Card (Image 1 design, simple non-interactive display) */}
+      {/* Video Upload Card (simple non-interactive display card) */}
       {isWaitingForVideo && (
         <VideoUploadCard
           uploadProgress={uploadProgress}
           isSelectingVideo={isSelectingVideo}
           isBackendConnected={isBackendConnected}
-          onSelectVideo={handleSelectVideoAndStart}
         />
       )}
 
@@ -268,6 +345,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
             }
           })}
           onCanvasClick={handleCanvasClick}
+          errorMessage={cameraError}
         />
       )}
 
@@ -283,6 +361,23 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
       {(hasActiveVideo || hasCameraRecording || (isCameraSource && isCameraConnected && isStreaming)) && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-black">
           <div className="relative shrink-0" style={fittedRect} onClick={handleCanvasClick}>
+            {/* BACKDROP: Cached or stopped frame rendered as a reliable persistent background */}
+            {effectiveBackdrop && (
+              <img
+                src={effectiveBackdrop}
+                className="absolute inset-0 z-0 h-full w-full pointer-events-none rounded bg-black object-contain"
+                alt=""
+                onLoad={(e) => {
+                  const tgt = e.target as HTMLImageElement;
+                  if (tgt.naturalWidth && tgt.naturalHeight) {
+                    const aspect = tgt.naturalWidth / tgt.naturalHeight;
+                    setVideoAspect((prev) => (prev !== aspect ? aspect : prev));
+                  }
+                  setIsFirstFrameLoaded(true);
+                }}
+              />
+            )}
+
             {/* STREAM VIEWPORT: If backend session is active (video or camera), render via <img> to support MJPEG streaming */}
             {(videoSessionId || cameraRecordSessionId || isCameraSource) ? (
               <img
@@ -297,22 +392,33 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                       ? `${getApiBaseUrl()}/oak/inference/stream/live?t=${streamCacheBuster}`
                       : effectiveVideoUrl
                 }
-                className="absolute inset-0 z-0 h-full w-full pointer-events-none rounded bg-black object-contain"
-                alt="Stream"
+                className={`absolute inset-0 z-0 h-full w-full pointer-events-none rounded bg-black object-contain ${streamError && effectiveBackdrop ? 'opacity-0' : 'opacity-100'
+                  }`}
+                style={{
+                  filter: isCameraSource && !hasCameraRecording && cameraConfig
+                    ? `brightness(${Math.max(0.2, 1 + ((cameraConfig.brightness ?? 0) / 100))}) contrast(${Math.max(0.2, (cameraConfig.contrast ?? 50) / 50)})`
+                    : undefined
+                }}
+                alt=""
                 onLoad={(e) => {
                   const tgt = e.target as HTMLImageElement;
                   if (tgt.naturalWidth && tgt.naturalHeight) {
                     const aspect = tgt.naturalWidth / tgt.naturalHeight;
                     setVideoAspect((prev) => (prev !== aspect ? aspect : prev));
                   }
+                  setStreamError(false);
                   setIsFirstFrameLoaded((prev) => (!prev ? true : prev));
+                  if (!isRunning) {
+                    captureFrame();
+                  }
                 }}
                 onError={() => {
-                  console.warn('[DetectionCanvas] Camera stream frame interrupted, scheduling reconnect...');
+                  console.warn('[DetectionCanvas] Stream frame interrupted or reconnecting...');
+                  setStreamError(true);
                   if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
                   retryTimeoutRef.current = setTimeout(() => {
                     setStreamCacheBuster(Date.now());
-                  }, 1000);
+                  }, 1200);
                 }}
               />
             ) : hasActiveVideo ? (
@@ -348,11 +454,6 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                 isCountMismatch={anomalyStatus.difference !== 0}
               />
             )}
-
-            {/* Hand detected warning border: Shown in INFERENCE mode or always for video upload / camera recording */}
-            {!isOverlayShowing && (feedMode === 'inference' || !isCameraSource || hasCameraRecording) && isHandPresent && (
-              <div className="absolute inset-0 z-30 pointer-events-none border-4 border-amber-500/80 rounded" />
-            )}
           </div>
         </div>
       )}
@@ -377,31 +478,6 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
           onFeedModeChange={onFeedModeChange}
           showAllBoxes={showAllBoxes}
           onToggleShowAllBoxes={() => { playWaterDropSound(); setShowAllBoxes(!showAllBoxes); }}
-          isRecording={isRecording}
-          recordingDuration={recordingDuration}
-          onToggleRecording={async () => {
-            if (hasCameraRecording) return; // block recording while reviewing a clip
-            if (isRecording) {
-              playWaterDropSound();
-              if (isRunning && isCameraSource) {
-                // Ensure live inference claim is stopped before the recording is finalized
-                await onStopInference?.();
-              }
-              const res = await stopRecording();
-              if (res && res.session_id && res.stream_url && res.filename) {
-                const fullStreamUrl = `${getApiBaseUrl()}${res.stream_url}`;
-                onCustomVideoUploaded?.(fullStreamUrl, res.filename, res.session_id, true);
-              }
-            } else {
-              playWaterDropSound();
-              // If stream is not running yet, start the stream first automatically
-              if (!isStreaming && onStartStream) {
-                await onStartStream();
-                await new Promise((resolve) => setTimeout(resolve, 1000));
-              }
-              await startRecording(recordingFormat || 'AVI');
-            }
-          }}
           isFullscreen={isFullscreen}
           onToggleFullscreen={toggleFullscreen}
           showHUD={showHUD}
@@ -417,7 +493,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
         />
       )}
 
-      {!isOverlayShowing && showHUD && !isCameraOffline && (isRunning || isStarting || hasInferenceResult) && (
+      {/* {!isOverlayShowing && showHUD && !isCameraOffline && (isRunning || isStarting || hasInferenceResult) && (
         <StatusBar
           anomalyStatus={anomalyStatus}
           fps={fps}
@@ -425,7 +501,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
           ducks={ducks}
           expectedDucks={expectedDucks}
         />
-      )}
+      )} */}
     </div>
   );
 };
