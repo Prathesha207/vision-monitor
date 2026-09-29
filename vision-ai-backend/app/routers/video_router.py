@@ -187,6 +187,37 @@ async def upload_video(
         effective_inference_path = raw_save_path
         if can_read_directly:
             browser_video_path = raw_save_path
+        elif is_direct_local and file:
+            # Fallback for OneDrive cloud-only files, synced folders, or files with exclusive locks:
+            # save the uploaded browser stream (which was hydrated during upload) to local system tempdir
+            try:
+                temp_upload_path = os.path.join(tempfile.gettempdir(), f"vision_upload_{session_id}{ext}")
+                content = await file.read()
+                if len(content) >= 5000:
+                    with open(temp_upload_path, "wb") as f:
+                        f.write(content)
+                    raw_save_path = temp_upload_path
+                    effective_inference_path = raw_save_path
+                    logger.info(f"[DESKTOP ONEDRIVE FALLBACK] Saved uploaded stream to local temp: {raw_save_path}")
+                    try:
+                        import cv2
+                        cap = cv2.VideoCapture(raw_save_path)
+                        if cap.isOpened():
+                            total_cnt = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+                            ret, frame0 = cap.read()
+                            if ret and frame0 is not None and total_cnt > 0:
+                                can_read_directly = True
+                                frame_width = int(frame0.shape[1])
+                                frame_height = int(frame0.shape[0])
+                                _, buf = cv2.imencode(".jpg", frame0, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                                frame0_bytes = buf.tobytes()
+                                browser_video_path = raw_save_path
+                                logger.info("[DESKTOP ONEDRIVE FALLBACK] Local temp copy verified readable by OpenCV.")
+                        cap.release()
+                    except Exception as probe_err:
+                        logger.warning(f"Fallback OpenCV probe failed: {probe_err}")
+            except Exception as fe:
+                logger.warning(f"Fallback write of uploaded file failed: {fe}")
 
         # 2. Only if OpenCV CANNOT open the raw file directly or for camera recordings, fall back to ffmpeg transcode
         if not can_read_directly:
@@ -245,9 +276,9 @@ async def upload_video(
             session["session_dir"] = session_dir
             session["inference_video_path"] = effective_inference_path
             session["browser_video_path"] = browser_video_path
-            if not is_camera_rec and not is_direct_local:
+            if not is_camera_rec and (not is_direct_local or raw_save_path.startswith(tempfile.gettempdir())):
                 temp_files = [raw_save_path]
-                if effective_inference_path != raw_save_path:
+                if effective_inference_path != raw_save_path and effective_inference_path.startswith(tempfile.gettempdir()):
                     temp_files.append(effective_inference_path)
                 session["temp_files_to_cleanup"] = temp_files
             session["status"] = "ready"
