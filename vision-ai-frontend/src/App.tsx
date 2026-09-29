@@ -22,6 +22,7 @@ import { loadSessionState, saveSessionState, clearSessionState } from './utils/s
 import { useBackendHealth } from './hooks/useBackendHealth';
 import { useToastAndLogs } from './hooks/useToastAndLogs';
 import { useCameraStatus } from './hooks/useCameraStatus';
+import { useRecording } from './components/hooks/useRecording';
 import { useVideoPipeline } from './hooks/useVideoPipeline';
 import { useInferenceLoop } from './hooks/useInferenceLoop';
 import { useAnomalyStatus } from './hooks/useAnomalyStatus';
@@ -469,7 +470,23 @@ export default function App() {
     };
   }, [anomalyFinal.activeDucks, inference.fps, inference.framesProcessed, inference.uptimeSeconds]);
 
-  const isRecording = useInferenceStore((state) => state.isRecording);
+  const recording = useRecording();
+
+  const handleToggleRecording = async () => {
+    if (video.cameraRecordSessionId || isRunning) return;
+    if (recording.isRecording) {
+      const res = await recording.stopRecording();
+      if (res && res.filename) {
+        showToast('success', `Recording saved: ${res.filename}`);
+      }
+    } else {
+      if (!camera.isStreaming && camera.startCameraStream) {
+        await camera.startCameraStream();
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+      await recording.startRecording(camera.effectiveCameraConfig.recordingFormat || 'MP4');
+    }
+  };
 
   // ─── 12. Misc Handlers ────────────────────────────────────────────
   const handleRestart = () => {
@@ -796,7 +813,10 @@ export default function App() {
           onRequestSwitchMode={handleRequestSwitchMode}
           isRunning={isRunning}
           isStarting={isStarting}
-          isRecording={isRecording}
+          isRecording={recording.isRecording}
+          isSavingRecording={recording.isSaving}
+          recordingDuration={recording.recordingDuration}
+          onToggleRecording={handleToggleRecording}
           onToggleRunning={handleToggleRunning}
           onStopInference={handleStopInference}
           onResumeInference={handleResumeInference}
@@ -859,6 +879,8 @@ export default function App() {
               videoDimensions={video.videoDimensions}
               isCameraConnected={camera.effectiveCameraConfig.connected}
               initialUploadFile={video.initialUploadFile}
+              recordedFile={recording.recordedFile}
+              clearRecording={recording.clearRecording}
               isBackendConnected={isBackendConnected}
               onRegisterTriggerUpload={(fn) => { uploadTriggerRef.current = fn; }}
               lastCameraFrame={lastCameraFrame}

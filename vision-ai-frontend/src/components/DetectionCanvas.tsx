@@ -3,7 +3,6 @@ import type { DuckEntity, StreamSourceType, AnomalyStatus, CameraConfig } from '
 import { getApiBaseUrl } from '../lib/api';
 import { showToast } from '../lib/toast';
 import { useInferenceStore } from '../store/inferenceStore';
-import { useRecording } from './hooks/useRecording';
 import { playWaterDropSound } from '../utils/audio';
 import { cameraService } from './service/cameraService';
 
@@ -67,6 +66,8 @@ interface DetectionCanvasProps {
   onClearCameraRecord?: () => void;
   cameraTargetFps?: number;
   recordingFormat?: 'AVI' | 'MP4' | 'FFV1';
+  recordedFile?: File | null;
+  clearRecording?: () => void;
   cameraError?: string | null;
   cameraConfig?: CameraConfig;
 }
@@ -114,6 +115,8 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   onClearCameraRecord,
   cameraTargetFps,
   recordingFormat = 'MP4',
+  recordedFile,
+  clearRecording,
   cameraError,
   cameraConfig,
 }) => {
@@ -137,7 +140,6 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
     };
   }, []);
 
-  const { isRecording, isSaving, recordedFile, recordingDuration, startRecording, stopRecording, clearRecording } = useRecording();
   const backendStats = useInferenceStore((state) => state.stats);
 
   const isVideoSource = sourceType === 'uploaded-video' || sourceType === 'sample-pond';
@@ -476,27 +478,6 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
           onFeedModeChange={onFeedModeChange}
           showAllBoxes={showAllBoxes}
           onToggleShowAllBoxes={() => { playWaterDropSound(); setShowAllBoxes(!showAllBoxes); }}
-          isRecording={isRecording}
-          isSaving={isSaving}
-          recordingDuration={recordingDuration}
-          onToggleRecording={async () => {
-            if (hasCameraRecording || isRunning) return; // block recording while reviewing a clip or during inference
-            if (isRecording) {
-              playWaterDropSound();
-              const res = await stopRecording();
-              if (res && res.filename) {
-                showToast('success', `Recording saved: ${res.filename}`);
-              }
-            } else {
-              playWaterDropSound();
-              // If stream is not running yet, start the stream first automatically
-              if (!isStreaming && onStartStream) {
-                await onStartStream();
-                await new Promise((resolve) => setTimeout(resolve, 1000));
-              }
-              await startRecording(recordingFormat || 'MP4');
-            }
-          }}
           isFullscreen={isFullscreen}
           onToggleFullscreen={toggleFullscreen}
           showHUD={showHUD}
