@@ -1,7 +1,7 @@
 
 
 import React from 'react';
-import { AnomalyStatus, DuckEntity, DetectionMetrics, LogEntry } from '../types';
+import { AnomalyStatus, DuckEntity, DetectionMetrics, LogEntry, CameraConfig } from '../types';
 import {
   AlertTriangle,
   ChevronLeft,
@@ -17,6 +17,7 @@ import { Badge, IconButton } from './ui';
 import { playWaterDropSound } from '../utils/audio';
 import { DetectionGallery } from './AnomalyGallery';
 import { useInferenceStore } from '../store/inferenceStore';
+import { CameraImageAdjustmentsCard } from './CameraImageAdjustmentsCard';
 
 interface DetectionDrawerProps {
   isOpen: boolean;
@@ -29,6 +30,9 @@ interface DetectionDrawerProps {
   isStandby?: boolean;
   logs?: LogEntry[];
   isCameraSource?: boolean;
+  isCameraConnected?: boolean;
+  cameraConfig?: CameraConfig;
+  onUpdateCameraConfig?: (newConfig: Partial<CameraConfig>) => void;
 }
 
 export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
@@ -42,6 +46,9 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
   isStandby = false,
   logs = [],
   isCameraSource = false,
+  isCameraConnected = false,
+  cameraConfig,
+  onUpdateCameraConfig,
 }) => {
   const mlStats = useInferenceStore((state) => state.stats);
 
@@ -358,6 +365,16 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
           )}
         </div>
       </div>
+
+      {/* 2. CAMERA IMAGE ADJUSTMENTS CARD (Shown in Sidebar when Camera is connected) */}
+      {isCameraSource && isCameraConnected && (
+        <CameraImageAdjustmentsCard
+          cameraId={cameraConfig?.id}
+          config={cameraConfig}
+          onUpdateConfig={onUpdateCameraConfig}
+          isLive={true}
+        />
+      )}
     </aside>
   );
 };

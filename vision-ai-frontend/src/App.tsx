@@ -873,6 +873,8 @@ export default function App() {
               onClearCameraRecord={handleClearCameraRecord}
               cameraTargetFps={camera.effectiveCameraConfig.targetFps || 30}
               recordingFormat={camera.effectiveCameraConfig.recordingFormat || 'MP4'}
+              cameraConfig={camera.effectiveCameraConfig}
+              cameraError={camera.cameraError}
             />
           </main>
 
@@ -887,6 +889,11 @@ export default function App() {
             isStandby={isStandby}
             logs={logs}
             isCameraSource={isCameraSource}
+            isCameraConnected={camera.effectiveCameraConfig.connected}
+            cameraConfig={camera.effectiveCameraConfig}
+            onUpdateCameraConfig={(patch) => {
+              camera.setCameraConfig((prev) => ({ ...prev, ...patch }));
+            }}
           />
         </div>
       </div>

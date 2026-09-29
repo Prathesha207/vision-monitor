@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import type { DuckEntity, StreamSourceType, AnomalyStatus } from '../types';
+import type { DuckEntity, StreamSourceType, AnomalyStatus, CameraConfig } from '../types';
 import { getApiBaseUrl } from '../lib/api';
 import { useInferenceStore } from '../store/inferenceStore';
 import { useRecording } from './hooks/useRecording';
@@ -66,6 +66,8 @@ interface DetectionCanvasProps {
   onClearCameraRecord?: () => void;
   cameraTargetFps?: number;
   recordingFormat?: 'AVI' | 'MP4' | 'FFV1';
+  cameraError?: string | null;
+  cameraConfig?: CameraConfig;
 }
 
 export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
@@ -111,6 +113,8 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   onClearCameraRecord,
   cameraTargetFps,
   recordingFormat = 'MP4',
+  cameraError,
+  cameraConfig,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -123,6 +127,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   const [videoAspect, setVideoAspect] = useState<number | null>(null);
   const [isFirstFrameLoaded, setIsFirstFrameLoaded] = useState<boolean>(false);
   const [streamCacheBuster, setStreamCacheBuster] = useState<number>(Date.now());
+  const [streamError, setStreamError] = useState<boolean>(false);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -215,8 +220,6 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
     }
     return customVideoUrl;
   }, [customVideoUrl, hasActiveVideo, isRunning, videoSessionId, streamCacheBuster]);
-
-  const [streamError, setStreamError] = useState<boolean>(false);
 
   useEffect(() => {
     setStreamError(false);
@@ -339,6 +342,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
             }
           })}
           onCanvasClick={handleCanvasClick}
+          errorMessage={cameraError}
         />
       )}
 
@@ -387,6 +391,11 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                 }
                 className={`absolute inset-0 z-0 h-full w-full pointer-events-none rounded bg-black object-contain ${streamError && effectiveBackdrop ? 'opacity-0' : 'opacity-100'
                   }`}
+                style={{
+                  filter: isCameraSource && !hasCameraRecording && cameraConfig
+                    ? `brightness(${Math.max(0.2, 1 + ((cameraConfig.brightness ?? 0) / 100))}) contrast(${Math.max(0.2, (cameraConfig.contrast ?? 50) / 50)})`
+                    : undefined
+                }}
                 alt=""
                 onLoad={(e) => {
                   const tgt = e.target as HTMLImageElement;

@@ -6,7 +6,7 @@ from typing import Optional
 import cv2
 import numpy as np
 import depthai as dai
-from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect, HTTPException, Body
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -165,17 +165,24 @@ async def stream(request: Request, session_id: Optional[str] = None):
                 try:
                     jpeg = await asyncio.wait_for(client_queue.get(), timeout=2.0)
                 except asyncio.TimeoutError:
-                    if not oak_camera_service._is_running or not oak_camera_service._is_streaming:
+                    if not oak_camera_service._is_running or not oak_camera_service._is_streaming or not oak_camera_service.is_connected:
+                        logger.info(f"[STREAM] Camera stopped or disconnected on timeout — ending client stream (frames sent: {frames_sent})")
                         break
-                    # If capture threads died while streaming is active, attempt restart
-                    if oak_camera_service._is_streaming and not (oak_camera_service._mjpeg_thread and oak_camera_service._mjpeg_thread.is_alive()):
+                    # If capture threads died while streaming is active, attempt restart ONLY if pipeline & queues are healthy
+                    if (
+                        oak_camera_service._is_streaming
+                        and oak_camera_service._is_running
+                        and oak_camera_service.is_connected
+                        and oak_camera_service._mjpeg_dai_queue is not None
+                        and not (oak_camera_service._mjpeg_thread and oak_camera_service._mjpeg_thread.is_alive())
+                    ):
+                        logger.info("[STREAM] Attempting to restart capture threads")
                         oak_camera_service._start_capture_threads()
                     continue
 
                 if jpeg is None:
-                    if not oak_camera_service._is_streaming:
-                        break
-                    continue
+                    logger.info(f"[STREAM] Stream termination sentinel received — ending client stream (frames sent: {frames_sent})")
+                    break
 
                 yield (
                     b"--frame\r\n"
@@ -193,6 +200,8 @@ async def stream(request: Request, session_id: Optional[str] = None):
                         f"avg FPS: {frames_sent / max(elapsed, 1):.1f}"
                     )
 
+        except (asyncio.CancelledError, GeneratorExit):
+            logger.info(f"[STREAM] Client connection closed cleanly — frames sent: {frames_sent}")
         except Exception as e:
             logger.error(f"[STREAM] Generator error: {e}")
         finally:
@@ -221,17 +230,25 @@ async def stream(request: Request, session_id: Optional[str] = None):
 @router.get("/snapshot")
 async def snapshot():
     """Single JPEG frame — returns latest live frame or fallback to prevent UI errors."""
+    # 0. Instant cached JPEG check (no queue pop, zero latency, zero live stream frame stealing)
+    if oak_camera_service._latest_jpeg is not None:
+        return Response(content=oak_camera_service._latest_jpeg, media_type="image/jpeg")
+
     # 1. Try from stream queue / buffer
     frame = await oak_camera_service.get_stream_frame(timeout=0.5)
     if frame is not None:
         return Response(content=frame, media_type="image/jpeg")
 
-    # 2. Try latest BGR frame from converter
+    # 2. Try latest BGR frame from converter (offloaded to thread executor)
     bgr = oak_camera_service.get_bgr_frame()
     if bgr is not None:
-        success, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        if success:
-            return Response(content=buf.tobytes(), media_type="image/jpeg")
+        loop = asyncio.get_running_loop()
+        def _enc():
+            s, b = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            return b.tobytes() if s else None
+        buf = await loop.run_in_executor(None, _enc)
+        if buf is not None:
+            return Response(content=buf, media_type="image/jpeg")
 
     # 3. If capture threads are alive, wait briefly for frame
     if oak_camera_service._mjpeg_thread and oak_camera_service._mjpeg_thread.is_alive():
@@ -286,21 +303,64 @@ async def get_available_devices():
 
 # ==================== Camera Controls ====================
 
+class CameraControlsRequest(BaseModel):
+    exposure: Optional[int] = None
+    gain: Optional[int] = None
+    focus: Optional[int] = None
+    brightness: Optional[int] = None
+    contrast: Optional[int] = None
+    auto_focus: Optional[bool] = None
+    autoFocus: Optional[bool] = None
+    auto_exposure: Optional[bool] = None
+    autoExposure: Optional[bool] = None
+    reset: Optional[bool] = None
+
+@router.post("/controls/reset")
+def reset_camera_controls():
+    """Real Camera Hardware Reset — restores full 3A (Auto Exposure, Auto Focus, Auto White Balance)
+    and removes all manual shutter/gain/focus overrides, matching fresh boot state.
+    """
+    try:
+        return oak_camera_service.reset_controls()
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /oak/controls/reset: {e}", exc_info=True)
+        realtime_log_service.add_log("camera", "CRASH", f"Camera controls reset failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to reset controls: {e}")
+
 @router.post("/controls")
 def update_controls(
+    body: Optional[CameraControlsRequest] = Body(default=None),
     exposure: int | None = None,
     gain: int | None = None,
     focus: int | None = None,
     brightness: int | None = None,
     contrast: int | None = None,
+    auto_focus: bool | None = None,
+    auto_exposure: bool | None = None,
+    reset: bool | None = None,
 ):
     try:
+        is_reset = (body.reset if body and body.reset is not None else reset)
+        if is_reset:
+            return oak_camera_service.reset_controls()
+
+        exp = body.exposure if body and body.exposure is not None else exposure
+        g = body.gain if body and body.gain is not None else gain
+        f = body.focus if body and body.focus is not None else focus
+        b = body.brightness if body and body.brightness is not None else brightness
+        c = body.contrast if body and body.contrast is not None else contrast
+        af = (body.auto_focus if body and body.auto_focus is not None else (body.autoFocus if body and body.autoFocus is not None else auto_focus))
+        ae = (body.auto_exposure if body and body.auto_exposure is not None else (body.autoExposure if body and body.autoExposure is not None else auto_exposure))
+
         oak_camera_service.update_controls(
-            exposure=exposure,
-            gain=gain,
-            focus=focus,
-            brightness=brightness,
-            contrast=contrast,
+            exposure=exp,
+            gain=g,
+            focus=f,
+            brightness=b,
+            contrast=c,
+            auto_focus=af,
+            auto_exposure=ae,
+            reset=is_reset,
         )
         return {"status": "ok"}
     except HTTPException:

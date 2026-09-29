@@ -257,7 +257,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
         </button>
 
         {/* Quick HUD Visibility Toggle */}
-        <button
+        {/* <button
           onClick={onToggleHUD}
           aria-label={showHUD ? 'Hide HUD overlay' : 'Show HUD overlay'}
           title={showHUD ? 'Hide HUD overlay' : 'Show HUD overlay'}
@@ -268,7 +268,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           ) : (
             <EyeOff className="w-4 h-4 text-[var(--text-muted)] dark:text-white/70" />
           )}
-        </button>
+        </button> */}
       </div>
     </div>
   );
