@@ -38,21 +38,38 @@ if [[ ! -f "$FRONTEND_DIR/package.json" ]]; then
   exit 1
 fi
 
-python3 -m venv "$VENV_DIR"
-source "$VENV_DIR/bin/activate"
-python -m pip install --upgrade pip
-python -m pip install -r "$BACKEND_DIR/requirements.txt"
+if [[ -d "$BACKEND_DIR/.venv" && -x "$BACKEND_DIR/.venv/bin/python" ]]; then
+  echo "Using verified backend virtual environment ($BACKEND_DIR/.venv)..."
+  VENV_DIR="$BACKEND_DIR/.venv"
+  source "$VENV_DIR/bin/activate"
+  python -m pip install --upgrade pip
+  python -m pip install -r "$BACKEND_DIR/requirements.txt"
+else
+  echo "Creating Linux build virtual environment ($VENV_DIR)..."
+  python3 -m venv --system-site-packages "$VENV_DIR"
+  source "$VENV_DIR/bin/activate"
+  python -m pip install --upgrade pip
+  python -m pip install -r "$BACKEND_DIR/requirements.txt"
+fi
 
 if [[ "${USE_CUDA:-0}" == "1" || ( "${USE_CUDA:-auto}" == "auto" && -n "$(command -v nvidia-smi 2>/dev/null || true)" ) ]]; then
-  echo "NVIDIA GPU detected/requested; installing CUDA-enabled PyTorch..."
-  if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
-    if python -c "import torch; raise SystemExit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
-      echo "ARM64 vendor PyTorch with CUDA is already installed; keeping it."
-    else
-      echo "ARM64 detected without vendor CUDA PyTorch; building with CPU PyTorch."
-    fi
+  echo "NVIDIA GPU detected/requested; verifying CUDA-enabled PyTorch..."
+  if python -c "import torch; raise SystemExit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
+    echo "CUDA PyTorch is already operational: $(python -c 'import torch; print(torch.__version__, torch.cuda.get_device_name(0) if torch.cuda.is_available() else "")')"
+  elif [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
+    echo "ARM64 detected without vendor CUDA PyTorch; keeping existing environment."
+    python -m pip install torch torchvision 2>/dev/null || true
   else
-    PYTORCH_CUDA_INDEX="${PYTORCH_CUDA_INDEX:-https://download.pytorch.org/whl/cu121}"
+    # Auto-detect compute capability for Blackwell (GB10) / Ada (sm_89+) / Hopper (sm_90)
+    COMPUTE_CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n 1 | tr -d ' ' || echo "0.0")
+    if [[ -z "${PYTORCH_CUDA_INDEX:-}" ]]; then
+      if awk "BEGIN {exit !($COMPUTE_CAP >= 8.9)}"; then
+        PYTORCH_CUDA_INDEX="https://download.pytorch.org/whl/cu124"
+      else
+        PYTORCH_CUDA_INDEX="https://download.pytorch.org/whl/cu121"
+      fi
+    fi
+    echo "Installing CUDA PyTorch from $PYTORCH_CUDA_INDEX (Compute Cap: $COMPUTE_CAP)..."
     python -m pip install --force-reinstall \
       --index-url "$PYTORCH_CUDA_INDEX" \
       torch torchvision

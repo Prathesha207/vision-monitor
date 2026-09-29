@@ -14,7 +14,11 @@ if [[ ! -f "$FRONTEND_DIR/package.json" ]]; then
 fi
 
 if [[ ! -d "$VENV_DIR" ]]; then
-  "$PYTHON_BIN" -m venv "$VENV_DIR" || {
+  VENV_FLAGS=""
+  if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
+    VENV_FLAGS="--system-site-packages"
+  fi
+  "$PYTHON_BIN" -m venv $VENV_FLAGS "$VENV_DIR" || {
     echo "ERROR: Failed to create Python virtual environment."
     echo "On Ubuntu/Debian, install the required packages:"
     echo "  sudo apt update && sudo apt install -y python3-venv python3-pip python3-dev"
