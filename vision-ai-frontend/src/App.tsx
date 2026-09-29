@@ -679,9 +679,8 @@ export default function App() {
       return;
     }
     if ((sourceType === 'oak-camera' || sourceType === 'webcam') && !video.cameraRecordSessionId) {
-      if (!camera.isStreaming) {
-        // User clicked Start Inference directly without clicking Start Stream first:
-        // Automatically start both stream and inference!
+      if (!camera.isStreaming || !camera.effectiveCameraConfig.connected) {
+        // Automatically start both stream and inference if camera is not active
         playWaterDropSound();
         await startCameraPipeline();
         return;

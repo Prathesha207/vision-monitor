@@ -89,8 +89,16 @@ def is_cuda_operational() -> bool:
     _cuda_operational_cached = False
     return False
 
-_CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.yaml")
 _ML_DIR = os.path.dirname(os.path.abspath(__file__))
+_candidates = [
+    os.path.join(_ML_DIR, "config", "config.yaml"),
+    os.path.join(_ML_DIR, "config.yaml"),
+    os.path.join(os.path.dirname(_ML_DIR), "config.yaml"),
+]
+if getattr(sys, "_MEIPASS", None):
+    _candidates.insert(0, os.path.join(sys._MEIPASS, "app", "ml", "config", "config.yaml"))
+    _candidates.insert(1, os.path.join(sys._MEIPASS, "app", "ml", "config.yaml"))
+_CONFIG_PATH = next((c for c in _candidates if os.path.exists(c)), _candidates[0])
 _SESSION_IDLE_TIMEOUT_SEC = 300
 
 _sessions: Dict[str, Dict[str, Any]] = {}
