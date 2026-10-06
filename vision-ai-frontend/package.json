@@ -80,7 +80,6 @@
   },
   "build": {
     "appId": "com.visionmonitor.application",
-    "productName": "Vision-Monitor",
     "compression": "maximum",
     "asar": true,
     "npmRebuild": false,
@@ -99,7 +98,7 @@
     ],
     "extraResources": [
       {
-        "from": "release-backend",
+        "from": "../vision-ai-backend/dist/backend",
         "to": "backend"
       }
     ],
@@ -132,6 +131,7 @@
     "nsis": {
       "oneClick": false,
       "perMachine": false,
+      "differentialPackage": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,

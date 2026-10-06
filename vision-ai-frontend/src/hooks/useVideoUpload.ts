@@ -7,7 +7,7 @@ import { showToast } from '../lib/toast';
 export const useVideoUpload = (
   fileInputRef: React.RefObject<HTMLInputElement | null>,
   expectedDucks: number,
-  onVideoUploaded?: (videoUrl: string, fileName: string, sessionId?: string, isCameraRecording?: boolean) => void,
+  onVideoUploaded?: (videoUrl: string, fileName: string, sessionId?: string, isCameraRecording?: boolean) => void | Promise<void>,
   recordedFile?: File | null,
   clearRecording?: () => void,
   initialUploadFile?: File
@@ -26,6 +26,14 @@ export const useVideoUpload = (
 
     const isRec = Boolean(isRecorded);
     const formData = new FormData();
+
+    // When running in Electron / Desktop EXE, the File object has a direct local path (.path)
+    // Passing this allows the backend to read directly from disk with 0 upload overhead and 0 temp files!
+    const localPath = (file as any).path || '';
+    if (localPath && typeof localPath === 'string' && localPath.length > 3 && !isRec) {
+      formData.append('file_path', localPath);
+    }
+
     formData.append('file', file);
     formData.append('expected_ducks', expectedDucks.toString());
     formData.append('is_camera_recording', isRec ? 'true' : 'false');
@@ -44,24 +52,20 @@ export const useVideoUpload = (
       }
     };
 
-    xhr.onload = () => {
+    xhr.onload = async () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           const data = JSON.parse(xhr.responseText);
           setUploadProgress(100);
           const baseUrl = getApiBaseUrl();
-          // Inference is no longer auto-started on upload.
-          // User must explicitly click "Start Inference"
-          (async () => {
-            if (onVideoUploaded) {
-              const streamUrl = `${baseUrl}/video/stream/${data.session_id}`;
-              const isCameraRec = Boolean(data.is_camera_recording ?? isRec);
-              onVideoUploaded(streamUrl, file.name, data.session_id, isCameraRec);
-            }
-            setUploadProgress(null);
-            useInferenceStore.getState().setVideoLoading(false);
-          })();
+          if (onVideoUploaded) {
+            const streamUrl = `${baseUrl}/video/stream/${data.session_id}`;
+            const isCameraRec = Boolean(data.is_camera_recording ?? isRec);
+            await onVideoUploaded(streamUrl, file.name, data.session_id, isCameraRec);
+          }
         } catch (e) {
+          console.error('Error starting inference after upload:', e);
+        } finally {
           setUploadProgress(null);
           useInferenceStore.getState().setVideoLoading(false);
         }
@@ -116,6 +120,7 @@ export const useVideoUpload = (
     if (file) {
       processUploadedFile(file);
     }
+    e.target.value = '';
   };
 
   const handleSelectVideoAndStart = async () => {
@@ -148,12 +153,9 @@ export const useVideoUpload = (
         const data = await res.json();
         const filename = data.video_name || filePath.split(/[/\\]/).pop() || 'video.mp4';
 
-        // Inference is no longer auto-started on upload.
-        // User must explicitly click "Start Inference"
-
         if (onVideoUploaded) {
           const streamUrl = `${baseUrl}/video/stream/${data.session_id}`;
-          onVideoUploaded(streamUrl, filename, data.session_id);
+          await onVideoUploaded(streamUrl, filename, data.session_id);
         }
       } catch (err: any) {
         console.error('Desktop video selection error:', err);

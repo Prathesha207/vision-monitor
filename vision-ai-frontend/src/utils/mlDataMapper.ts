@@ -4,7 +4,8 @@ import { useInferenceStore } from '../store/inferenceStore';
 /**
  * Maps raw backend ML dictionary into frontend-friendly DuckEntity objects.
  *
- * Ground rule: this function only TRANSLATES what ml_inference.py already
+ * Ground rule: this function only TRANSLATES what the backend ML services
+ * (video_inference_service.py / camera_inference_service.py) already
  * decided (per-detection isAnomaly/provisional, added_ids, missing_ids,
  * other_ids, thumbnails). It must not invent its own anomaly logic on top --
  * that caused the two bugs this rewrite fixes:
@@ -44,6 +45,7 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, _fallbac
   const incomingDucks: DuckEntity[] = [];
   const addedIds = data.added_ids || [];
   const missingIds = data.missing_ids || [];
+  const excessIds = data.excess_ids || [];
   const isWarmingUp = data.status === 'WARMING' || !data.anchor_locked;
 
   // Find thumbnails. Ensure we do not drop thumbnails when data.thumbnails is an empty array [] (which is truthy in JS!)
@@ -65,7 +67,6 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, _fallbac
   // bug this rewrite's docstring says was already fixed once (bogus red
   // boxes from a naive count mismatch) -- it just crept back in here.
   const backendReasons: string[] = Array.isArray(data.reasons) ? data.reasons : [];
-  const isTooFewDucks = !isWarmingUp && backendReasons.includes('too_few_ducks');
 
   // Pre-collect locked DUCK bounding boxes only (used below purely to
   // de-duplicate stray unbound duck detections that overlap an already-locked
@@ -127,7 +128,7 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, _fallbac
 
       // Provisional ONLY applies during actual warmup phase — never on locked active inference
       const isProvisional = isWarmingUp || d.provisional === true;
-      const rawId = hasLockedId ? String(d.id) : isWarmingUp ? `prov-${idx + 1}` : `extra-${idx + 1}`;
+      const rawId = hasLockedId ? String(d.id) : isWarmingUp ? `prov-${idx + 1}` : `unbound-${idx + 1}`;
       const displayId = isOther ? `other-${rawId}` : rawId;
 
       // Avoid rendering duplicate IDs in the same frame
@@ -152,46 +153,28 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, _fallbac
         }
       }
 
-      const isUnboundExtra = !isWarmingUp && !hasLockedId;
-      const isExcess = !isProvisional && d.excess === true;
+      const isExcessDetection = !isProvisional && (
+        d.excess === true ||
+        d.status === 'excess' ||
+        excessIds.includes(displayId) ||
+        excessIds.includes(Number(displayId))
+      );
 
       let eventStatus: DuckEntity['statusEvent'] = undefined;
       if (isMissingDetection) {
         eventStatus = 'missing';
-      } else if (!isProvisional && (isExcess || addedIds.includes(displayId) || addedIds.includes(Number(displayId)) || d.status === 'added' || isUnboundExtra)) {
+      } else if (isExcessDetection) {
         eventStatus = 'added';
-      } else if (thumbObj?.event === 'confirmed' || thumbObj?.event === 'added') {
+      } else if (thumbObj?.event === 'confirmed') {
         eventStatus = 'confirmed';
       } else if (thumbObj?.event === 'other_present' || isOther) {
         eventStatus = 'other_present';
       }
 
-      // 1. Check if backend/ML explicitly flagged this duck (isAnomaly, is_anomaly, or excess)
-      const backendIsAnomaly =
-        typeof d.isAnomaly === 'boolean'
-          ? d.isAnomaly
-          : typeof d.is_anomaly === 'boolean'
-            ? d.is_anomaly
-            : typeof d.excess === 'boolean'
-              ? d.excess
-              : undefined;
-
-      // 2. An individual duck is an anomaly if:
-      //    - Count was decreased (under-count / too few ducks: all present duck boxes are RED per ML model)
-      //    - It is flagged as excess (over-count: only excess duck(s) are RED)
-      //    - The backend explicitly marked it (d.isAnomaly / d.is_anomaly / d.excess)
-      //    - It is an unbound extra duck during an anomaly episode, missing duck, unknown/foreign species, or added duck
       const isAnomaly = !isProvisional && (
-        isTooFewDucks ||
-        isExcess ||
-        (backendIsAnomaly !== undefined ? backendIsAnomaly : false) ||
         isOther ||
-        isHand ||
-        isMissingDetection ||
-        addedIds.includes(displayId) ||
-        addedIds.includes(Number(displayId)) ||
-        (d.status === 'unbound' && (data.status === 'ANOMALY' || backendReasons.length > 0)) ||
-        d.status === 'added'
+        isExcessDetection ||
+        isMissingDetection
       );
 
       incomingDucks.push({

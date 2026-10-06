@@ -13,8 +13,17 @@ if [[ ! -f "$FRONTEND_DIR/package.json" ]]; then
   exit 1
 fi
 
+if [[ "${1:-}" == "--clean" || "${1:-}" == "-c" ]]; then
+  echo "Clean setup requested. Removing existing .venv..."
+  rm -rf "$VENV_DIR"
+fi
+
 if [[ ! -d "$VENV_DIR" ]]; then
-  "$PYTHON_BIN" -m venv "$VENV_DIR" || {
+  VENV_FLAGS=""
+  if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
+    VENV_FLAGS="--system-site-packages"
+  fi
+  "$PYTHON_BIN" -m venv $VENV_FLAGS "$VENV_DIR" || {
     echo "ERROR: Failed to create Python virtual environment."
     echo "On Ubuntu/Debian, install the required packages:"
     echo "  sudo apt update && sudo apt install -y python3-venv python3-pip python3-dev"
@@ -34,16 +43,24 @@ fi
 if command -v nvidia-smi >/dev/null 2>&1; then
   echo "NVIDIA GPU detected; verifying CUDA-enabled PyTorch..."
   if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
-    if python -c "import torch; raise SystemExit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
+    if python -c "import torch; x=torch.ones((1,), device='cuda:0'); assert (x+1).item()==2; torch.cuda.synchronize(0)" 2>/dev/null; then
       echo "ARM64 vendor PyTorch with CUDA is already installed; keeping it."
     else
       echo "ARM64 detected, but vendor CUDA PyTorch is not installed. Continuing with CPU PyTorch."
       echo "Install the NVIDIA/platform ARM64 PyTorch package later for GPU inference."
     fi
   else
-    if ! python -c "import torch; raise SystemExit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
-      echo "Installing CUDA-enabled PyTorch..."
-      PYTORCH_CUDA_INDEX="${PYTORCH_CUDA_INDEX:-https://download.pytorch.org/whl/cu121}"
+    if ! python -c "import torch; x=torch.ones((1,), device='cuda:0'); assert (x+1).item()==2; torch.cuda.synchronize(0)" 2>/dev/null; then
+      echo "Installing CUDA-enabled PyTorch compatible with this GPU..."
+      GPU_CC="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n 1 | tr -d '[:space:]')"
+      if awk -v cc="${GPU_CC:-0}" 'BEGIN {exit !(cc >= 12.0)}'; then
+        DEFAULT_CUDA_INDEX="https://download.pytorch.org/whl/cu130"
+      elif awk -v cc="${GPU_CC:-0}" 'BEGIN {exit !(cc >= 8.9)}'; then
+        DEFAULT_CUDA_INDEX="https://download.pytorch.org/whl/cu128"
+      else
+        DEFAULT_CUDA_INDEX="https://download.pytorch.org/whl/cu121"
+      fi
+      PYTORCH_CUDA_INDEX="${PYTORCH_CUDA_INDEX:-$DEFAULT_CUDA_INDEX}"
       if ! python -m pip install --force-reinstall \
         --index-url "$PYTORCH_CUDA_INDEX" \
         torch torchvision; then
@@ -52,14 +69,14 @@ if command -v nvidia-smi >/dev/null 2>&1; then
         exit 1
       fi
     else
-      echo "CUDA PyTorch is already installed and operational."
+      echo "CUDA kernels ran successfully; GPU inference is available."
     fi
   fi
 else
   echo "No NVIDIA GPU detected; keeping CPU-compatible PyTorch."
 fi
 
-DUCK_ANALYZER_WHEEL="$(find "$BACKEND_DIR/app/ml" -maxdepth 1 -name 'duck_analyzer-*.whl' -print | sort -r | head -n 1)"
+DUCK_ANALYZER_WHEEL="$(find "$BACKEND_DIR/app/ml" -name 'duck_analyzer-*.whl' -print | sort -r | head -n 1)"
 if [[ -z "$DUCK_ANALYZER_WHEEL" ]]; then
   echo "The bundled duck_analyzer wheel is missing."
   exit 1
