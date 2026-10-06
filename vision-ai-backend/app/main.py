@@ -188,7 +188,19 @@ def _preload_model_background():
             # Determine device
             try:
                 from app.ml.video_inference_service import is_cuda_operational
-                device_val = 0 if is_cuda_operational() else "cpu"
+                cuda_active = is_cuda_operational()
+                device_val = 0 if cuda_active else "cpu"
+                if cuda_active:
+                    import torch
+                    gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "GPU"
+                    logger.info(f"[HARDWARE] ML Inference: GPU ACCELERATED (cuda:0 - {gpu_name}) | PyTorch {getattr(torch, '__version__', 'unknown')}")
+                else:
+                    try:
+                        import torch
+                        torch_ver = getattr(torch, '__version__', 'N/A')
+                    except Exception:
+                        torch_ver = "N/A"
+                    logger.info(f"[HARDWARE] ML Inference: CPU Mode | PyTorch {torch_ver}")
             except Exception:
                 device_val = "cpu"
             cfg["device"] = device_val

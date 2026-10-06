@@ -347,6 +347,11 @@ def run_inference(frame, session_id: str, expected_duck_count: int = 18,
             logger.error(f"Error in DuckAnalyzer for session {session_id}: {e}", exc_info=True)
             return {"session_id": session_id, "status": "error",
                     "reasons": [str(e)], "frames_processed": session["frames_processed"]}, frame
+    if torch is not None and is_cuda_operational():
+        try:
+            torch.cuda.synchronize(0)
+        except Exception:
+            pass
     infer_latency_ms = (time.perf_counter() - t_infer_start) * 1000
     infer_fps = round(1000.0 / infer_latency_ms, 1) if infer_latency_ms > 0 else 0.0
 

@@ -8,7 +8,7 @@ param(
 # Configures Python virtual environment, dependencies, CUDA PyTorch,
 # DuckAnalyzer wheel, and Node.js frontend packages without errors.
 # ==============================================================================
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'
 
 Write-Host "=======================================================" -ForegroundColor Cyan
 Write-Host "       Vision Monitor - Automated Setup (Windows)      " -ForegroundColor Cyan
@@ -126,9 +126,22 @@ Write-Host "[3/7] Setting up Python virtual environment..." -ForegroundColor Yel
 $VenvDir = Join-Path $BackendDir '.venv'
 $VenvPython = Join-Path $VenvDir 'Scripts\python.exe'
 
-if ($Clean -and (Test-Path $VenvDir)) {
-    Write-Host "[CLEAN] Clean setup requested. Removing existing virtual environment..." -ForegroundColor Yellow
-    Remove-Item -LiteralPath $VenvDir -Recurse -Force -ErrorAction SilentlyContinue
+if ($Clean) {
+    Write-Host "[CLEAN] Clean setup requested. Terminating any running backend processes..." -ForegroundColor Yellow
+    Get-Process -Name "python", "uvicorn" -ErrorAction SilentlyContinue | Where-Object {
+        $_.Path -like "*$BackendDir*"
+    } | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+
+    if (Test-Path $VenvDir) {
+        Write-Host "[CLEAN] Removing existing virtual environment at $VenvDir..." -ForegroundColor Yellow
+        Remove-Item -LiteralPath $VenvDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    $FrontendDist = Join-Path $FrontendDir 'dist'
+    if (Test-Path $FrontendDist) {
+        Write-Host "[CLEAN] Removing existing frontend build artifacts at $FrontendDist..." -ForegroundColor Yellow
+        Remove-Item -LiteralPath $FrontendDist -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 if (-not (Test-Path $VenvPython)) {
@@ -144,7 +157,16 @@ if (-not (Test-Path $VenvPython)) {
 }
 
 # Fast check: are backend packages already installed?
-$BackendCheck = & $VenvPython -c "import fastapi, uvicorn, ultralytics, cv2, mediapipe, yaml, torchvision; print('INSTALLED')" 2>$null
+$BackendCheck = try {
+    & $VenvPython -c "
+import importlib.util as u
+pkgs = ['fastapi', 'uvicorn', 'ultralytics', 'cv2', 'mediapipe', 'yaml', 'torchvision']
+if all(u.find_spec(p) is not None for p in pkgs):
+    print('INSTALLED')
+else:
+    print('MISSING')
+" 2>$null
+} catch { 'MISSING' }
 if ($BackendCheck -eq 'INSTALLED') {
     Write-Host "[OK] Backend dependencies (including torchvision) are already installed. (Skipping requirements reinstall)." -ForegroundColor Green
 } else {
@@ -235,6 +257,7 @@ try:
         torch.cuda.init()
         t = torch.zeros((1, 1), device='cuda:0')
         _ = t + 1.0
+        torch.cuda.synchronize(0)
         del t
         print('CUDA_OPERATIONAL:' + torch.cuda.get_device_name(0))
     else:
@@ -262,9 +285,12 @@ if ($TorchCheck -like 'CUDA_OPERATIONAL*' -and $TorchVisionCheck -eq 'TV_OK') {
 } elseif ($HasNvidia) {
     Write-Host "[INFO] NVIDIA GPU detected ($GpuName). Installing CUDA-accelerated PyTorch and torchvision..." -ForegroundColor Cyan
     if ($ComputeCap -ge 12.0) {
-        $TargetCuda = 'cu126'
-        $CudaIndex = 'https://download.pytorch.org/whl/cu126'
-    } elseif ($ComputeCap -ge 8.9 -or $ComputeCap -eq 0.0) {
+        # Blackwell GPUs (sm_120), including RTX 50-series, need a wheel
+        # containing compatible kernels. The old cu126 selection could see
+        # the device but fail at the first model operation.
+        $TargetCuda = 'cu130'
+        $CudaIndex = 'https://download.pytorch.org/whl/cu130'
+    } elseif ($ComputeCap -ge 8.9) {
         $TargetCuda = 'cu124'
         $CudaIndex = 'https://download.pytorch.org/whl/cu124'
     } else {
@@ -274,10 +300,10 @@ if ($TorchCheck -like 'CUDA_OPERATIONAL*' -and $TorchVisionCheck -eq 'TV_OK') {
     if ($env:PYTORCH_CUDA_INDEX) { $CudaIndex = $env:PYTORCH_CUDA_INDEX }
     Write-Host "[GPU INFO] Targeting CUDA $TargetCuda for maximum compatibility/performance." -ForegroundColor Cyan
     Write-Host "Fetching CUDA wheels from $CudaIndex..."
-    & $VenvPython -m pip install --upgrade --index-url $CudaIndex torch torchvision
+    & $VenvPython -m pip install --upgrade --force-reinstall --index-url $CudaIndex torch torchvision
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "[WARN] $TargetCuda install returned non-zero; retrying with cu121 fallback..." -ForegroundColor Yellow
-        & $VenvPython -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu121 torch torchvision
+        Write-Host "[WARN] $TargetCuda install returned non-zero; retrying with cu128 fallback..." -ForegroundColor Yellow
+        & $VenvPython -m pip install --upgrade --force-reinstall --index-url https://download.pytorch.org/whl/cu128 torch torchvision
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to install CUDA PyTorch and torchvision."
         }
@@ -293,9 +319,38 @@ if ($TorchCheck -like 'CUDA_OPERATIONAL*' -and $TorchVisionCheck -eq 'TV_OK') {
 }
 
 # Strict verification: verify that torchvision metadata is functional right now
-$TorchVisionVerify = & $VenvPython -c "import torch, torchvision, importlib.metadata; _ = importlib.metadata.version('torchvision'); print('VERIFIED')" 2>$null
+$TorchVisionVerify = try {
+    & $VenvPython -c "
+import torch, torchvision, importlib.metadata
+try:
+    _ = importlib.metadata.version('torchvision')
+    print('VERIFIED')
+except Exception:
+    print('FAILED')
+" 2>$null
+} catch { 'FAILED' }
 if ($TorchVisionVerify -ne 'VERIFIED') {
     throw "PyTorch / torchvision verification failed: 'torchvision' package metadata is missing or corrupted."
+}
+
+# Confirm GPU hardware acceleration status
+$CudaFinalCheck = try {
+    & $VenvPython -c "
+import torch
+if torch.cuda.is_available() and torch.cuda.device_count() > 0:
+    print('CUDA_ACTIVE:' + torch.cuda.get_device_name(0))
+else:
+    print('CPU_ONLY')
+" 2>$null
+} catch { 'UNKNOWN' }
+
+if ($CudaFinalCheck -like 'CUDA_ACTIVE:*') {
+    $activeGpu = $CudaFinalCheck.Substring(12)
+    Write-Host "[GPU SUCCESS] Hardware Acceleration Confirmed: $activeGpu is ready for ML inference!" -ForegroundColor Green
+} elseif ($HasNvidia) {
+    Write-Host "[WARNING] NVIDIA GPU hardware was detected on this PC, but PyTorch is in CPU mode. Please verify NVIDIA driver is installed." -ForegroundColor Yellow
+} else {
+    Write-Host "[INFO] ML Inference configured for CPU mode." -ForegroundColor Cyan
 }
 
 # ------------------------------------------------------------------------------
@@ -400,11 +455,11 @@ Write-Host ""
 & $VenvPython -c "
 import torch
 import torchvision
-print(f'  • PyTorch Version     : {torch.__version__}')
-print(f'  • TorchVision Version : {torchvision.__version__}')
-print(f'  • CUDA Enabled        : {torch.cuda.is_available()}')
+print(f'  PyTorch Version     : {torch.__version__}')
+print(f'  TorchVision Version : {torchvision.__version__}')
+print(f'  CUDA Enabled        : {torch.cuda.is_available()}')
 if torch.cuda.is_available():
-    print(f'  • GPU Device          : {torch.cuda.get_device_name(0)}')
+    print(f'  GPU Device          : {torch.cuda.get_device_name(0)}')
 "
 Write-Host ""
 Write-Host "Next Steps:" -ForegroundColor Cyan

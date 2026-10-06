@@ -744,7 +744,7 @@ class OakCameraService:
 
                 if self._active_recording is not None:
                     # Feed the authentic, unmodified camera stream frame to the recording
-                    self._active_recording.add_frame(raw_bgr)
+                    self._active_recording.add_frame(display_bgr)
                     record_frames += 1
 
                 frames += 1
