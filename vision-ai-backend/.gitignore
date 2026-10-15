@@ -26,6 +26,7 @@ __pycache__/
 venv/
 env/
 venv_linux/
+test_env/
 
 # =========================
 # Build / Distribution
@@ -74,6 +75,7 @@ FailedFrames/
 *.mp4
 *.whl
 !app/ml/duck_analyzer-*.whl
+!app/ml/**/duck_analyzer-*.whl
 vision_ai.db*
 
 # =========================

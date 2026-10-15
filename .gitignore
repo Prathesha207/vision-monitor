@@ -6,8 +6,10 @@ __pycache__/
 output/
 *.mp4
 *.whl
-!vision-ai-backend/app/ml/whl/*.whl
+!vision-ai-backend/app/ml/*.whl
+!vision-ai-backend/app/ml/**/*.whl
 manual_inference_output/
 vision-ai-frontend/release-backend/
+test_env/
 
 *.db
