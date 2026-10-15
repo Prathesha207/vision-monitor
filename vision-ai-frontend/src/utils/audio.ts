@@ -3,8 +3,19 @@
  * Generates gentle duck pond ambient sounds, water droplets, and anomaly chimes.
  */
 
+const getInitialSoundEnabled = (): boolean => {
+  if (typeof window === 'undefined') return true;
+  try {
+    const saved = localStorage.getItem('visionmonitor-sound-enabled');
+    if (saved !== null) {
+      return saved === 'true';
+    }
+  } catch {}
+  return true;
+};
+
 let audioCtx: AudioContext | null = null;
-let soundEnabled = true;
+let soundEnabled = getInitialSoundEnabled();
 
 function getAudioContext(): AudioContext | null {
   if (typeof window === 'undefined') return null;
@@ -22,6 +33,9 @@ function getAudioContext(): AudioContext | null {
 
 export function setSoundEnabled(enabled: boolean) {
   soundEnabled = enabled;
+  try {
+    localStorage.setItem('visionmonitor-sound-enabled', String(enabled));
+  } catch {}
 }
 
 export function isSoundEnabled(): boolean {

@@ -1,9 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import copy_metadata
 
-datas = [('app/ml/models', 'app/ml/models'), ('app/ml/config.yaml', 'app/ml'), ('alembic', 'alembic'), ('vision_ai.db', '.')]
+datas = [('app/ml/model', 'app/ml/model'), ('app/ml/config', 'app/ml/config'), ('app/ml/torch_hub', 'app/ml/torch_hub'), ('alembic', 'alembic')]
 binaries = []
 hiddenimports = []
+datas += copy_metadata('torchvision')
+datas += copy_metadata('ultralytics')
 tmp_ret = collect_all('app')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('fastapi')
@@ -28,11 +31,15 @@ tmp_ret = collect_all('depthai')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('av')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('duck_analyzer')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('mediapipe')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('matplotlib')
+tmp_ret = collect_all('scipy')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('lap')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('imageio_ffmpeg')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('duck_analyzer')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 

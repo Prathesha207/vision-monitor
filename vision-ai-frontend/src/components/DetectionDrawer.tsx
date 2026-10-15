@@ -1,5 +1,7 @@
+
+
 import React from 'react';
-import { AnomalyStatus, DuckEntity, DetectionMetrics, LogEntry } from '../types';
+import { AnomalyStatus, DuckEntity, DetectionMetrics, LogEntry, CameraConfig } from '../types';
 import {
   AlertTriangle,
   ChevronLeft,
@@ -8,12 +10,14 @@ import {
   Activity,
   Layers,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Hand,
 } from 'lucide-react';
 import { Badge, IconButton } from './ui';
 import { playWaterDropSound } from '../utils/audio';
 import { DetectionGallery } from './AnomalyGallery';
 import { useInferenceStore } from '../store/inferenceStore';
+import { CameraImageAdjustmentsCard } from './CameraImageAdjustmentsCard';
 
 interface DetectionDrawerProps {
   isOpen: boolean;
@@ -26,6 +30,9 @@ interface DetectionDrawerProps {
   isStandby?: boolean;
   logs?: LogEntry[];
   isCameraSource?: boolean;
+  isCameraConnected?: boolean;
+  cameraConfig?: CameraConfig;
+  onUpdateCameraConfig?: (newConfig: Partial<CameraConfig>) => void;
 }
 
 export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
@@ -39,6 +46,9 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
   isStandby = false,
   logs = [],
   isCameraSource = false,
+  isCameraConnected = false,
+  cameraConfig,
+  onUpdateCameraConfig,
 }) => {
   const mlStats = useInferenceStore((state) => state.stats);
 
@@ -64,6 +74,8 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
   const isEmptyState = ducks.length === 0;
   const anomalyDucks = ducks.filter((d) => d.isAnomaly && !d.provisional);
   const hasDetections = ducks.length > 0;
+  const isHand = anomalyStatus.message === 'HAND DETECTED';
+  const isWarming = anomalyStatus.message === 'WARMING';
 
   if (!isOpen) {
     return (
@@ -77,7 +89,7 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
       >
         <ChevronLeft className="w-4 h-4 text-[var(--accent-pond)] group-hover:-translate-x-0.5 transition-transform" />
         <span className="[writing-mode:vertical-lr] tracking-wider uppercase text-[10px] text-[var(--text-secondary)]">
-          {isEmptyState ? 'Standby' : anomalyStatus.isAnomaly ? 'Anomaly Alert' : 'Detection Details'}
+          {isEmptyState ? 'Standby' : isHand ? 'Hand Present' : isWarming ? 'Warming Up' : anomalyStatus.isAnomaly ? 'Anomaly Alert' : 'Detection Details'}
         </span>
       </button>
     );
@@ -88,15 +100,23 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
 
   const headerColorClass = isEmptyState
     ? 'text-[var(--text-secondary)]'
-    : anomalyStatus.isAnomaly
-      ? 'text-[var(--status-anomaly-text)]'
-      : 'text-[var(--text-primary)]';
+    : isHand
+      ? 'text-amber-500 dark:text-amber-400 font-bold'
+      : isWarming
+        ? 'text-amber-500 dark:text-amber-400 font-bold'
+        : anomalyStatus.isAnomaly
+          ? 'text-[var(--status-anomaly-text)]'
+          : 'text-emerald-600 dark:text-emerald-400 font-bold';
 
   const headerIconClass = isEmptyState
     ? 'text-[var(--accent-pond)]'
-    : anomalyStatus.isAnomaly
-      ? 'text-[var(--status-anomaly-text)]'
-      : 'text-[var(--accent-pond)]';
+    : isHand
+      ? 'text-amber-500 dark:text-amber-400'
+      : isWarming
+        ? 'text-amber-500 dark:text-amber-400'
+        : anomalyStatus.isAnomaly
+          ? 'text-[var(--status-anomaly-text)]'
+          : 'text-emerald-600 dark:text-emerald-400';
 
   return (
     <aside className="w-full lg:w-[21rem] xl:w-[23rem] 2xl:w-[25rem] h-auto lg:h-full flex-shrink-0 flex flex-col md:flex-row lg:flex-col gap-3 min-h-0 overflow-y-auto invisible-scrollbar items-stretch">
@@ -111,19 +131,21 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
           <div className="flex items-center gap-2">
             {isEmptyState ? (
               <Activity className={`w-4 h-4 ${headerIconClass}`} />
+            ) : isHand ? (
+              <Hand className={`w-4 h-4 ${headerIconClass}`} />
             ) : anomalyStatus.isAnomaly ? (
               <AlertTriangle className={`w-4 h-4 ${headerIconClass}`} />
             ) : (
               <ShieldCheck className={`w-4 h-4 ${headerIconClass}`} />
             )}
             <span className={`font-semibold text-xs tracking-wider uppercase ${headerColorClass}`}>
-              {isEmptyState ? 'Inference Details' : anomalyStatus.message === 'HAND DETECTED' ? 'Hand Present' : anomalyStatus.isAnomaly ? 'Anomaly Detection' : 'Normal Operation'}
+              {isEmptyState ? 'Inference Details' : isHand ? 'Hand Present' : isWarming ? 'Warming Up' : anomalyStatus.isAnomaly ? 'Anomaly Detection' : 'Normal'}
             </span>
           </div>
           <div className="flex items-center gap-2">
             {!isEmptyState && (
-              <Badge variant={anomalyStatus.isAnomaly ? 'anomaly' : 'normal'}>
-                {anomalyStatus.message === 'HAND DETECTED' ? 'Hand Present' : anomalyStatus.isAnomaly ? 'Anomaly' : 'Normal'}
+              <Badge variant={isHand ? 'warning' : isWarming ? 'warning' : anomalyStatus.isAnomaly ? 'anomaly' : 'normal'}>
+                {isHand ? 'Hand Present' : isWarming ? 'Warming' : anomalyStatus.isAnomaly ? 'Anomaly' : 'Normal'}
               </Badge>
             )}
             <IconButton
@@ -181,7 +203,12 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
                   </span>
                 </div>
 
-                {anomalyStatus.difference !== 0 && (
+                {isHand ? (
+                  <div className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                    <Hand className="w-3.5 h-3.5 shrink-0 text-amber-500" />
+                    <span>Evaluation paused &middot; Hand in target area</span>
+                  </div>
+                ) : anomalyStatus.difference !== 0 ? (
                   <div className={`mt-1 flex items-center gap-1.5 text-xs font-semibold ${anomalyStatus.isAnomaly ? 'text-[var(--status-anomaly-text)]' : 'text-[var(--status-normal-text)]'
                     }`}>
                     {anomalyStatus.difference > 0 ? (
@@ -193,10 +220,14 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
                       {Math.abs(anomalyStatus.difference)} {anomalyStatus.difference > 0 ? 'above' : 'below'} expected count
                     </span>
                   </div>
-                )}
-                {anomalyStatus.difference === 0 && (
-                  <div className="mt-1 text-xs font-semibold text-[var(--status-normal-text)] flex items-center gap-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                ) : isWarming ? (
+                  <div className="mt-1 text-xs font-semibold text-amber-500 dark:text-amber-400 flex items-center gap-1.5 animate-pulse">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                    <span>Warming up — acquiring target lock...</span>
+                  </div>
+                ) : (
+                  <div className="mt-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
                     <span>Perfect match with expected count</span>
                   </div>
                 )}
@@ -221,14 +252,14 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
                   </div>
                   <div className="text-[11px]">
                     <span className="text-[var(--text-secondary)]">Confidence </span>
-                    <span className="font-bold text-[var(--status-normal-text)]">{`${(metrics.avgConfidence * 100).toFixed(1)}%`}</span>
+                    <span className="font-bold text-[var(--accent-pond)]">{`${(metrics.avgConfidence * 100).toFixed(1)}%`}</span>
                   </div>
                 </div>
 
                 <div className="p-2 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] flex flex-col gap-1.5">
                   <div className="flex justify-between items-center">
 
-                    <Badge variant="normal" size="sm" dot className="mr-1 hidden xl:inline-flex">
+                    <Badge variant="active" size="sm" dot className="mr-1 hidden xl:inline-flex">
                       {isCameraSource ? 'LIVE CAMERA' : 'VIDEO INFERENCE'}
                     </Badge>
                     <div className="flex items-center gap-2">
@@ -299,8 +330,8 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
                 </span>
               )}
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border ${anomalyStatus.isAnomaly && (anomalyStatus.difference !== 0 || anomalyStatus.type === 'OVER_COUNT' || anomalyStatus.type === 'UNDER_COUNT')
-                  ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
-                  : 'bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border-[var(--border-color)]'
+                ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
+                : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
                 }`}>
                 {ducks.length} Total
               </span>
@@ -334,6 +365,16 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
           )}
         </div>
       </div>
+
+      {/* 2. CAMERA IMAGE ADJUSTMENTS CARD (Shown in Sidebar when Camera is connected) */}
+      {isCameraSource && isCameraConnected && (
+        <CameraImageAdjustmentsCard
+          cameraId={cameraConfig?.id}
+          config={cameraConfig}
+          onUpdateConfig={onUpdateCameraConfig}
+          isLive={true}
+        />
+      )}
     </aside>
   );
 };

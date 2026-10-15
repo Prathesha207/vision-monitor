@@ -27,7 +27,7 @@ export const Badge: React.FC<BadgeProps> = ({
   title,
 }) => {
   const variantStyles: Record<BadgeVariant, string> = {
-    normal: 'bg-[var(--status-normal-bg)] text-[var(--status-normal-text)] border-[var(--status-normal-border)]',
+    normal: 'bg-emerald-600 text-white border-emerald-500 font-bold shadow-xs',
     warning: 'bg-[var(--status-warn-bg)] text-[var(--status-warn-text)] border-[var(--status-warn-border)]',
     anomaly: 'bg-[var(--status-anomaly-bg)] text-[var(--status-anomaly-text)] border-[var(--status-anomaly-border)]',
     offline: 'bg-[var(--bg-card-subtle)] text-[var(--text-muted)] border-[var(--border-color)]',
@@ -37,7 +37,7 @@ export const Badge: React.FC<BadgeProps> = ({
   };
 
   const defaultDotColors: Record<BadgeVariant, string> = {
-    normal: 'bg-[var(--status-normal-text)]',
+    normal: 'bg-emerald-300',
     warning: 'bg-[var(--status-warn-text)]',
     anomaly: 'bg-[var(--status-anomaly-text)]',
     offline: 'bg-[var(--text-muted)]',

@@ -38,21 +38,38 @@ if [[ ! -f "$FRONTEND_DIR/package.json" ]]; then
   exit 1
 fi
 
-python3 -m venv "$VENV_DIR"
-source "$VENV_DIR/bin/activate"
-python -m pip install --upgrade pip
-python -m pip install -r "$BACKEND_DIR/requirements.txt"
+if [[ -d "$BACKEND_DIR/.venv" && -x "$BACKEND_DIR/.venv/bin/python" ]]; then
+  echo "Using verified backend virtual environment ($BACKEND_DIR/.venv)..."
+  VENV_DIR="$BACKEND_DIR/.venv"
+  source "$VENV_DIR/bin/activate"
+  python -m pip install --upgrade pip
+  python -m pip install -r "$BACKEND_DIR/requirements.txt"
+else
+  echo "Creating Linux build virtual environment ($VENV_DIR)..."
+  python3 -m venv --system-site-packages "$VENV_DIR"
+  source "$VENV_DIR/bin/activate"
+  python -m pip install --upgrade pip
+  python -m pip install -r "$BACKEND_DIR/requirements.txt"
+fi
 
 if [[ "${USE_CUDA:-0}" == "1" || ( "${USE_CUDA:-auto}" == "auto" && -n "$(command -v nvidia-smi 2>/dev/null || true)" ) ]]; then
-  echo "NVIDIA GPU detected/requested; installing CUDA-enabled PyTorch..."
-  if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
-    if python -c "import torch; raise SystemExit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
-      echo "ARM64 vendor PyTorch with CUDA is already installed; keeping it."
-    else
-      echo "ARM64 detected without vendor CUDA PyTorch; building with CPU PyTorch."
-    fi
+  echo "NVIDIA GPU detected/requested; verifying CUDA-enabled PyTorch..."
+  if python -c "import torch; raise SystemExit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
+    echo "CUDA PyTorch is already operational: $(python -c 'import torch; print(torch.__version__, torch.cuda.get_device_name(0) if torch.cuda.is_available() else "")')"
+  elif [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
+    echo "ARM64 detected without vendor CUDA PyTorch; keeping existing environment."
+    python -m pip install torch torchvision 2>/dev/null || true
   else
-    PYTORCH_CUDA_INDEX="${PYTORCH_CUDA_INDEX:-https://download.pytorch.org/whl/cu121}"
+    # Auto-detect compute capability for Blackwell (GB10) / Ada (sm_89+) / Hopper (sm_90)
+    COMPUTE_CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n 1 | tr -d ' ' || echo "0.0")
+    if [[ -z "${PYTORCH_CUDA_INDEX:-}" ]]; then
+      if awk "BEGIN {exit !($COMPUTE_CAP >= 8.9)}"; then
+        PYTORCH_CUDA_INDEX="https://download.pytorch.org/whl/cu124"
+      else
+        PYTORCH_CUDA_INDEX="https://download.pytorch.org/whl/cu121"
+      fi
+    fi
+    echo "Installing CUDA PyTorch from $PYTORCH_CUDA_INDEX (Compute Cap: $COMPUTE_CAP)..."
     python -m pip install --force-reinstall \
       --index-url "$PYTORCH_CUDA_INDEX" \
       torch torchvision
@@ -61,7 +78,7 @@ else
   echo "Building with CPU-compatible PyTorch. Set USE_CUDA=1 to force CUDA."
 fi
 
-DUCK_ANALYZER_WHEEL="$(find "$BACKEND_DIR/app/ml" -maxdepth 1 -name 'duck_analyzer-*.whl' -print | sort -r | head -n 1)"
+DUCK_ANALYZER_WHEEL="$(find "$BACKEND_DIR/app/ml" -name 'duck_analyzer-*.whl' -print | sort -r | head -n 1)"
 [[ -n "$DUCK_ANALYZER_WHEEL" ]] || { echo "The bundled duck_analyzer wheel is missing."; exit 1; }
 python -m pip install "$DUCK_ANALYZER_WHEEL"
 
@@ -72,19 +89,13 @@ fi
 cd "$BACKEND_DIR"
 rm -rf "$BACKEND_DIR/build" "$BACKEND_DIR/dist"
 
-DB_DATA_ARG=()
-if [[ -f "$BACKEND_DIR/vision_ai.db" ]]; then
-  DB_DATA_ARG=(--add-data "$BACKEND_DIR/vision_ai.db:.")
-fi
-
 pyinstaller --noconfirm --clean --onedir --name backend "$BACKEND_DIR/run.py" \
   --distpath "$BACKEND_DIR/dist" \
   --workpath "$BACKEND_DIR/build" \
   --specpath "$BACKEND_DIR" \
-  --add-data "$BACKEND_DIR/app/ml/models:app/ml/models" \
-  --add-data "$BACKEND_DIR/app/ml/config.yaml:app/ml" \
+  --add-data "$BACKEND_DIR/app/ml/model:app/ml/model" \
+  --add-data "$BACKEND_DIR/app/ml/config:app/ml/config" \
   --add-data "$BACKEND_DIR/alembic:alembic" \
-  "${DB_DATA_ARG[@]}" \
   --collect-all app \
   --collect-all fastapi \
   --collect-all starlette \
@@ -99,20 +110,13 @@ pyinstaller --noconfirm --clean --onedir --name backend "$BACKEND_DIR/run.py" \
   --collect-all depthai \
   --collect-all av \
   --collect-all duck_analyzer \
-  --collect-all mediapipe \
-  --collect-all matplotlib
+  --collect-all mediapipe
 
-# Keep release files separate from developer/runtime data in frontend/backend.
-# Electron maps this directory to resources/backend inside each installer.
-rm -rf "$FRONTEND_DIR/release-backend"
-mkdir -p "$FRONTEND_DIR/release-backend"
-cp -a "$BACKEND_DIR/dist/backend/." "$FRONTEND_DIR/release-backend/"
-chmod +x "$FRONTEND_DIR/release-backend/backend"
-
-# Strip non-runtime development files to drastically shrink package and speed up deb packaging
-find "$FRONTEND_DIR/release-backend" -name "*.a" -delete 2>/dev/null || true
-rm -rf "$FRONTEND_DIR/release-backend/_internal/torch/include" 2>/dev/null || true
-rm -rf "$FRONTEND_DIR/release-backend/_internal/triton" 2>/dev/null || true
+# Strip non-runtime development files directly in dist/backend
+chmod +x "$BACKEND_DIR/dist/backend/backend"
+find "$BACKEND_DIR/dist/backend" -name "*.a" -delete 2>/dev/null || true
+rm -rf "$BACKEND_DIR/dist/backend/_internal/torch/include" 2>/dev/null || true
+rm -rf "$BACKEND_DIR/dist/backend/_internal/triton" 2>/dev/null || true
 
 cd "$FRONTEND_DIR"
 npm ci --include=optional 2>/dev/null || npm install --include=optional

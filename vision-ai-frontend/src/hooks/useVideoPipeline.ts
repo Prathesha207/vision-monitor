@@ -48,7 +48,7 @@ export function useVideoPipeline({
 
   const clearCameraRecording = () => {
     if (cameraRecordSessionId) {
-      fetch(`${getApiBaseUrl()}/video/stop/${cameraRecordSessionId}`, { method: 'POST' }).catch(() => {});
+      fetch(`${getApiBaseUrl()}/video/clear/${cameraRecordSessionId}`, { method: 'POST' }).catch(() => {});
     }
     setCameraRecordSessionId(null);
     setCameraRecordUrl(undefined);
@@ -66,12 +66,12 @@ export function useVideoPipeline({
   }, [videoSessionId, customVideoUrl, customVideoName]);
 
   // Custom uploaded video handler (Directly in video canvas)
-  const handleVideoUploaded = (
+  const handleVideoUploaded = async (
     url: string,
     name: string,
     sessionId?: string,
     isCameraRecording?: boolean
-  ) => {
+  ): Promise<void> => {
     const isRecordedStream = Boolean(isCameraRecording);
 
     if (isRecordedStream) {
@@ -85,14 +85,13 @@ export function useVideoPipeline({
       setCameraRecordSessionId(null);
       setCameraRecordUrl(undefined);
       setCameraRecordName(undefined);
-      setIsRunning(false);
+      setCameraStartingState('ready');
       setDucks([]);
       setFramesProcessed(0);
       setFps(0);
       useInferenceStore.getState().resetStats();
       resetBBoxCache();
-      showToast('success', 'Camera recording saved. Click Start Inference to run with progress.');
-      addLog(`Recorded video ready: "${name}". Click Start Inference to run with progress.`, 'success');
+      showToast('info', `Recorded video loaded: "${name}". Click START INFERENCE to run.`);
       return;
     }
 
@@ -119,7 +118,7 @@ export function useVideoPipeline({
     setCustomVideoUrl(url);
     setCustomVideoName(name);
     setSourceType('uploaded-video');
-    setAutoStartRecordedInference(false);
+    setAutoStartRecordedInference(true);
     setCameraStartingState('ready');
 
     // Clean slate: clear prior detections, frame counts, and stats for the new video
@@ -131,18 +130,17 @@ export function useVideoPipeline({
 
     if (sessionId) {
       setVideoSessionId(sessionId);
-      void startVideoInference(sessionId);
-    } else {
-      setIsRunning(false);
-      showToast('success', `Video ready. Click "Start Inference" to evaluate.`);
-      addLog(`Video loaded: "${name}". Ready for inference.`, 'info');
     }
+    
+    setIsRunning(false);
+    showToast('success', `Video uploaded. Starting inference automatically...`);
+    addLog(`Video loaded: "${name}". Auto-starting inference.`, 'info');
   };
 
   const handleClearVideo = () => {
-    // If backend video was running, signal stop
+    // If backend video was running, signal stop and clear temporary session files
     if (videoSessionId) {
-      fetch(`${getApiBaseUrl()}/video/stop/${videoSessionId}`, { method: 'POST' })
+      fetch(`${getApiBaseUrl()}/video/clear/${videoSessionId}`, { method: 'POST' })
         .catch(() => {});
     }
     setCustomVideoUrl(undefined);
@@ -163,7 +161,15 @@ export function useVideoPipeline({
     setDucks([]); 
     useInferenceStore.getState().resetStats(); 
     resetBBoxCache();
-    const sid = customSessionId || videoSessionId;
+    let sid = customSessionId || videoSessionId;
+    if (!sid && (customVideoUrl || localPreviewUrl)) {
+      const urlToTest = customVideoUrl || localPreviewUrl || '';
+      const match = urlToTest.match(/\/video\/(?:stream|last_frame|raw)\/([a-zA-Z0-9_-]+)/);
+      if (match && match[1]) {
+        sid = match[1];
+        setVideoSessionId(sid);
+      }
+    }
     if (!sid) {
       showToast('error', 'Upload a video before starting inference.');
       return;
@@ -186,7 +192,7 @@ export function useVideoPipeline({
       const response = await fetch(`${getApiBaseUrl()}/video/start/${sid}`, { method: 'POST' });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        throw new Error(body.message || 'Unable to start inference');
+        throw new Error(body.detail || body.message || 'Unable to start inference');
       }
       setIsRunning(true);
       showToast('success', 'Inference started');

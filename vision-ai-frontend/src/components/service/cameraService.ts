@@ -58,6 +58,9 @@ export const cameraService = {
 
   async start(payload?: { camera_id?: number; ip_address?: string }) {
     const res = await api.post("/oak/start", payload || {});
+    if (res.data?.status === 'error') {
+      throw new Error(res.data.message || 'Camera start failed');
+    }
     return res.data;
   },
 
@@ -91,9 +94,26 @@ export const cameraService = {
     return res.data;
   },
 
-  async updateLiveControls(id: string | number, data: any) {
-    const res = await api.patch(`/camera/live-controls/${id}`, data);
-    return res.data;
+  async updateLiveControls(id: string | number | undefined, data: any) {
+    try {
+      const res = await api.post("/oak/controls", data);
+      return res.data;
+    } catch {
+      if (id) {
+        const res = await api.patch(`/camera/live-controls/${id}`, data);
+        return res.data;
+      }
+    }
+  },
+
+  async resetCameraControls() {
+    try {
+      const res = await api.post("/oak/controls/reset");
+      return res.data;
+    } catch {
+      const res = await api.post("/oak/controls", { reset: true, auto_exposure: true, auto_focus: true, brightness: 0, contrast: 50 });
+      return res.data;
+    }
   },
 
    async updateInferenceMode(mode: "testing" | "production") {

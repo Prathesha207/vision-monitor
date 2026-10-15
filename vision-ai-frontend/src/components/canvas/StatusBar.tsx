@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bird, CheckCircle2, ShieldAlert, Hand } from 'lucide-react';
+import { Bird, ShieldAlert } from 'lucide-react';
 import type { AnomalyStatus, DuckEntity } from '../../types';
 import { useInferenceStore } from '../../store/inferenceStore';
 
@@ -82,62 +82,13 @@ export const StatusBar: React.FC<StatusBarProps> = ({
                 ? 'text-[var(--status-anomaly-text)]'
                 : anomalyStatus.difference < 0
                   ? 'text-[var(--status-warn-text)]'
-                  : 'text-[var(--status-normal-text)]'
+                  : 'text-emerald-500 dark:text-emerald-400'
                 }`}
             >
               {anomalyStatus.difference > 0 ? `+${anomalyStatus.difference}` : anomalyStatus.difference}
             </span>
           </div>
         </div>
-
-        <div className="h-6 w-[1px] bg-[var(--border-color)]" />
-
-        {/* Status Pill */}
-        <div className="flex flex-col items-center">
-          <span className="text-[9.5px] text-[var(--text-secondary)] uppercase tracking-wider font-semibold">
-            Status
-          </span>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            {anomalyStatus.message === 'WARMING' ? (
-              <div className="flex items-center gap-1.5 text-amber-500 font-bold text-xs sm:text-sm animate-pulse">
-                <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.6)]" />
-                <span>WARMING</span>
-              </div>
-            ) : anomalyStatus.message === 'HAND DETECTED' ? (
-              <div className="flex items-center gap-1.5 text-amber-500 font-bold text-xs sm:text-sm animate-pulse">
-                <Hand className="w-3.5 h-3.5 shrink-0" />
-                <span>HAND</span>
-              </div>
-            ) : anomalyStatus.isAnomaly ? (
-              <div className="flex items-center gap-1.5 text-[var(--status-anomaly-text)] font-bold text-xs sm:text-sm animate-pulse">
-                <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
-                <span>ANOMALY</span>
-              </div>
-            ) : anomalyStatus.message === 'STANDBY' || anomalyStatus.message === 'READY' || anomalyStatus.message === 'NO CAMERA' ? (
-              <div className="flex items-center gap-1.5 text-[var(--text-secondary)] font-bold text-xs sm:text-sm">
-                <span className="w-2 h-2 rounded-full bg-[var(--accent-pond)] shrink-0" />
-                <span>{anomalyStatus.message}</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5 text-[var(--status-normal-text)] font-bold text-xs sm:text-sm">
-                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                <span>NORMAL</span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* <div className="hidden sm:block h-6 w-[1px] bg-[var(--border-color)]" /> */}
-
-        {/* FPS */}
-        {/* <div className="hidden sm:flex flex-col items-center">
-          <span className="text-[9.5px] text-[var(--text-secondary)] uppercase tracking-wider font-semibold">
-            FPS
-          </span>
-          <span className="text-base sm:text-lg font-mono font-bold text-[var(--text-primary)] mt-0.5">
-            {displayFps.toFixed(1)}
-          </span>
-        </div> */}
       </div>
     </div>
   );

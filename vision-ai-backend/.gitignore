@@ -26,6 +26,7 @@ __pycache__/
 venv/
 env/
 venv_linux/
+test_env/
 
 # =========================
 # Build / Distribution
@@ -47,6 +48,7 @@ FailedFrames/
 # ML / AI Models
 # =========================
 *.pt
+!app/ml/model/best.pt
 *.pth
 *.onnx
 *.h5
@@ -73,6 +75,7 @@ FailedFrames/
 *.mp4
 *.whl
 !app/ml/duck_analyzer-*.whl
+!app/ml/**/duck_analyzer-*.whl
 vision_ai.db*
 
 # =========================

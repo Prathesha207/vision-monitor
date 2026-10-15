@@ -10,7 +10,7 @@ import { CameraSettingsModal } from './components/CameraSettingsModal';
 import { HelpModal } from './components/HelpModal';
 import { Modal, Toast, Button } from './components/ui';
 import { useInferenceStore } from './store/inferenceStore';
-import { playWaterDropSound, setSoundEnabled } from './utils/audio';
+import { playWaterDropSound, setSoundEnabled, isSoundEnabled } from './utils/audio';
 import { AlertTriangle } from 'lucide-react';
 import { getApiBaseUrl } from './lib/api';
 import { cameraService } from './components/service/cameraService';
@@ -22,6 +22,7 @@ import { loadSessionState, saveSessionState, clearSessionState } from './utils/s
 import { useBackendHealth } from './hooks/useBackendHealth';
 import { useToastAndLogs } from './hooks/useToastAndLogs';
 import { useCameraStatus } from './hooks/useCameraStatus';
+import { useRecording } from './components/hooks/useRecording';
 import { useVideoPipeline } from './hooks/useVideoPipeline';
 import { useInferenceLoop } from './hooks/useInferenceLoop';
 import { useAnomalyStatus } from './hooks/useAnomalyStatus';
@@ -57,7 +58,7 @@ export default function App() {
   };
 
   const [feedMode, setFeedMode] = useState<'raw' | 'inference'>('inference');
-  const [soundActive, setSoundActive] = useState<boolean>(true);
+  const [soundActive, setSoundActive] = useState<boolean>(() => isSoundEnabled());
   const [drawerOpen, setDrawerOpen] = useState<boolean>(true);
   const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
   const [helpOpen, setHelpOpen] = useState<boolean>(false);
@@ -85,33 +86,35 @@ export default function App() {
   const initialSession = useMemo(() => loadSessionState(), []);
   // Seed isRunning and all metrics from session so Ctrl+R keeps stats and ducks visible
   const [isRunning, setIsRunning] = useState<boolean>(() => {
-    return initialSession?.isRunning ?? false;
+    return (initialSession as any)?.isRunning ?? false;
   });
   const [isStarting, setIsStarting] = useState<boolean>(false);
   const [fps, setFps] = useState<number>(() => {
     if (initialSession?.sourceType === 'oak-camera' || initialSession?.sourceType === 'webcam') return 0;
-    return initialSession?.fps ?? 0;
+    return (initialSession as any)?.fps ?? 0;
   });
   const [framesProcessed, setFramesProcessed] = useState<number>(() => {
     if (initialSession?.sourceType === 'oak-camera' || initialSession?.sourceType === 'webcam') return 0;
-    return initialSession?.framesProcessed ?? 0;
+    return (initialSession as any)?.framesProcessed ?? 0;
   });
   const [uptimeSeconds, setUptimeSeconds] = useState<number>(() => {
     if (initialSession?.sourceType === 'oak-camera' || initialSession?.sourceType === 'webcam') return 0;
-    return initialSession?.uptimeSeconds ?? 0;
+    return (initialSession as any)?.uptimeSeconds ?? 0;
   });
   const [expectedDucks, setExpectedDucks] = useState<number>(() => initialSession?.expectedDucks ?? 18);
   const [ducks, setDucks] = useState<import('./types').DuckEntity[]>(() => {
     if (initialSession?.sourceType === 'oak-camera' || initialSession?.sourceType === 'webcam') return [];
-    return initialSession?.ducks ?? [];
+    return (initialSession as any)?.ducks ?? [];
   });
-  const [lastCameraFrame, setLastCameraFrame] = useState<string | undefined>(() => initialSession?.lastCameraFrame);
+  const [lastCameraFrame, setLastCameraFrame] = useState<string | undefined>(() => (initialSession as any)?.lastCameraFrame);
+  const [lastVideoFrame, setLastVideoFrame] = useState<string | undefined>(() => (initialSession as any)?.lastVideoFrame);
 
   // Restore inference store stats from session on mount
   useEffect(() => {
-    if (initialSession?.stats && initialSession.stats.status !== 'idle') {
-      if (initialSession.sourceType !== 'oak-camera' && initialSession.sourceType !== 'webcam') {
-        useInferenceStore.getState().replaceStats(initialSession.stats);
+    const stats = (initialSession as any)?.stats;
+    if (stats && stats.status !== 'idle') {
+      if (initialSession?.sourceType !== 'oak-camera' && initialSession?.sourceType !== 'webcam') {
+        useInferenceStore.getState().replaceStats(stats);
       }
     }
   }, [initialSession]);
@@ -132,16 +135,11 @@ export default function App() {
 
   // Keep sessionStorage in sync with live inference state & results
   useEffect(() => {
-    const isCamera = sourceType === 'oak-camera' || sourceType === 'webcam';
     saveSessionState({
-      isRunning,
       sourceType,
       expectedDucks,
-      ...(ducks.length > 0 && !isCamera ? { ducks } : {}),
-      ...(framesProcessed > 0 && !isCamera ? { framesProcessed, fps, uptimeSeconds } : {}),
-      stats: isCamera ? undefined : useInferenceStore.getState().stats,
     });
-  }, [isRunning, sourceType, expectedDucks, ducks, framesProcessed, fps, uptimeSeconds]);
+  }, [sourceType, expectedDucks]);
 
   // Snapshot cache to preserve complete run state across source toggling
   interface SourceStateSnapshot {
@@ -153,6 +151,7 @@ export default function App() {
     selectedDuckId: string | null;
     videoDimensions: { width: number; height: number } | null;
     lastCameraFrame?: string;
+    lastVideoFrame?: string;
   }
 
   const sourceStateCache = React.useRef<{
@@ -296,14 +295,15 @@ export default function App() {
     const st = (saved.sourceType || sourceType) as StreamSourceType;
     const isVideo = st === 'uploaded-video' || st === 'sample-pond';
     const isCamera = st === 'oak-camera' || st === 'webcam';
+    const savedIsRunning = (saved as any).isRunning;
 
     if (isVideo && saved.videoSessionId) {
       const sessionId = saved.videoSessionId;
       fetch(`${getApiBaseUrl()}/video/status/${sessionId}`, { method: 'GET', cache: 'no-store' })
         .then(async (res) => {
           if (res.status === 404) {
-            if (saved.isRunning) {
-              saveSessionState({ isRunning: false });
+            if (savedIsRunning) {
+              saveSessionState({} as any);
               setIsRunning(false);
               addLog('Video session no longer exists on backend — inference stopped.', 'info');
             }
@@ -331,16 +331,26 @@ export default function App() {
             setDucks(incomingDucks);
           }
 
-          if (saved.isRunning) {
+          const backendIsRunning = data.status === 'processing' || data.status === 'warming' || data.status === 'queued';
+          
+          if (backendIsRunning) {
+            if (!savedIsRunning) {
+               setIsRunning(true);
+            }
             addLog('🔄 Page refreshed — reconnecting to active video inference session...', 'info');
-          } else if (incomingDucks.length > 0 || (data.frames_processed || 0) > 0) {
-            addLog('🔄 Page refreshed — restored inference stats and detections.', 'info');
+          } else {
+            if (savedIsRunning) {
+               setIsRunning(false);
+               addLog('Video inference was already stopped on the backend.', 'info');
+            } else if (incomingDucks.length > 0 || (data.frames_processed || 0) > 0) {
+               addLog('🔄 Page refreshed — restored inference stats and detections.', 'info');
+            }
           }
         })
         .catch(() => {
           // Network error — leave state as restored from sessionStorage
         });
-    } else if (isCamera && saved.isRunning) {
+    } else if (isCamera && savedIsRunning) {
       addLog('🔄 Page refreshed — reconnecting to live camera inference stream...', 'info');
       camera.setIsStreaming(true);
     }
@@ -377,6 +387,7 @@ export default function App() {
       selectedDuckId,
       videoDimensions: video.videoDimensions,
       lastCameraFrame: isCurrentCamera ? lastCameraFrame : undefined,
+      lastVideoFrame: !isCurrentCamera ? lastVideoFrame : undefined,
     };
 
     // 2. Stop running stream/inference on previous source
@@ -393,31 +404,25 @@ export default function App() {
     setPendingSourceSwitch(null);
     setSelectedDuckId(null);
 
-    // 4. Restore target source state if previously cached
-    const cached = sourceStateCache.current[targetKey];
-    if (cached && (cached.ducks.length > 0 || cached.framesProcessed > 0)) {
-      setDucks(cached.ducks);
-      useInferenceStore.getState().replaceStats(cached.stats);
-      setFramesProcessed(cached.framesProcessed);
-      setFps(cached.fps);
-      setUptimeSeconds(cached.uptimeSeconds);
-      setSelectedDuckId(cached.selectedDuckId);
-      if (cached.videoDimensions) video.setVideoDimensions(cached.videoDimensions);
-      if (cached.lastCameraFrame && isTargetCamera) setLastCameraFrame(cached.lastCameraFrame);
+    // 4. Force a clean slate for the target source (fixes bug where old galleries persist)
+    sourceStateCache.current[targetKey] = null;
+    setDucks([]);
+    useInferenceStore.getState().resetStats();
+    resetBBoxCache();
+    setFramesProcessed(0);
+    setFps(0);
+    setUptimeSeconds(0);
+    setSelectedDuckId(null);
+    if (isTargetCamera) {
+      setLastCameraFrame(undefined);
     } else {
-      // Clean slate for new un-run source
-      setDucks([]);
-      useInferenceStore.getState().resetStats();
-      resetBBoxCache();
-      setFramesProcessed(0);
-      setFps(0);
-      setUptimeSeconds(0);
-      setSelectedDuckId(null);
+      setLastVideoFrame(undefined);
     }
 
     if (isTargetCamera) {
       camera.setCameraStartingState('ready');
       camera.setIsStreaming(false);
+      video.clearCameraRecording(); // CRITICAL: prevent old recordings from hijacking the camera UI and showing the video inference card
       addLog(`Stream source switched to: ${targetType.toUpperCase()}`, 'info');
       showToast('info', 'Switched to OAK Camera mode');
       // No auto-start — CameraStandbyCard renders until user clicks Start Stream.
@@ -465,7 +470,23 @@ export default function App() {
     };
   }, [anomalyFinal.activeDucks, inference.fps, inference.framesProcessed, inference.uptimeSeconds]);
 
-  const isRecording = useInferenceStore((state) => state.isRecording);
+  const recording = useRecording();
+
+  const handleToggleRecording = async () => {
+    if (video.cameraRecordSessionId || isRunning) return;
+    if (recording.isRecording) {
+      const res = await recording.stopRecording();
+      if (res && res.filename) {
+        showToast('success', `Recording saved: ${res.filename}`);
+      }
+    } else {
+      if (!camera.isStreaming && camera.startCameraStream) {
+        await camera.startCameraStream();
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+      await recording.startRecording(camera.effectiveCameraConfig.recordingFormat || 'MP4');
+    }
+  };
 
   // ─── 12. Misc Handlers ────────────────────────────────────────────
   const handleRestart = () => {
@@ -491,6 +512,7 @@ export default function App() {
 
   const handleClearCustomVideo = () => {
     sourceStateCache.current.video = null;
+    setLastVideoFrame(undefined);
     video.handleClearVideo();
     showToast('info', 'Video cleared. Select or upload a new video.');
   };
@@ -562,10 +584,11 @@ export default function App() {
     inference.setFps(0);
     inference.setUptimeSeconds(0);
     sourceStateCache.current.video = null;
-    // Stop backend session if one is active
+    setLastVideoFrame(undefined);
+    // Stop and clear backend session if one is active
     if (video.videoSessionId) {
       try {
-        await fetch(`${getApiBaseUrl()}/video/stop/${video.videoSessionId}`, { method: 'POST' });
+        await fetch(`${getApiBaseUrl()}/video/clear/${video.videoSessionId}`, { method: 'POST' });
       } catch { }
     }
     // Clear the video pipeline state so the upload card shows again
@@ -608,7 +631,42 @@ export default function App() {
   const handleStopInference = async () => {
     camera.setCameraStartingState('ready');
     setSelectedDuckId(null);
+    // Clear last frames so the canvas goes blank
+    setLastCameraFrame(undefined);
+    setLastVideoFrame(undefined);
+    // Clear source state cache so no stale data lingers
+    sourceStateCache.current.video = null;
+    sourceStateCache.current.camera = null;
+
+    // Stop camera streaming if it's a live camera source
+    if (isCameraSource && camera.isStreaming) {
+      camera.setIsStreaming(false);
+      try { await cameraService.stopStream(); } catch { }
+    }
+
+    // Let the inference loop handle stopping backend + clearing stats/ducks
     await inference.handleStopInference();
+
+    // Clear the video pipeline so the upload card shows again (video mode)
+    if (isVideoSource) {
+      if (video.videoSessionId) {
+        try {
+          await fetch(`${getApiBaseUrl()}/video/clear/${video.videoSessionId}`, { method: 'POST' });
+        } catch { }
+      }
+      video.setCustomVideoUrl(undefined);
+      video.setLocalPreviewUrl(undefined);
+      video.setVideoSessionId(null);
+      video.setCustomVideoName(undefined);
+    }
+
+    // Clear camera recording state (camera mode)
+    if (isCameraSource) {
+      video.clearCameraRecording();
+    }
+
+    // Clear persisted session so refresh shows a clean state
+    clearSessionState();
   };
   const handleResumeInference = async () => {
     if (sourceType === 'uploaded-video' || sourceType === 'sample-pond') {
@@ -621,9 +679,8 @@ export default function App() {
       return;
     }
     if ((sourceType === 'oak-camera' || sourceType === 'webcam') && !video.cameraRecordSessionId) {
-      if (!camera.isStreaming) {
-        // User clicked Start Inference directly without clicking Start Stream first:
-        // Automatically start both stream and inference!
+      if (!camera.isStreaming || !camera.effectiveCameraConfig.connected) {
+        // Automatically start both stream and inference if camera is not active
         playWaterDropSound();
         await startCameraPipeline();
         return;
@@ -671,14 +728,8 @@ export default function App() {
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       saveSessionState({
-        isRunning: isRunningRef.current,
         sourceType: sourceTypeRef.current,
         expectedDucks: expectedDucksRef.current,
-        ducks: ducksRef.current,
-        framesProcessed: framesProcessedRef.current,
-        fps: fpsRef.current,
-        uptimeSeconds: uptimeSecondsRef.current,
-        stats: useInferenceStore.getState().stats,
       });
       if (isRunningRef.current) {
         e.preventDefault();
@@ -750,6 +801,8 @@ export default function App() {
         fps={fps}
         anomalyDetected={anomalyFinal.anomalyStatus.isAnomaly}
         onExitToLanding={() => { clearSessionState(); setSystemInitialized(false); }}
+        soundActive={soundActive}
+        onToggleSound={handleToggleSound}
       />
 
       <div className="relative w-full max-w-[1720px] 2xl:max-w-[1920px] mx-auto px-3 sm:px-5 lg:px-6 pt-2 sm:pt-3 pb-2 sm:pb-3 flex flex-col flex-1 min-h-0 gap-2.5 sm:gap-3">
@@ -759,7 +812,10 @@ export default function App() {
           onRequestSwitchMode={handleRequestSwitchMode}
           isRunning={isRunning}
           isStarting={isStarting}
-          isRecording={isRecording}
+          isRecording={recording.isRecording}
+          isSavingRecording={recording.isSaving}
+          recordingDuration={recording.recordingDuration}
+          onToggleRecording={handleToggleRecording}
           onToggleRunning={handleToggleRunning}
           onStopInference={handleStopInference}
           onResumeInference={handleResumeInference}
@@ -790,9 +846,6 @@ export default function App() {
           videoSessionId={video.videoSessionId}
           hasActiveVideo={Boolean(video.customVideoUrl || video.customVideoName)}
           onClearCustomVideo={handleClearCustomVideo}
-          onResetVideo={handleResetVideo}
-          onResetCamera={handleResetCamera}
-          isCameraConnected={camera.effectiveCameraConfig.connected}
           cameraStartingState={camera.cameraStartingState}
           cameraRecordSessionId={video.cameraRecordSessionId}
           onClearCameraRecord={handleClearCameraRecord}
@@ -825,9 +878,13 @@ export default function App() {
               videoDimensions={video.videoDimensions}
               isCameraConnected={camera.effectiveCameraConfig.connected}
               initialUploadFile={video.initialUploadFile}
+              recordedFile={recording.recordedFile}
+              clearRecording={recording.clearRecording}
               isBackendConnected={isBackendConnected}
               onRegisterTriggerUpload={(fn) => { uploadTriggerRef.current = fn; }}
               lastCameraFrame={lastCameraFrame}
+              lastVideoFrame={lastVideoFrame}
+              onCaptureVideoFrame={setLastVideoFrame}
               onRetryConnection={camera.startCameraStream}
               onStartStream={camera.startCameraStream}
               framesProcessed={inference.framesProcessed}
@@ -836,7 +893,9 @@ export default function App() {
               cameraRecordName={video.cameraRecordName}
               onClearCameraRecord={handleClearCameraRecord}
               cameraTargetFps={camera.effectiveCameraConfig.targetFps || 30}
-              recordingFormat={camera.effectiveCameraConfig.recordingFormat || 'AVI'}
+              recordingFormat={camera.effectiveCameraConfig.recordingFormat || 'MP4'}
+              cameraConfig={camera.effectiveCameraConfig}
+              cameraError={camera.cameraError}
             />
           </main>
 
@@ -851,6 +910,11 @@ export default function App() {
             isStandby={isStandby}
             logs={logs}
             isCameraSource={isCameraSource}
+            isCameraConnected={camera.effectiveCameraConfig.connected}
+            cameraConfig={camera.effectiveCameraConfig}
+            onUpdateCameraConfig={(patch) => {
+              camera.setCameraConfig((prev) => ({ ...prev, ...patch }));
+            }}
           />
         </div>
       </div>
@@ -892,6 +956,7 @@ export default function App() {
               exposure: cfg.exposure, gain: cfg.iso ?? cfg.gain, focus: cfg.focus,
               brightness: cfg.brightness, contrast: cfg.contrast,
               auto_focus: cfg.autoFocus, auto_exposure: cfg.autoExposure ?? true,
+              recording_format: cfg.recordingFormat || 'MP4',
             };
             const savedCamera = cfg.id
               ? await cameraService.updateCamera(cfg.id, payload)

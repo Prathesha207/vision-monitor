@@ -5,17 +5,15 @@ interface VideoUploadCardProps {
   uploadProgress: number | null;
   isSelectingVideo: boolean;
   isBackendConnected?: boolean;
-  onSelectVideo?: () => void;
 }
 
 export const VideoUploadCard: React.FC<VideoUploadCardProps> = ({
   uploadProgress,
   isSelectingVideo,
-  onSelectVideo,
 }) => {
   return (
     <div
-      className="absolute inset-0 w-full h-full p-2.5 sm:p-3.5 z-10 pointer-events-auto flex flex-col items-center justify-center rounded-3xl select-none"
+      className="absolute inset-0 w-full h-full p-2.5 sm:p-3.5 z-10 pointer-events-none flex flex-col items-center justify-center rounded-3xl select-none"
       style={{ backgroundColor: 'var(--bg-card)' }}
     >
       <div

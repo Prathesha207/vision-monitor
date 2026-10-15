@@ -28,8 +28,9 @@ export function useRecording() {
     };
   }, []);
 
-  const startRecording = useCallback(async (recordingFormat: string = 'AVI') => {
-    if (isRecording || isSaving) return false;
+  const startRecording = useCallback(async (recordingFormat: string = 'MP4') => {
+    const isProcessing = useInferenceStore.getState().stats.status === 'processing';
+    if (isProcessing || isRecording || isSaving) return false;
 
     const newSessionId = `rec_${Date.now()}`;
     sessionIdRef.current = newSessionId;

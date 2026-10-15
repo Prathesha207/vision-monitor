@@ -120,7 +120,14 @@ async function cleanupStaleBackend() {
     if (isAlive) {
       console.log(`Found previous backend process with PID ${oldPid}. Terminating process tree...`)
       killProcessTreeSync(oldPid)
-      await new Promise((resolve) => setTimeout(resolve, 500))
+      // Wait up to 4s for port 8000 to actually be released (PyInstaller + CUDA
+      // torch take longer than 500ms to teardown all socket handles on Windows)
+      const deadline = Date.now() + 4000
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        const free = await checkPortAvailable(8000)
+        if (free) break
+      }
     }
   } catch (err) {
     console.error("Error inspecting stale backend PID:", err.message)
@@ -200,7 +207,7 @@ function createSplashWindow() {
           Vision Monitor
         </h1>
 
-        <p style="opacity:0.7">
+        <p id="status-msg" style="opacity:0.7; transition: opacity 0.3s;">
           Starting backend services...
         </p>
 
@@ -226,6 +233,14 @@ function createSplashWindow() {
             100% { transform: translateX(350%); }
           }
         </style>
+
+        <script>
+          // Update splash text to reflect model-loading phase
+          setTimeout(() => {
+            const el = document.getElementById('status-msg');
+            if (el) el.textContent = 'Loading AI model into GPU...';
+          }, 2500);
+        </script>
       </body>
     </html>
   `)
@@ -250,6 +265,7 @@ function createWindow() {
       nodeIntegration: false,
       webSecurity: false,
       allowRunningInsecureContent: true,
+      backgroundThrottling: false,
     },
   })
 
@@ -266,6 +282,12 @@ function createWindow() {
     if (isQuitting) return  // already confirmed, let it close
     if (isInferenceRunning) {
       event.preventDefault()
+      
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore()
+      }
+      mainWindow.focus()
+
       const { response } = await dialog.showMessageBox(mainWindow, {
         type: "warning",
         buttons: ["Keep Running", "Stop & Close"],
@@ -278,8 +300,20 @@ function createWindow() {
       if (response === 1) {
         // User confirmed: stop backend and quit
         isQuitting = true
-        await stopBackend()
-        app.quit()
+        
+        // Hide window immediately for snappy UX, then stop backend in background
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.hide()
+        }
+        
+        console.log("User chose to stop & close. Stopping backend...")
+        try {
+          await stopBackend()
+        } catch (err) {
+          console.error("Error during stopBackend on close:", err)
+        }
+        
+        app.exit(0) // Force exit to avoid getting stuck in Electron's quit loop
       }
       // response === 0: user clicked "Keep Running" — do nothing, window stays open
     }
@@ -311,6 +345,37 @@ function createWindow() {
 }
 
 /* =========================================================
+   KILL WHATEVER HOLDS PORT 8000 (Windows netstat method)
+========================================================= */
+function killPortHolderSync(port) {
+  if (process.platform === "win32") {
+    try {
+      // netstat -ano gives lines like: TCP  127.0.0.1:8000  ...  LISTENING  <pid>
+      const out = execSync(`netstat -ano -p TCP 2>nul`, { encoding: "utf8", timeout: 3000 })
+      const lines = out.split("\n")
+      for (const line of lines) {
+        if (line.includes(`:${port}`) && line.includes("LISTENING")) {
+          const parts = line.trim().split(/\s+/)
+          const pid = parseInt(parts[parts.length - 1], 10)
+          if (pid && !isNaN(pid) && pid !== process.pid) {
+            console.log(`Force-killing PID ${pid} which holds port ${port}`)
+            try { execSync(`taskkill /F /T /PID ${pid}`, { stdio: "ignore" }) } catch (e) {}
+          }
+        }
+      }
+    } catch (e) {
+      // netstat failed — non-fatal, continue anyway
+    }
+  } else {
+    try {
+      execSync(`fuser -k ${port}/tcp 2>/dev/null`, { timeout: 3000, stdio: "ignore" })
+    } catch (e) {
+      // fuser failed or not available — non-fatal
+    }
+  }
+}
+
+/* =========================================================
    START BACKEND
 ========================================================= */
 async function startBackend() {
@@ -319,21 +384,35 @@ async function startBackend() {
     return
   }
 
-  // 1. Clean up stale backend if previously recorded in PID marker
+  // 1. Clean up stale backend recorded in PID marker (waits for port release)
   await cleanupStaleBackend()
 
   // 2. Pre-flight check on port 8000
-  const portFree = await checkPortAvailable(8000)
+  let portFree = await checkPortAvailable(8000)
   if (!portFree) {
+    // Port still occupied — try to reuse if the existing backend is healthy
     try {
-      const res = await axios.get(`${API_BASE}/health`, { timeout: 1500 })
+      const res = await axios.get(`${API_BASE}/health`, { timeout: 2000 })
       if (res.data && res.data.status === "ready") {
         console.log("Existing backend is already healthy and responsive. Reusing instance.")
         return
       }
     } catch (e) {}
 
-    console.warn("Port 8000 is occupied. Proceeding with backend spawn attempt...")
+    // Health check failed — the old process is dying but still holds the port.
+    // Force-kill whatever is listening on 8000, then wait for it to free up.
+    console.warn("Port 8000 occupied and unhealthy — force-clearing it...")
+    killPortHolderSync(8000)
+    // Wait up to 5 seconds for the port to become free
+    const deadline = Date.now() + 5000
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      portFree = await checkPortAvailable(8000)
+      if (portFree) break
+    }
+    if (!portFree) {
+      console.error("Port 8000 still occupied after forced cleanup — backend may fail to start.")
+    }
   }
 
   const backendExecutable = process.platform === "win32" ? "backend.exe" : "backend"
@@ -351,9 +430,11 @@ async function startBackend() {
   }
 
   backendProcess = spawn(backendPath, [], {
+    cwd: path.dirname(backendPath),
     shell: false,
     detached: process.platform !== "win32",
     windowsHide: true,
+    stdio: "ignore",
   })
 
   if (backendProcess && backendProcess.pid) {
@@ -378,27 +459,38 @@ async function startBackend() {
 async function waitForBackend() {
   let backendReady = false
   const startTime = Date.now()
+  // Keep polling until /health returns {status: "ready"}.
+  // The backend returns 503 {status: "starting"} while the ML model is loading.
+  // Hard cap of 3 minutes only to detect a crashed backend — not used in normal operation.
+  const HARD_CAP_MS = 180000
 
   while (!backendReady) {
     try {
       const res = await axios.get(`${API_BASE}/health`, {
-        timeout: 1000,
+        timeout: 2000,
+        // Accept 503 as a valid response (model still loading) — don't throw
+        validateStatus: (status) => status === 200 || status === 503,
       })
 
-      if (res.status === 200) {
+      if (res.data && res.data.status === "ready") {
         backendReady = true
-        console.log("Backend ready confirmed")
+        console.log("Backend ready confirmed — ML model fully loaded.")
         break
+      } else {
+        // status === "starting" — model is still loading, keep polling silently
+        console.log(`Backend starting: ${res.data && res.data.message || 'loading...'}`)
       }
     } catch (err) {
-      if (Date.now() - startTime > 25000) {
-        console.warn("Backend startup wait limit reached; proceeding.")
-        break
-      }
-      await new Promise((resolve) => setTimeout(resolve, 250))
+      // Connection refused — process still booting
     }
+    if (Date.now() - startTime > HARD_CAP_MS) {
+      console.warn(`Backend hard cap (${HARD_CAP_MS / 1000}s) reached; proceeding anyway.`)
+      break
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500))
   }
 }
+
 
 /* =========================================================
    STOP BACKEND
@@ -416,8 +508,11 @@ async function stopBackend() {
     await axios.post(`${API_BASE}/api/system/shutdown`, {}, { timeout: 800 })
   } catch (err) {}
 
-  // 3. Grace wait for process to finish exiting
-  await new Promise((resolve) => setTimeout(resolve, 500))
+  // 3. Grace wait — 1500ms so FastAPI/uvicorn can flush sockets and release port 8000
+  //    before we force-kill. 500ms was too short on Windows: the port stayed bound
+  //    for another 1-2s after the process exited, causing "backend disconnected" on
+  //    immediate relaunch.
+  await new Promise((resolve) => setTimeout(resolve, 1500))
 
   // 4. Force process tree cleanup if still alive
   if (pidToStop) {
@@ -526,13 +621,16 @@ app.on("before-quit", async (event) => {
 
   console.log("Stopping backend before quit...")
   await stopBackend()
-  app.quit()
+  app.exit(0)
 })
 
 app.on("window-all-closed", async () => {
+  if (isQuitting) return
+  isQuitting = true
+  
   await stopBackend()
   if (process.platform !== "darwin") {
-    app.quit()
+    app.exit(0)
   }
 })
 

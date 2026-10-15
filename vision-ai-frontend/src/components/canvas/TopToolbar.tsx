@@ -1,5 +1,5 @@
 import React from 'react';
-import { Hand, ShieldAlert, Layers, Minimize2, Expand, Eye, EyeOff } from 'lucide-react';
+import { Hand, ShieldAlert, CheckCircle2, Layers, Minimize2, Expand, Eye, EyeOff } from 'lucide-react';
 import type { AnomalyStatus } from '../../types';
 import { playWaterDropSound } from '../../utils/audio';
 
@@ -10,9 +10,6 @@ interface TopToolbarProps {
   onFeedModeChange: (mode: 'raw' | 'inference') => void;
   showAllBoxes: boolean;
   onToggleShowAllBoxes: () => void;
-  isRecording: boolean;
-  recordingDuration?: number;
-  onToggleRecording: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
   showHUD: boolean;
@@ -34,9 +31,6 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   onFeedModeChange,
   showAllBoxes,
   onToggleShowAllBoxes,
-  isRecording,
-  recordingDuration = 0,
-  onToggleRecording,
   isFullscreen,
   onToggleFullscreen,
   showHUD,
@@ -59,51 +53,40 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
       {/* Top-Left Corner: Real-Time Status Badge or Live Stream Indicator */}
       <div className="pointer-events-auto flex items-center gap-2 min-w-0 shrink-0">
         {showInferenceStatus ? (
-          <div
-            className={`flex items-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-3 rounded-xl border text-[10px] sm:text-xs font-black tracking-wide shrink-0 transition-all ${
-              anomalyStatus.message === 'WARMING'
-                ? 'bg-amber-500/20 text-amber-400 border-amber-500/50 shadow-xs animate-pulse'
-                : anomalyStatus.isAnomaly
-                ? 'bg-rose-600 text-white border-rose-400 shadow-lg shadow-rose-600/40 animate-pulse'
-                : 'bg-emerald-950/90 text-emerald-300 border-emerald-500/50 shadow-xs'
-            }`}
-          >
+          <div className="flex items-center h-7 sm:h-8 px-2.5 sm:px-3 rounded-xl bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--border-color)] shadow-xs shrink-0 select-none">
             {anomalyStatus.message === 'WARMING' ? (
-              <>
-                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0 shadow-[0_0_8px_rgba(251,191,36,0.8)]" />
-                <span className="font-black text-amber-400">WARMING</span>
-              </>
+              <div className="flex items-center gap-1.5 text-amber-500 font-bold text-xs sm:text-sm animate-pulse">
+                <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0 shadow-[0_0_6px_rgba(245,158,11,0.6)]" />
+                <span>WARMING</span>
+              </div>
             ) : anomalyStatus.message === 'HAND DETECTED' ? (
-              <>
-                <Hand className="w-3.5 h-3.5 text-amber-300 shrink-0" />
-                <span className="font-black text-amber-200">HAND PRESENT</span>
-              </>
+              <div className="flex items-center gap-1.5 text-amber-500 font-bold text-xs sm:text-sm animate-pulse">
+                <Hand className="w-3.5 h-3.5 shrink-0" />
+                <span>HAND</span>
+              </div>
             ) : anomalyStatus.isAnomaly ? (
-              <>
-                <ShieldAlert className="w-3.5 h-3.5 text-white shrink-0" />
-                <span className="font-black text-white">ANOMALY</span>
-                {anomalyStatus.difference !== 0 && (
-                  <span className="font-mono text-[9.5px] bg-black/30 px-1 py-0.5 rounded text-rose-100">
-                    {anomalyStatus.difference > 0 ? `+${anomalyStatus.difference}` : anomalyStatus.difference}
-                  </span>
-                )}
-                {(anomalyStatus.foreignCount ?? 0) > 0 && (
-                  <span className="font-mono text-[9.5px] bg-black/30 px-1 py-0.5 rounded text-rose-100">
-                    {anomalyStatus.foreignCount} Foreign
-                  </span>
-                )}
-              </>
+              <div className="flex items-center gap-1.5 text-[var(--status-anomaly-text)] font-bold text-xs sm:text-sm animate-pulse">
+                <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                <span>ANOMALY</span>
+              </div>
+            ) : anomalyStatus.message === 'STANDBY' || anomalyStatus.message === 'READY' || anomalyStatus.message === 'NO CAMERA' ? (
+              <div className="flex items-center gap-1.5 text-[var(--text-secondary)] font-bold text-xs sm:text-sm">
+                <span className="w-2 h-2 rounded-full bg-[var(--accent-pond)] shrink-0" />
+                <span>{anomalyStatus.message}</span>
+              </div>
             ) : (
-              <>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
-                <span className="text-emerald-300 font-bold">NORMAL ({anomalyStatus.detectedCount})</span>
-              </>
+              <div className="flex items-center gap-1.5 text-emerald-500 dark:text-emerald-400 font-bold text-xs sm:text-sm">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-500 dark:text-emerald-400" />
+                <span>NORMAL</span>
+              </div>
             )}
           </div>
         ) : isCameraSource && isStreaming ? (
-          <div className="flex items-center gap-1.5 h-7 sm:h-8 px-2.5 sm:px-3 rounded-xl border text-[10px] sm:text-xs font-black tracking-wide shrink-0 bg-sky-950/90 text-sky-300 border-sky-500/50 shadow-xs">
-            <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse shrink-0 shadow-[0_0_8px_rgba(56,189,248,0.8)]" />
-            <span>LIVE STREAM</span>
+          <div className="flex items-center h-7 sm:h-8 px-2.5 sm:px-3 rounded-xl bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--border-color)] shadow-xs shrink-0 select-none">
+            <div className="flex items-center gap-1.5 text-sky-400 font-bold text-xs sm:text-sm">
+              <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse shrink-0 shadow-[0_0_6px_rgba(56,189,248,0.6)]" />
+              <span>LIVE STREAM</span>
+            </div>
           </div>
         ) : null}
       </div>
@@ -144,30 +127,30 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
               </div>
             )}
 
-            {/* Bounding Box Mode Toggle: Anomalies Only (Default) vs All Boxes */}
+            {/* Bounding Box Mode Toggle: Anomalies Only vs All Boxes */}
             {(feedMode === 'inference' || !isCameraSource) && (
               <button
                 onClick={() => {
                   playWaterDropSound();
                   onToggleShowAllBoxes();
                 }}
-                aria-label={showAllBoxes ? "Showing all bounding boxes. Click to show anomaly boxes only." : "Showing anomaly bounding boxes only. Click to show all boxes."}
+                aria-label={showAllBoxes ? "Showing all bounding boxes. Click for anomalies only." : "Showing anomaly bounding boxes only. Click for all boxes."}
                 title={showAllBoxes ? "Bounding Boxes: SHOWING ALL (Click for Anomalies Only)" : "Bounding Boxes: ANOMALIES ONLY (Click for All Boxes)"}
-                className={`h-7 sm:h-8 px-2 sm:px-2.5 flex items-center gap-1.5 rounded-xl backdrop-blur-md border text-[10px] sm:text-xs font-bold transition-all shrink-0 shadow-xs cursor-pointer active:scale-95 ${
+                className={`h-7 sm:h-8 px-2.5 sm:px-3 flex items-center gap-1.5 rounded-xl backdrop-blur-md border shadow-xs transition-all cursor-pointer active:scale-95 shrink-0 ${
                   !showAllBoxes
-                    ? 'bg-[var(--status-anomaly-bg)] border-[var(--status-anomaly-border)] text-[var(--status-anomaly-text)] hover:opacity-90'
+                    ? 'bg-red-600 border-red-600 text-white hover:bg-red-700 shadow-sm shadow-red-500/25'
                     : 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
                 }`}
               >
                 {!showAllBoxes ? (
                   <>
-                    <ShieldAlert className="w-3.5 h-3.5 text-[var(--status-anomaly-text)] shrink-0" />
-                    <span className="hidden md:inline">Anomalies Only</span>
+                    <ShieldAlert className="w-4 h-4 text-white shrink-0" />
+                    <span className="text-xs font-bold text-white">Anomalies Only</span>
                   </>
                 ) : (
                   <>
-                    <Layers className="w-3.5 h-3.5 text-[var(--text-primary)] shrink-0" />
-                    <span className="hidden md:inline">All Boxes</span>
+                    <Layers className="w-4 h-4 text-[var(--text-primary)] shrink-0" />
+                    <span className="text-xs font-bold text-[var(--text-primary)]">All Boxes</span>
                   </>
                 )}
               </button>
@@ -175,64 +158,33 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           </>
         )}
 
-        {/* Recording Button (Camera Only) */}
-        {isCameraSource && !isRunning && (
-          <button
-            disabled={hasCameraRecording}
-            onClick={() => {
-              if (hasCameraRecording) return;
-              playWaterDropSound();
-              onToggleRecording();
-            }}
-            title={
-              hasCameraRecording
-                ? 'Cannot record while reviewing a recorded clip. Return to live camera feed first.'
-                : isRecording
-                  ? 'Stop recording'
-                  : isStreaming
-                    ? 'Record live camera stream'
-                    : 'Start camera stream and begin recording'
-            }
-            className={`h-7 sm:h-8 px-2.5 sm:px-3 flex items-center gap-1.5 sm:gap-2 rounded-xl backdrop-blur-md border text-[10px] sm:text-xs font-bold transition-all shrink-0 shadow-xs active:scale-95 ${
-              isRecording
-                ? 'bg-red-500/20 border-red-500/50 text-red-400 animate-pulse cursor-pointer'
-                : hasCameraRecording
-                  ? 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-muted)] opacity-50 cursor-not-allowed'
-                  : 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] cursor-pointer'
-            }`}
-          >
-            <div className={`w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full ${isRecording ? 'bg-red-500' : 'bg-red-500/50'}`} />
-            <span>
-              {isRecording 
-                ? `REC (${Math.floor(recordingDuration / 60)}:${(recordingDuration % 60).toString().padStart(2, '0')})`
-                : 'RECORD'}
-            </span>
-          </button>
-        )}
-
         {/* Fullscreen Button */}
         <button
           onClick={onToggleFullscreen}
           aria-label={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
           title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
-          className="w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center rounded-xl bg-[var(--btn-secondary-bg)] backdrop-blur-md border border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] active:scale-95 shrink-0 shadow-xs cursor-pointer"
+          className="w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center rounded-xl bg-[var(--btn-secondary-bg)] backdrop-blur-md border border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:text-white hover:bg-[var(--btn-secondary-hover)] active:scale-95 shrink-0 shadow-xs cursor-pointer"
         >
           {isFullscreen ? (
-            <Minimize2 className="w-3.5 h-3.5 text-[var(--status-anomaly-text)]" />
+            <Minimize2 className="w-4 h-4 text-[var(--text-primary)] dark:text-white" />
           ) : (
-            <Expand className="w-3.5 h-3.5" />
+            <Expand className="w-4 h-4 text-[var(--text-primary)] dark:text-white" />
           )}
         </button>
 
         {/* Quick HUD Visibility Toggle */}
-        <button
+        {/* <button
           onClick={onToggleHUD}
           aria-label={showHUD ? 'Hide HUD overlay' : 'Show HUD overlay'}
           title={showHUD ? 'Hide HUD overlay' : 'Show HUD overlay'}
-          className="w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center rounded-xl bg-[var(--btn-secondary-bg)] backdrop-blur-md border border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] active:scale-95 shrink-0 shadow-xs cursor-pointer"
+          className="w-7 sm:w-8 h-7 sm:h-8 flex items-center justify-center rounded-xl bg-[var(--btn-secondary-bg)] backdrop-blur-md border border-[var(--btn-secondary-border)] text-[var(--text-primary)] hover:text-white hover:bg-[var(--btn-secondary-hover)] active:scale-95 shrink-0 shadow-xs cursor-pointer"
         >
-          {showHUD ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-[var(--text-muted)]" />}
-        </button>
+          {showHUD ? (
+            <Eye className="w-4 h-4 text-[var(--text-primary)] dark:text-white" />
+          ) : (
+            <EyeOff className="w-4 h-4 text-[var(--text-muted)] dark:text-white/70" />
+          )}
+        </button> */}
       </div>
     </div>
   );

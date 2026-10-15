@@ -32,6 +32,7 @@ class CameraBase(BaseModel):
     roi_enabled: bool = False
     recording_video_path: Optional[str] = None
     recording_video_testing_path: Optional[str] = None
+    recording_format: Optional[str] = "MP4"
 
 
 class CameraCreate(CameraBase):
@@ -64,6 +65,7 @@ class CameraUpdate(BaseModel):
     is_enabled: Optional[bool] = None
     recording_video_path: Optional[str] = None
     recording_video_testing_path: Optional[str] = None
+    recording_format: Optional[str] = None
 
 
 class CameraResponse(CameraBase):
