@@ -402,7 +402,11 @@ if ((Test-Path $NodeModulesDir) -and (Test-Path $DistHtml)) {
         Write-Host "Installing frontend dependencies..."
         & $NpmExecutable install --include=optional
         if ($LASTEXITCODE -ne 0) {
-            throw "npm install failed in $FrontendDir."
+            Write-Host "[WARN] npm install failed (e.g. electron@41 postinstall requires Node >= 22). Retrying with --ignore-scripts for web/dev build..." -ForegroundColor Yellow
+            & $NpmExecutable install --include=optional --ignore-scripts
+            if ($LASTEXITCODE -ne 0) {
+                throw "npm install failed in $FrontendDir."
+            }
         }
 
         Write-Host "Building frontend assets..."

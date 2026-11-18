@@ -81,7 +81,7 @@ if [[ -z "$DUCK_ANALYZER_WHEEL" ]]; then
   echo "The bundled duck_analyzer wheel is missing."
   exit 1
 fi
-python -m pip install "$DUCK_ANALYZER_WHEEL"
+python -m pip install --no-deps --force-reinstall "$DUCK_ANALYZER_WHEEL"
 
 # Check Luxonis OAK camera udev rules on Linux
 if [[ ! -f /etc/udev/rules.d/80-movidius.rules ]]; then

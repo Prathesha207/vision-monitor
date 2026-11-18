@@ -1,17 +1,42 @@
-# ---- duck_analyzer core ----
-# torch: install the CUDA build FIRST (device: 0), e.g.
-#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-torch>=2.1
-ultralytics>=8.3        # YOLO detector, bytetrack tracker, yolo11n.pt bottle model
-lap>=0.5.12             # needed by ultralytics' bytetrack.yaml tracker
-opencv-python>=4.8
-numpy>=1.24
+# ==============================================================================
+# Vision Monitor - Backend & ML Dependencies
+# Only direct runtime, camera, video, ML (duck_analyzer), and packaging
+# dependencies actually used by Vision Monitor.
+# PyTorch and torchvision are managed by setup scripts (setup_windows.ps1 /
+# setup_linux.sh) to install the matching CUDA or CPU wheel.
+# ==============================================================================
+
+# --- Core Web API & Server ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+websockets>=12.0
+pydantic>=2.7.0
+pydantic-settings>=2.2.0
+python-dotenv>=1.0.0
+python-multipart>=0.0.9
+aiofiles>=23.2.1
+requests>=2.31.0
+httpx>=0.27.0
+
+# --- Database & Migrations ---
+SQLAlchemy>=2.0.0
+alembic>=1.13.0
+
+# --- Camera Hardware & Video Processing ---
+depthai>=3.5.0
+av>=14.0.0
+opencv-python>=4.8.0
+numpy>=1.26.0
+imageio-ffmpeg>=0.6.0
+Pillow>=10.0.0
+
+# --- ML Inference (duck_analyzer core) ---
+ultralytics>=8.3.0
+mediapipe>=0.10.14
+scipy>=1.10.0
 PyYAML>=6.0
-mediapipe>=0.10         # hand_backend: mediapipe (code handles legacy + Tasks API)
+lap>=0.5.12
+psutil>=5.9.0
 
-# ---- optional but recommended ----
-scipy>=1.10             # fast Hungarian matching; code falls back to its own solver without it
-
-# ---- only if use_embedder: true (DeepEmbedder in embedder.py) ----
-# torchvision>=0.16     # resnet backend
-# transformers>=4.40    # siglip backend
+# --- Desktop Packaging ---
+pyinstaller>=6.5.0
