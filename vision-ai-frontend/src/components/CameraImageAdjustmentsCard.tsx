@@ -1,41 +1,78 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { SlidersHorizontal, RotateCcw, Focus, Sun, Zap, CheckCircle2 } from 'lucide-react';
+import { SlidersHorizontal, RotateCcw, Focus, Sun, Zap, CheckCircle2, Save, Lock, Check, Loader2 } from 'lucide-react';
 import { CameraConfig } from '../types';
 import { cameraService } from './service/cameraService';
+import { useInferenceStore } from '../store/inferenceStore';
 
 interface CameraImageAdjustmentsCardProps {
   cameraId?: number | string | null;
   config?: CameraConfig;
   onUpdateConfig?: (newConfig: Partial<CameraConfig>) => void;
   isLive?: boolean;
+  isRecording?: boolean;
+  onShowToast?: (type: 'error' | 'success' | 'info', message: string) => void;
+}
+
+function normalizeExposureMs(val: unknown, fallback: number = 16): number {
+  if (typeof val !== 'number' || !Number.isFinite(val) || val <= 0) return fallback;
+  const ms = val > 1000 ? Math.round(val / 1000) : Math.round(val);
+  return Math.max(1, Math.min(33, ms));
 }
 
 export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProps> = ({
   cameraId,
   config,
   onUpdateConfig,
-  isLive = true,
+  isRecording = false,
+  onShowToast,
 }) => {
+  const storeIsRecording = useInferenceStore((state) => state.isRecording);
+  const controlsLocked = Boolean(isRecording || storeIsRecording);
+
   // Mode: 'auto' (default streaming, no hunting, sliders hidden) vs 'manual' (sliders visible)
   const [mode, setMode] = useState<'auto' | 'manual'>(config?.controlMode === 'manual' ? 'manual' : 'auto');
 
-  const [exposure, setExposure] = useState<number>(config?.exposure ?? 16);
+  const [exposure, setExposure] = useState<number>(() => normalizeExposureMs(config?.exposure, 16));
   const [gain, setGain] = useState<number>(config?.gain ?? 400);
   const [focus, setFocus] = useState<number>(config?.focus ?? 120);
   const [brightness, setBrightness] = useState<number>(config?.brightness ?? 0);
   const [contrast, setContrast] = useState<number>(config?.contrast ?? 50);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'adjusting'>('synced');
+  const [isSavingToDb, setIsSavingToDb] = useState<boolean>(false);
+  const [justSaved, setJustSaved] = useState<boolean>(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
 
   // Network queuing & pacing refs for ultra-smooth responsiveness
   const inFlightRef = useRef(false);
   const pendingUpdateRef = useRef<any>(null);
   const throttleTimerRef = useRef<any>(null);
+  const savedBannerTimerRef = useRef<any>(null);
   const lastSentTimeRef = useRef<number>(0);
+  const controlsLockedRef = useRef<boolean>(controlsLocked);
+  controlsLockedRef.current = controlsLocked;
+
+  // Cancel any queued slider dispatch as soon as recording starts
+  useEffect(() => {
+    if (controlsLocked) {
+      pendingUpdateRef.current = null;
+      if (throttleTimerRef.current) {
+        clearTimeout(throttleTimerRef.current);
+        throttleTimerRef.current = null;
+      }
+    }
+  }, [controlsLocked]);
+
+  useEffect(() => {
+    return () => {
+      if (throttleTimerRef.current) clearTimeout(throttleTimerRef.current);
+      if (savedBannerTimerRef.current) clearTimeout(savedBannerTimerRef.current);
+    };
+  }, []);
 
   // Sync internal state when external config loads or changes
   useEffect(() => {
     if (config) {
-      if (typeof config.exposure === 'number') setExposure(config.exposure);
+      if (typeof config.exposure === 'number') setExposure(normalizeExposureMs(config.exposure, 16));
       if (typeof config.gain === 'number') setGain(config.gain);
       if (typeof config.focus === 'number') setFocus(config.focus);
       if (typeof config.brightness === 'number') setBrightness(config.brightness);
@@ -46,6 +83,10 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
 
   // Actual network dispatch with in-flight queuing
   const dispatchToBackend = useCallback(async (payload: any) => {
+    if (controlsLockedRef.current) {
+      pendingUpdateRef.current = null;
+      return;
+    }
     if (inFlightRef.current) {
       pendingUpdateRef.current = payload;
       return;
@@ -57,21 +98,28 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
     try {
       await cameraService.updateLiveControls(cameraId || config?.id, payload);
       setSyncStatus('synced');
-    } catch (err) {
-      console.warn('[CameraImageAdjustments] Control send error:', err);
+    } catch (err: any) {
+      if (err?.response?.status === 409) {
+        onShowToast?.('info', 'Camera controls are locked while recording is active');
+      } else {
+        console.warn('[CameraImageAdjustments] Control send error:', err);
+      }
       setSyncStatus('synced');
     } finally {
       inFlightRef.current = false;
-      if (pendingUpdateRef.current) {
+      if (pendingUpdateRef.current && !controlsLockedRef.current) {
         const next = pendingUpdateRef.current;
         pendingUpdateRef.current = null;
         dispatchToBackend(next);
+      } else {
+        pendingUpdateRef.current = null;
       }
     }
-  }, [cameraId, config?.id]);
+  }, [cameraId, config?.id, onShowToast]);
 
   // Throttled schedule: immediate on first event, paced at ~40ms while dragging, guaranteed trailing
   const scheduleDispatch = useCallback((payload: any) => {
+    if (controlsLockedRef.current) return;
     const now = Date.now();
     const elapsed = now - lastSentTimeRef.current;
     const THROTTLE_MS = 40;
@@ -87,7 +135,7 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
       if (!throttleTimerRef.current) {
         throttleTimerRef.current = setTimeout(() => {
           throttleTimerRef.current = null;
-          if (pendingUpdateRef.current) {
+          if (pendingUpdateRef.current && !controlsLockedRef.current) {
             const next = pendingUpdateRef.current;
             pendingUpdateRef.current = null;
             dispatchToBackend(next);
@@ -99,7 +147,10 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
 
   // Handler: Switch between Auto (Standard Stream) and Manual Modes
   const handleSwitchMode = async (newMode: 'auto' | 'manual') => {
+    if (controlsLocked) return;
     setMode(newMode);
+    setHasUnsavedChanges(true);
+    setJustSaved(false);
     onUpdateConfig?.({ controlMode: newMode });
 
     if (newMode === 'auto') {
@@ -134,6 +185,7 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
       } catch {
         scheduleDispatch({
           reset: true,
+          control_mode: 'auto',
           exposure: defaultExp,
           gain: defaultGain,
           focus: defaultFocus,
@@ -143,14 +195,30 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
           auto_focus: false,
         });
       }
+    } else {
+      // Immediately apply current manual slider values to hardware
+      scheduleDispatch({
+        control_mode: 'manual',
+        exposure,
+        gain,
+        focus,
+        brightness,
+        contrast,
+        auto_exposure: false,
+        auto_focus: false,
+      });
     }
   };
 
   // Handler: Change Exposure
   const handleExposureChange = (newExp: number) => {
+    if (controlsLocked) return;
     setExposure(newExp);
+    setHasUnsavedChanges(true);
+    setJustSaved(false);
     onUpdateConfig?.({ exposure: newExp, controlMode: 'manual' });
     scheduleDispatch({
+      control_mode: 'manual',
       exposure: newExp,
       gain,
       focus,
@@ -163,9 +231,13 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
 
   // Handler: Change Gain (Sensor ISO)
   const handleGainChange = (newGain: number) => {
+    if (controlsLocked) return;
     setGain(newGain);
-    onUpdateConfig?.({ gain: newGain, controlMode: 'manual' });
+    setHasUnsavedChanges(true);
+    setJustSaved(false);
+    onUpdateConfig?.({ gain: newGain, iso: newGain, controlMode: 'manual' });
     scheduleDispatch({
+      control_mode: 'manual',
       exposure,
       gain: newGain,
       focus,
@@ -178,9 +250,13 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
 
   // Handler: Change Focus (Lens Position)
   const handleFocusChange = (newFocus: number) => {
+    if (controlsLocked) return;
     setFocus(newFocus);
+    setHasUnsavedChanges(true);
+    setJustSaved(false);
     onUpdateConfig?.({ focus: newFocus, controlMode: 'manual' });
     scheduleDispatch({
+      control_mode: 'manual',
       exposure,
       gain,
       focus: newFocus,
@@ -193,9 +269,13 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
 
   // Handler: Change Brightness
   const handleBrightnessChange = (newB: number) => {
+    if (controlsLocked) return;
     setBrightness(newB);
+    setHasUnsavedChanges(true);
+    setJustSaved(false);
     onUpdateConfig?.({ brightness: newB, controlMode: 'manual' });
     scheduleDispatch({
+      control_mode: 'manual',
       exposure,
       gain,
       focus,
@@ -208,9 +288,13 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
 
   // Handler: Change Contrast
   const handleContrastChange = (newC: number) => {
+    if (controlsLocked) return;
     setContrast(newC);
+    setHasUnsavedChanges(true);
+    setJustSaved(false);
     onUpdateConfig?.({ contrast: newC, controlMode: 'manual' });
     scheduleDispatch({
+      control_mode: 'manual',
       exposure,
       gain,
       focus,
@@ -221,8 +305,59 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
     });
   };
 
+  // Handler: Save current camera controls to SQLite DB
+  const handleSaveToDb = async () => {
+    if (controlsLocked || isSavingToDb) return;
+    setIsSavingToDb(true);
+    try {
+      const numericId = typeof (cameraId ?? config?.id) === 'number'
+        ? Number(cameraId ?? config?.id)
+        : (typeof (cameraId ?? config?.id) === 'string' && !Number.isNaN(Number(cameraId ?? config?.id))
+          ? Number(cameraId ?? config?.id)
+          : undefined);
+
+      const res = await cameraService.saveCameraControls({
+        camera_id: numericId,
+        control_mode: mode,
+        exposure: mode === 'auto' ? 16 : exposure,
+        gain: mode === 'auto' ? 400 : gain,
+        focus: mode === 'auto' ? 120 : focus,
+        brightness: mode === 'auto' ? 0 : brightness,
+        contrast: mode === 'auto' ? 50 : contrast,
+        auto_exposure: false,
+        auto_focus: false,
+      });
+
+      const saved = res?.settings;
+      onUpdateConfig?.({
+        id: res?.camera_id ?? config?.id,
+        controlMode: (saved?.control_mode as 'auto' | 'manual') ?? mode,
+        exposure: normalizeExposureMs(saved?.exposure, mode === 'auto' ? 16 : exposure),
+        gain: typeof saved?.gain === 'number' ? saved.gain : (mode === 'auto' ? 400 : gain),
+        iso: typeof saved?.gain === 'number' ? saved.gain : (mode === 'auto' ? 400 : gain),
+        focus: typeof saved?.focus === 'number' ? saved.focus : (mode === 'auto' ? 120 : focus),
+        brightness: typeof saved?.brightness === 'number' ? saved.brightness : (mode === 'auto' ? 0 : brightness),
+        contrast: typeof saved?.contrast === 'number' ? saved.contrast : (mode === 'auto' ? 50 : contrast),
+        autoExposure: false,
+        autoFocus: false,
+      });
+
+      setHasUnsavedChanges(false);
+      setJustSaved(true);
+      if (savedBannerTimerRef.current) clearTimeout(savedBannerTimerRef.current);
+      savedBannerTimerRef.current = setTimeout(() => setJustSaved(false), 2500);
+      onShowToast?.('success', 'Camera settings saved to database');
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.response?.data?.message || err?.message || 'Failed to save camera settings';
+      onShowToast?.('error', msg);
+    } finally {
+      setIsSavingToDb(false);
+    }
+  };
+
   // Reset to Calibrated Default Values
   const handleResetDefaults = async () => {
+    if (controlsLocked) return;
     const defaultExp = 16;
     const defaultGain = 400;
     const defaultFocus = 120;
@@ -234,10 +369,13 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
     setFocus(defaultFocus);
     setBrightness(defaultB);
     setContrast(defaultC);
+    setHasUnsavedChanges(true);
+    setJustSaved(false);
 
     onUpdateConfig?.({
       exposure: defaultExp,
       gain: defaultGain,
+      iso: defaultGain,
       focus: defaultFocus,
       brightness: defaultB,
       contrast: defaultC,
@@ -273,7 +411,7 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
 
   return (
     <div className="p-3 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] shadow-md flex flex-col w-full shrink-0 overflow-hidden transition-all duration-200">
-      {/* 1. Header & Live Sync Status */}
+      {/* 1. Header & Live Sync / Lock Status */}
       <div className="flex items-center justify-between pb-2.5 border-b border-[var(--border-color)]">
         <div className="flex items-center gap-2">
           <SlidersHorizontal className="w-4 h-4 text-[var(--accent-pond)]" />
@@ -283,26 +421,39 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
         </div>
 
         <div className="flex items-center gap-1.5">
-          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-mono font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--border-color)]">
-            {syncStatus === 'adjusting' ? (
-              <>
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                APPLYING
-              </>
-            ) : (
-              <>
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                LIVE SYNC
-              </>
-            )}
-          </span>
+          {controlsLocked ? (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-mono font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+              <Lock className="w-2.5 h-2.5" />
+              LOCKED • REC
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-mono font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--border-color)]">
+              {isSavingToDb ? (
+                <>
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                  SAVING
+                </>
+              ) : syncStatus === 'adjusting' ? (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  APPLYING
+                </>
+              ) : (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  LIVE SYNC
+                </>
+              )}
+            </span>
+          )}
 
           {mode === 'manual' && (
             <button
               type="button"
+              disabled={controlsLocked}
               onClick={handleResetDefaults}
-              title="Reset sliders to default calibration"
-              className="p-1 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] transition-colors cursor-pointer"
+              title={controlsLocked ? 'Locked while recording' : 'Reset sliders to default calibration'}
+              className="p-1 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <RotateCcw className="w-3.5 h-3.5" />
             </button>
@@ -310,16 +461,27 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
         </div>
       </div>
 
+      {/* Recording Lock Notice */}
+      {controlsLocked && (
+        <div className="mt-2.5 px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center gap-2 text-[11px] text-amber-700 dark:text-amber-300">
+          <Lock className="w-3.5 h-3.5 shrink-0" />
+          <span className="leading-snug font-medium">
+            Controls locked during recording so camera settings stay fixed.
+          </span>
+        </div>
+      )}
+
       {/* 2. Mode Selector: Auto (Standard Stream) vs Manual */}
-      <div className="grid grid-cols-2 p-1 bg-[var(--bg-card-subtle)] rounded-xl border border-[var(--border-color)] mt-2.5 gap-1 items-center">
+      <div className={`grid grid-cols-2 p-1 bg-[var(--bg-card-subtle)] rounded-xl border border-[var(--border-color)] mt-2.5 gap-1 items-center ${controlsLocked ? 'opacity-60' : ''}`}>
         <button
           type="button"
+          disabled={controlsLocked}
           onClick={() => handleSwitchMode('auto')}
-          title="Default steady stream: autofocus and autoexposure hunting are disabled for stable inspection"
-          className={`w-full py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer select-none ${
+          title={controlsLocked ? 'Locked while recording' : 'Default steady stream: autofocus and autoexposure hunting are disabled for stable inspection'}
+          className={`w-full py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 select-none disabled:cursor-not-allowed ${
             mode === 'auto'
               ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs'
-              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
+              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] cursor-pointer'
           }`}
         >
           <Zap className="w-3.5 h-3.5 shrink-0" />
@@ -328,12 +490,13 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
 
         <button
           type="button"
+          disabled={controlsLocked}
           onClick={() => handleSwitchMode('manual')}
-          title="Open manual sliders to adjust focus, shutter speed, and sensor gain"
-          className={`w-full py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer select-none ${
+          title={controlsLocked ? 'Locked while recording' : 'Open manual sliders to adjust focus, shutter speed, and sensor gain'}
+          className={`w-full py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 select-none disabled:cursor-not-allowed ${
             mode === 'manual'
               ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs'
-              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
+              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] cursor-pointer'
           }`}
         >
           <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
@@ -343,24 +506,54 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
 
       {/* 3. Conditional Content: Auto (Default Stream) vs Manual Sliders */}
       {mode === 'auto' ? (
-        /* AUTO MODE: Sliders are hidden. Clean, steady stream status card */
-        <div className="mt-3 p-3 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] flex items-start gap-2.5 transition-all">
-          <CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
-          <div className="flex flex-col gap-1 text-left">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs font-bold text-[var(--text-primary)]">Steady Stream Active</span>
-              <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-                LOCKED
-              </span>
+        /* AUTO MODE: Sliders are hidden. Clean, steady stream status card + Save option */
+        <div className="mt-3 flex flex-col gap-2.5">
+          <div className="p-3 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] flex items-start gap-2.5 transition-all">
+            <CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
+            <div className="flex flex-col gap-1 text-left">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-[var(--text-primary)]">Steady Stream Active</span>
+                <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                  LOCKED
+                </span>
+              </div>
+              <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
+                Focus &amp; exposure are calibrated to factory standard. Continuous autofocus hunting and exposure flicker are disabled so moving tubes won&apos;t cause blur.
+              </p>
             </div>
-            <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-              Focus &amp; exposure are calibrated to factory standard. Continuous autofocus hunting and exposure flicker are disabled so moving tubes won&apos;t cause blur.
-            </p>
           </div>
+
+          <button
+            type="button"
+            disabled={controlsLocked || isSavingToDb}
+            onClick={handleSaveToDb}
+            className={`w-full h-8 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+              justSaved
+                ? 'bg-emerald-600 text-white'
+                : 'bg-[var(--btn-primary-bg)] hover:opacity-95 text-[var(--btn-primary-text)]'
+            }`}
+          >
+            {isSavingToDb ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Saving to Database...
+              </>
+            ) : justSaved ? (
+              <>
+                <Check className="w-3.5 h-3.5" />
+                Saved to Database
+              </>
+            ) : (
+              <>
+                <Save className="w-3.5 h-3.5" />
+                Save Auto Settings{hasUnsavedChanges ? ' *' : ''}
+              </>
+            )}
+          </button>
         </div>
       ) : (
         /* MANUAL MODE: Sliders are revealed for fine-tuning */
-        <div className="pt-3 flex flex-col gap-3 transition-all animate-fadeIn">
+        <div className={`pt-3 flex flex-col gap-3 transition-all animate-fadeIn ${controlsLocked ? 'opacity-65' : ''}`}>
           {/* --- 1. SENSOR GAIN (ISO) --- */}
           <div className="flex flex-col gap-1.5 p-2.5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
             <div className="flex items-center justify-between">
@@ -378,9 +571,10 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
               max={1600}
               step={10}
               value={gain}
+              disabled={controlsLocked}
               onChange={(e) => handleGainChange(parseInt(e.target.value, 10))}
               style={getSliderStyle(gain, 100, 1600)}
-              className="w-full h-1.5 rounded cursor-pointer transition-all"
+              className="w-full h-1.5 rounded cursor-pointer transition-all disabled:cursor-not-allowed"
             />
             <div className="flex justify-between text-[9px] text-[var(--text-muted)] font-mono">
               <span>100 (Clean)</span>
@@ -406,9 +600,10 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
               max={255}
               step={1}
               value={focus}
+              disabled={controlsLocked}
               onChange={(e) => handleFocusChange(parseInt(e.target.value, 10))}
               style={getSliderStyle(focus, 0, 255)}
-              className="w-full h-1.5 rounded cursor-pointer transition-all"
+              className="w-full h-1.5 rounded cursor-pointer transition-all disabled:cursor-not-allowed"
             />
             <div className="flex justify-between text-[9px] text-[var(--text-muted)] font-mono">
               <span>0 (Far)</span>
@@ -434,9 +629,10 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
               max={33}
               step={1}
               value={exposure}
+              disabled={controlsLocked}
               onChange={(e) => handleExposureChange(parseInt(e.target.value, 10))}
               style={getSliderStyle(exposure, 1, 33)}
-              className="w-full h-1.5 rounded cursor-pointer transition-all"
+              className="w-full h-1.5 rounded cursor-pointer transition-all disabled:cursor-not-allowed"
             />
             <div className="flex justify-between text-[9px] text-[var(--text-muted)] font-mono">
               <span>1 ms (Fast / Low Blur)</span>
@@ -459,9 +655,10 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
                 min={-50}
                 max={50}
                 value={brightness}
+                disabled={controlsLocked}
                 onChange={(e) => handleBrightnessChange(parseInt(e.target.value, 10))}
                 style={getSliderStyle(brightness, -50, 50)}
-                className="w-full h-1.5 rounded cursor-pointer transition-all"
+                className="w-full h-1.5 rounded cursor-pointer transition-all disabled:cursor-not-allowed"
               />
             </div>
 
@@ -477,19 +674,49 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
                 min={0}
                 max={100}
                 value={contrast}
+                disabled={controlsLocked}
                 onChange={(e) => handleContrastChange(parseInt(e.target.value, 10))}
                 style={getSliderStyle(contrast, 0, 100)}
-                className="w-full h-1.5 rounded cursor-pointer transition-all"
+                className="w-full h-1.5 rounded cursor-pointer transition-all disabled:cursor-not-allowed"
               />
             </div>
           </div>
 
-          {/* --- 5. Reset Action --- */}
-          <div className="pt-2 flex items-center gap-2 border-t border-[var(--border-color)]">
+          {/* --- 5. Save & Reset Actions --- */}
+          <div className="pt-2 flex flex-col gap-2 border-t border-[var(--border-color)]">
             <button
               type="button"
+              disabled={controlsLocked || isSavingToDb}
+              onClick={handleSaveToDb}
+              className={`w-full h-8 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                justSaved
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-[var(--btn-primary-bg)] hover:opacity-95 text-[var(--btn-primary-text)]'
+              }`}
+            >
+              {isSavingToDb ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Saving to Database...
+                </>
+              ) : justSaved ? (
+                <>
+                  <Check className="w-3.5 h-3.5" />
+                  Saved to Database
+                </>
+              ) : (
+                <>
+                  <Save className="w-3.5 h-3.5" />
+                  Save Camera Settings{hasUnsavedChanges ? ' *' : ''}
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              disabled={controlsLocked}
               onClick={handleResetDefaults}
-              className="flex-1 h-7 rounded-xl border border-[var(--border-color)] hover:bg-[var(--btn-secondary-hover)] text-[var(--text-secondary)] text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              className="w-full h-7 rounded-xl border border-[var(--border-color)] hover:bg-[var(--btn-secondary-hover)] text-[var(--text-secondary)] text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               Reset Default Calibration

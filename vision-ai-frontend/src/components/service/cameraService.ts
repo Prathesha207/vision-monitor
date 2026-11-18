@@ -98,20 +98,42 @@ export const cameraService = {
     try {
       const res = await api.post("/oak/controls", data);
       return res.data;
-    } catch {
+    } catch (err: any) {
+      if (err?.response?.status === 409) {
+        throw err;
+      }
       if (id) {
         const res = await api.patch(`/camera/live-controls/${id}`, data);
         return res.data;
       }
+      throw err;
     }
+  },
+
+  async saveCameraControls(data: {
+    camera_id?: number;
+    control_mode?: 'auto' | 'manual';
+    exposure?: number;
+    gain?: number;
+    focus?: number;
+    brightness?: number;
+    contrast?: number;
+    auto_exposure?: boolean;
+    auto_focus?: boolean;
+  }) {
+    const res = await api.post("/oak/controls/save", data);
+    return res.data;
   },
 
   async resetCameraControls() {
     try {
       const res = await api.post("/oak/controls/reset");
       return res.data;
-    } catch {
-      const res = await api.post("/oak/controls", { reset: true, auto_exposure: true, auto_focus: true, brightness: 0, contrast: 50 });
+    } catch (err: any) {
+      if (err?.response?.status === 409) {
+        throw err;
+      }
+      const res = await api.post("/oak/controls", { reset: true, auto_exposure: false, auto_focus: false, brightness: 0, contrast: 50 });
       return res.data;
     }
   },

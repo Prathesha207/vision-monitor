@@ -74,16 +74,31 @@ def update_camera_partial(db: Session, camera_id: int, data: CameraUpdate):
 
         update_data = data.model_dump(exclude_unset=True)
 
+        # Prevent camera control modifications while a recording is active
+        control_keys = {
+            "control_mode", "exposure", "gain", "focus",
+            "brightness", "contrast", "auto_exposure", "auto_focus",
+        }
+        if any(k in update_data for k in control_keys):
+            from app.services.oak_camera_service import oak_camera_service
+            if oak_camera_service.is_recording_active():
+                raise HTTPException(
+                    status_code=409,
+                    detail="Camera controls are locked while recording is active",
+                )
+
         for key, value in update_data.items():
             setattr(camera, key, value)
 
         # Apply control mode AFTER update
         if camera.control_mode == "auto":
-            camera.exposure = None
-            camera.gain = None
-            camera.focus = None
-            camera.auto_exposure = True
-            camera.auto_focus = True
+            camera.exposure = 16.0
+            camera.gain = 400.0
+            camera.focus = 120
+            camera.brightness = 0
+            camera.contrast = 50
+            camera.auto_exposure = False
+            camera.auto_focus = False
         elif camera.control_mode == "manual":
             camera.auto_exposure = False
             camera.auto_focus = False
@@ -100,16 +115,20 @@ def update_camera_partial(db: Session, camera_id: int, data: CameraUpdate):
         # Sync runtime controls to physical OAK camera if pipeline is currently active
         try:
             from app.services.oak_camera_service import oak_camera_service
-            if oak_camera_service.is_running:
-                oak_camera_service.update_controls(
-                    exposure=camera.exposure,
-                    gain=camera.gain,
-                    focus=camera.focus,
-                    brightness=camera.brightness,
-                    contrast=camera.contrast,
-                    auto_focus=camera.auto_focus,
-                    auto_exposure=camera.auto_exposure,
-                )
+            if oak_camera_service.is_running and not oak_camera_service.is_recording_active():
+                if camera.control_mode == "auto":
+                    oak_camera_service.reset_controls()
+                else:
+                    oak_camera_service.update_controls(
+                        exposure=camera.exposure,
+                        gain=camera.gain,
+                        focus=camera.focus,
+                        brightness=camera.brightness,
+                        contrast=camera.contrast,
+                        auto_focus=camera.auto_focus,
+                        auto_exposure=camera.auto_exposure,
+                        control_mode=camera.control_mode,
+                    )
         except Exception as sync_err:
             logger.debug(f"[UPDATE_CAMERA] Dynamic control sync skipped: {sync_err}")
 

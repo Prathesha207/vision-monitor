@@ -320,8 +320,10 @@ async def get_available_devices():
 # ==================== Camera Controls ====================
 
 class CameraControlsRequest(BaseModel):
-    exposure: Optional[int] = None
-    gain: Optional[int] = None
+    camera_id: Optional[int] = None
+    control_mode: Optional[str] = None
+    exposure: Optional[float] = None
+    gain: Optional[float] = None
     focus: Optional[int] = None
     brightness: Optional[int] = None
     contrast: Optional[int] = None
@@ -330,35 +332,98 @@ class CameraControlsRequest(BaseModel):
     auto_exposure: Optional[bool] = None
     autoExposure: Optional[bool] = None
     reset: Optional[bool] = None
+    save_to_db: Optional[bool] = None
+
+
+@router.post("/controls/save")
+def save_camera_controls(body: Optional[CameraControlsRequest] = Body(default=None)):
+    """Save current (or explicitly provided) camera control settings to SQLite DB.
+    Blocked while recording is active so settings cannot vary mid-recording.
+    """
+    if oak_camera_service.is_recording_active():
+        raise HTTPException(
+            status_code=409,
+            detail="Camera controls are locked while recording is active",
+        )
+    try:
+        af = None
+        ae = None
+        if body is not None:
+            af = body.auto_focus if body.auto_focus is not None else body.autoFocus
+            ae = body.auto_exposure if body.auto_exposure is not None else body.autoExposure
+
+        result = oak_camera_service.save_current_controls_to_db(
+            camera_id=body.camera_id if body else None,
+            control_mode=body.control_mode if body else None,
+            exposure=body.exposure if body else None,
+            gain=body.gain if body else None,
+            focus=body.focus if body else None,
+            brightness=body.brightness if body else None,
+            contrast=body.contrast if body else None,
+            auto_exposure=ae,
+            auto_focus=af,
+        )
+        if result.get("locked"):
+            raise HTTPException(status_code=409, detail=result.get("message", "Locked while recording"))
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message", "Failed to save controls"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[API ERROR] POST /oak/controls/save: {e}", exc_info=True)
+        realtime_log_service.add_log("camera", "CRASH", f"Save camera controls failed: {e}", "error")
+        raise HTTPException(status_code=500, detail=f"Failed to save controls: {e}")
+
 
 @router.post("/controls/reset")
 def reset_camera_controls():
-    """Real Camera Hardware Reset — restores full 3A (Auto Exposure, Auto Focus, Auto White Balance)
-    and removes all manual shutter/gain/focus overrides, matching fresh boot state.
+    """Real Camera Hardware Reset — restores calibrated steady stream defaults.
+    Blocked while recording is active.
     """
+    if oak_camera_service.is_recording_active():
+        raise HTTPException(
+            status_code=409,
+            detail="Camera controls are locked while recording is active",
+        )
     try:
-        return oak_camera_service.reset_controls()
+        result = oak_camera_service.reset_controls()
+        if result.get("locked"):
+            raise HTTPException(status_code=409, detail=result.get("message", "Locked while recording"))
+        return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[API ERROR] POST /oak/controls/reset: {e}", exc_info=True)
         realtime_log_service.add_log("camera", "CRASH", f"Camera controls reset failed: {e}", "error")
         raise HTTPException(status_code=500, detail=f"Failed to reset controls: {e}")
 
+
 @router.post("/controls")
 def update_controls(
     body: Optional[CameraControlsRequest] = Body(default=None),
-    exposure: int | None = None,
-    gain: int | None = None,
+    exposure: float | None = None,
+    gain: float | None = None,
     focus: int | None = None,
     brightness: int | None = None,
     contrast: int | None = None,
     auto_focus: bool | None = None,
     auto_exposure: bool | None = None,
     reset: bool | None = None,
+    control_mode: str | None = None,
 ):
+    if oak_camera_service.is_recording_active():
+        raise HTTPException(
+            status_code=409,
+            detail="Camera controls are locked while recording is active",
+        )
     try:
         is_reset = (body.reset if body and body.reset is not None else reset)
         if is_reset:
-            return oak_camera_service.reset_controls()
+            result = oak_camera_service.reset_controls()
+            if result.get("locked"):
+                raise HTTPException(status_code=409, detail=result.get("message", "Locked while recording"))
+            return result
 
         exp = body.exposure if body and body.exposure is not None else exposure
         g = body.gain if body and body.gain is not None else gain
@@ -367,8 +432,25 @@ def update_controls(
         c = body.contrast if body and body.contrast is not None else contrast
         af = (body.auto_focus if body and body.auto_focus is not None else (body.autoFocus if body and body.autoFocus is not None else auto_focus))
         ae = (body.auto_exposure if body and body.auto_exposure is not None else (body.autoExposure if body and body.autoExposure is not None else auto_exposure))
+        mode = body.control_mode if body and body.control_mode is not None else control_mode
 
-        oak_camera_service.update_controls(
+        if body and body.save_to_db:
+            result = oak_camera_service.save_current_controls_to_db(
+                camera_id=body.camera_id,
+                control_mode=mode,
+                exposure=exp,
+                gain=g,
+                focus=f,
+                brightness=b,
+                contrast=c,
+                auto_exposure=ae,
+                auto_focus=af,
+            )
+            if result.get("locked"):
+                raise HTTPException(status_code=409, detail=result.get("message", "Locked while recording"))
+            return result
+
+        result = oak_camera_service.update_controls(
             exposure=exp,
             gain=g,
             focus=f,
@@ -377,8 +459,11 @@ def update_controls(
             auto_focus=af,
             auto_exposure=ae,
             reset=is_reset,
+            control_mode=mode,
         )
-        return {"status": "ok"}
+        if result.get("locked"):
+            raise HTTPException(status_code=409, detail=result.get("message", "Locked while recording"))
+        return result
     except HTTPException:
         raise
     except Exception as e:

@@ -19,7 +19,7 @@ class CameraBase(BaseModel):
     gain: Optional[float] = Field(default=None, ge=0)
     focus: Optional[int] = Field(default=None, ge=0)
 
-    brightness: Optional[int] = Field(default=None, ge=0, le=100)
+    brightness: Optional[int] = Field(default=None, ge=-50, le=100)
     contrast: Optional[int] = Field(default=None, ge=0, le=100)
 
     # Auto Toggles
@@ -52,7 +52,7 @@ class CameraUpdate(BaseModel):
     gain: Optional[float] = Field(default=None, ge=0)
     focus: Optional[int] = Field(default=None, ge=0)
 
-    brightness: Optional[int] = Field(default=None, ge=0, le=100)
+    brightness: Optional[int] = Field(default=None, ge=-50, le=100)
     contrast: Optional[int] = Field(default=None, ge=0, le=100)
 
     auto_exposure: Optional[bool] = None

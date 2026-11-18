@@ -202,6 +202,11 @@ export default function App() {
 
       const startRes = await cameraService.start();
       if (startRes?.status === 'error') throw new Error(startRes.message || 'Camera start failed');
+      if (startRes?.camera_settings) {
+        camera.applyBackendCameraSettings(startRes.camera_settings, startRes.camera_id);
+      } else {
+        await camera.refreshCameraConfig(true);
+      }
 
       const streamRes = await cameraService.startStream();
       if (streamRes?.status === 'error') throw new Error(streamRes.message || 'Stream start failed');
@@ -915,6 +920,8 @@ export default function App() {
             onUpdateCameraConfig={(patch) => {
               camera.setCameraConfig((prev) => ({ ...prev, ...patch }));
             }}
+            isRecording={recording.isRecording || recording.isSaving}
+            onShowToast={showToast}
           />
         </div>
       </div>

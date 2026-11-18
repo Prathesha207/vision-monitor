@@ -89,17 +89,18 @@ class OakCameraService:
         self._pipeline_height: int = 1080
 
         # ---- Camera settings ----
+        self._active_camera_id: int | None = None
         self.control_mode: str = "auto"
         self.current_brightness: int = 0
         self.current_contrast: int = 50
         self.current_fps: float = 0.0
         self._configured_fps: int = 30
-        self._ae_limit_us: int | None = None  # None = manual mode
-        self.current_exposure_us: int = 10000  # Default 10ms manual shutter
-        self.current_gain: int = 100          # Default ISO 100 manual gain
-        self.current_focus: int = 120         # Default lens position (0-255)
-        self.auto_exposure_enabled: bool = True
-        self.auto_focus_enabled: bool = True
+        self._ae_limit_us: int | None = None  # None = manual/steady mode
+        self.current_exposure_us: int = 16000  # Default 16ms steady shutter
+        self.current_gain: int = 400           # Default ISO 400 steady gain
+        self.current_focus: int = 120          # Default lens position (0-255)
+        self.auto_exposure_enabled: bool = False
+        self.auto_focus_enabled: bool = False
 
         # ---- Recording ----
         self._active_recording: Any = None  # RecordingSession instance when active
@@ -285,6 +286,7 @@ class OakCameraService:
             logger.info(f"[PIPELINE] {width}x{height} @ {fps}fps")
 
             # --- Control mode ---
+            self._active_camera_id = getattr(config, "id", None)
             control_mode = (config.control_mode or "auto").lower()
             self.control_mode = control_mode
 
@@ -332,28 +334,56 @@ class OakCameraService:
                 # Keep autofocus OFF and lock to calibrated standard focus (120) and standard exposure (16ms, 400 ISO)
                 # so the image remains perfectly steady and never hunts or flickers when objects move.
                 self._ae_limit_us = None
+                self.current_exposure_us = 16000
+                self.current_gain = 400
+                self.current_focus = 120
+                self.current_brightness = 0
+                self.current_contrast = 50
+                self.auto_exposure_enabled = False
+                self.auto_focus_enabled = False
                 init_ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
-                init_ctrl.setManualFocus(120)
-                init_ctrl.setManualExposure(16000, 400)
+                init_ctrl.setManualFocus(self.current_focus)
+                init_ctrl.setManualExposure(self.current_exposure_us, self.current_gain)
+                init_ctrl.setBrightness(0)
+                init_ctrl.setContrast(0)
                 logger.info("[PIPELINE] Auto mode: calibrated steady stream (Focus=120, Exp=16ms, Gain=400 ISO, continuous AF hunting disabled)")
             else:
                 self._ae_limit_us = None
+                raw_exp = config.exposure if config.exposure is not None else 16
+                raw_gain = config.gain if config.gain is not None else 400
+                raw_focus = config.focus if config.focus is not None else 120
+                raw_brightness = config.brightness if config.brightness is not None else 0
+                raw_contrast = config.contrast if config.contrast is not None else 50
                 try:
-                    exposure = int(config.exposure)
-                    gain = int(config.gain)
-                    focus = int(config.focus)
+                    exposure_us = self._normalize_exposure_us(raw_exp)
+                    gain = max(100, min(1600, int(round(float(raw_gain)))))
+                    focus = max(0, min(255, int(round(float(raw_focus)))))
+                    brightness = max(-50, min(50, int(round(float(raw_brightness)))))
+                    contrast = max(0, min(100, int(round(float(raw_contrast)))))
                 except Exception:
-                    logger.warning("[PIPELINE] Invalid manual values — using defaults")
-                    exposure, gain, focus = 10000, 200, 120
+                    logger.warning("[PIPELINE] Invalid manual values — using calibrated defaults")
+                    exposure_us, gain, focus, brightness, contrast = 16000, 400, 120, 0, 50
+
+                self.current_exposure_us = exposure_us
+                self.current_gain = gain
+                self.current_focus = focus
+                self.current_brightness = brightness
+                self.current_contrast = contrast
+                self.auto_exposure_enabled = False
+                self.auto_focus_enabled = False
 
                 init_ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
-                init_ctrl.setManualExposure(exposure, gain)
-                init_ctrl.setManualFocus(focus)
-                hw_b = max(-10, min(10, round(int(config.brightness or 0) / 5.0)))
-                hw_c = max(-10, min(10, round((int(config.contrast or 50) - 50) / 5.0)))
+                init_ctrl.setManualExposure(self.current_exposure_us, self.current_gain)
+                init_ctrl.setManualFocus(self.current_focus)
+                hw_b = max(-10, min(10, round(self.current_brightness / 5.0)))
+                hw_c = max(-10, min(10, round((self.current_contrast - 50) / 5.0)))
                 init_ctrl.setBrightness(hw_b)
                 init_ctrl.setContrast(hw_c)
-                logger.info(f"[PIPELINE] Manual: exp={exposure}, gain={gain}, focus={focus}")
+                logger.info(
+                    f"[PIPELINE] Manual (from DB): exp={self.current_exposure_us}µs ({self.current_exposure_us / 1000:.1f}ms), "
+                    f"gain={self.current_gain}, focus={self.current_focus}, "
+                    f"brightness={self.current_brightness}, contrast={self.current_contrast}"
+                )
 
             is_usb2 = False
             if self.device is not None:
@@ -1059,10 +1089,90 @@ class OakCameraService:
 
     # ==================== Camera Controls ====================
 
+    @property
+    def is_running(self) -> bool:
+        return self._is_running
+
+    def is_recording_active(self) -> bool:
+        return bool(self._active_recording is not None and getattr(self._active_recording, "is_running", False))
+
+    def _normalize_exposure_us(self, exposure_val: float | int) -> int:
+        """Normalize exposure value: <= 1000 is treated as milliseconds, > 1000 as microseconds."""
+        val = float(exposure_val)
+        exp_us = int(round(val * 1000.0)) if val <= 1000.0 else int(round(val))
+        max_period_us = max(1000, int(1_000_000 / max(self._configured_fps, 1)))
+        return max(100, min(max_period_us, exp_us))
+
+    def get_current_controls(self) -> dict:
+        return {
+            "camera_id": self._active_camera_id,
+            "control_mode": self.control_mode,
+            "exposure": round(self.current_exposure_us / 1000.0, 2),
+            "exposure_us": int(self.current_exposure_us),
+            "gain": int(self.current_gain),
+            "focus": int(self.current_focus),
+            "brightness": int(self.current_brightness),
+            "contrast": int(self.current_contrast),
+            "auto_exposure": bool(self.auto_exposure_enabled),
+            "auto_focus": bool(self.auto_focus_enabled),
+            "locked_for_recording": self.is_recording_active(),
+        }
+
+    def _apply_current_controls_to_hardware(self, lock_awb: bool | None = None) -> None:
+        """Re-apply the active saved/runtime controls via _control_queue so firmware never overrides them."""
+        if not self._is_running or not self.is_connected or self._control_queue is None:
+            return
+        try:
+            ctrl = dai.CameraControl()
+            ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
+            ctrl.setManualFocus(self.current_focus)
+            try:
+                ctrl.setAutoExposureLock(False)
+            except Exception:
+                pass
+            ctrl.setManualExposure(self.current_exposure_us, self.current_gain)
+
+            hw_b = max(-10, min(10, round(self.current_brightness / 5.0)))
+            hw_c = max(-10, min(10, round((self.current_contrast - 50) / 5.0)))
+            try:
+                ctrl.setBrightness(hw_b)
+                ctrl.setContrast(hw_c)
+            except Exception:
+                pass
+
+            if lock_awb is not None:
+                try:
+                    ctrl.setAutoWhiteBalanceLock(bool(lock_awb))
+                except Exception:
+                    pass
+
+            self._control_queue.send(ctrl)
+            logger.info(
+                f"[CONTROL] Applied runtime controls -> mode={self.control_mode}, "
+                f"exp={self.current_exposure_us}µs ({self.current_exposure_us / 1000:.1f}ms), "
+                f"gain={self.current_gain} ISO, focus={self.current_focus}, "
+                f"brightness={self.current_brightness}, contrast={self.current_contrast}"
+                + (f", awb_lock={lock_awb}" if lock_awb is not None else "")
+            )
+        except Exception as e:
+            if "closed" in str(e).lower() or "xlink" in str(e).lower():
+                self._on_device_lost("Control queue closed during control sync")
+            else:
+                logger.warning(f"[CONTROL] Runtime control apply failed: {e}")
+
     def reset_controls(self) -> dict:
         """Resets physical camera controls to calibrated standard stream defaults (Focus=120, Exp=16ms, Gain=400).
         Disables continuous AF hunting and AE fluctuations so object movement does not cause blur or flicker.
         """
+        if self.is_recording_active():
+            logger.warning("[CONTROL] Rejected reset_controls — recording is active")
+            return {
+                "status": "error",
+                "locked": True,
+                "message": "Camera controls are locked while recording is active",
+                "settings": self.get_current_controls(),
+            }
+
         self.current_brightness = 0
         self.current_contrast = 50
         self.current_gain = 400
@@ -1073,7 +1183,11 @@ class OakCameraService:
         self.control_mode = "auto"
 
         if not self._is_running or not self.is_connected or self._control_queue is None:
-            return {"status": "ok", "message": "Controls reset to default steady stream"}
+            return {
+                "status": "ok",
+                "message": "Controls reset to default steady stream",
+                "settings": self.get_current_controls(),
+            }
 
         ctrl = dai.CameraControl()
         try:
@@ -1090,60 +1204,80 @@ class OakCameraService:
 
             self._control_queue.send(ctrl)
             logger.info("[CONTROL] 🔄 Camera reset to standard steady stream (Focus=120, Exp=16ms, Gain=400, AF hunting OFF)")
-            return {"status": "ok", "message": "Camera hardware reset to steady stream defaults"}
+            return {
+                "status": "ok",
+                "message": "Camera hardware reset to steady stream defaults",
+                "settings": self.get_current_controls(),
+            }
         except Exception as e:
             logger.warning(f"[CONTROL] Factory reset send failed: {e}")
             return {"status": "error", "message": str(e)}
 
     def update_controls(
         self,
-        exposure: int | None = None,
-        gain: int | None = None,
+        exposure: float | int | None = None,
+        gain: float | int | None = None,
         focus: int | None = None,
         brightness: int | None = None,
         contrast: int | None = None,
         auto_focus: bool | None = None,
         auto_exposure: bool | None = None,
         reset: bool | None = None,
-    ) -> None:
+        control_mode: str | None = None,
+    ) -> dict:
         """Update hardware camera controls (Exposure, Gain, Focus, Brightness, Contrast)."""
+        if self.is_recording_active():
+            logger.warning("[CONTROL] Rejected update_controls — recording is active")
+            return {
+                "status": "error",
+                "locked": True,
+                "message": "Camera controls are locked while recording is active",
+                "settings": self.get_current_controls(),
+            }
+
         if reset:
-            self.reset_controls()
-            return
+            return self.reset_controls()
+
         # 1. Update internal state
+        if control_mode in ("auto", "manual"):
+            self.control_mode = control_mode
+
         if brightness is not None:
-            self.current_brightness = max(-50, min(50, brightness))
+            self.current_brightness = max(-50, min(50, int(round(brightness))))
 
         if contrast is not None:
-            self.current_contrast = max(0, min(100, contrast))
+            self.current_contrast = max(0, min(100, int(round(contrast))))
 
         if gain is not None:
-            self.current_gain = max(100, min(1600, gain))
+            self.current_gain = max(100, min(1600, int(round(gain))))
 
         if focus is not None:
-            self.current_focus = max(0, min(255, focus))
+            self.current_focus = max(0, min(255, int(round(focus))))
 
         if exposure is not None:
-            val = exposure
-            if val <= 100:
-                exp_us = val * 1000
-            elif val < 1000:
-                exp_us = val * 1000
-            else:
-                exp_us = val
-            max_period_us = max(1000, int(1_000_000 / max(self._configured_fps, 1)))
-            self.current_exposure_us = max(100, min(max_period_us, exp_us))
+            self.current_exposure_us = self._normalize_exposure_us(exposure)
+
+        if auto_exposure is True and control_mode != "manual":
+            self.auto_exposure_enabled = True
+            self.control_mode = "auto"
+        elif auto_exposure is False or (auto_exposure is None and (exposure is not None or gain is not None)):
+            self.auto_exposure_enabled = False
+            if control_mode != "auto":
+                self.control_mode = "manual"
+
+        if auto_focus is True:
+            self.auto_focus_enabled = True
+        elif auto_focus is False or (auto_focus is None and focus is not None):
+            self.auto_focus_enabled = False
 
         if not self._is_running or not self.is_connected or self._control_queue is None:
-            return
+            return {"status": "ok", "settings": self.get_current_controls()}
 
         ctrl = dai.CameraControl()
         should_send = False
 
         # 2. Exposure & Gain Logic
-        if auto_exposure is True:
-            self.auto_exposure_enabled = True
-            self.control_mode = "auto"
+        if auto_exposure is True and self.control_mode == "auto":
             try:
                 ctrl.setAutoExposureEnable()
                 if self._ae_limit_us is not None:
@@ -1155,8 +1289,6 @@ class OakCameraService:
             except Exception as e:
                 logger.warning(f"[CONTROL] setAutoExposureEnable failed: {e}")
         elif auto_exposure is False or (auto_exposure is None and (exposure is not None or gain is not None)):
-            self.auto_exposure_enabled = False
-            self.control_mode = "manual"
             try:
                 ctrl.setAutoExposureLock(False)
                 ctrl.setManualExposure(self.current_exposure_us, self.current_gain)
@@ -1166,7 +1298,6 @@ class OakCameraService:
 
         # 3. Focus Logic (Both auto_focus toggle and manual focus position)
         if auto_focus is True:
-            self.auto_focus_enabled = True
             try:
                 ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.CONTINUOUS_VIDEO)
                 try:
@@ -1177,7 +1308,6 @@ class OakCameraService:
             except Exception as e:
                 logger.warning(f"[CONTROL] setAutoFocusMode failed: {e}")
         elif auto_focus is False or (auto_focus is None and focus is not None):
-            self.auto_focus_enabled = False
             try:
                 ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
                 ctrl.setManualFocus(self.current_focus)
@@ -1208,8 +1338,9 @@ class OakCameraService:
             try:
                 self._control_queue.send(ctrl)
                 logger.info(
-                    f"[CONTROL] Dispatched -> exp={self.current_exposure_us}µs, "
+                    f"[CONTROL] Dispatched -> mode={self.control_mode}, exp={self.current_exposure_us}µs, "
                     f"gain={self.current_gain} ISO, focus={self.current_focus}, "
+                    f"brightness={self.current_brightness}, contrast={self.current_contrast}, "
                     f"auto_exp={self.auto_exposure_enabled}, auto_focus={self.auto_focus_enabled}"
                 )
             except Exception as e:
@@ -1217,6 +1348,111 @@ class OakCameraService:
                     self._on_device_lost("Control queue closed")
                 else:
                     logger.warning(f"[CONTROL] Device send failed: {e}")
+
+        return {"status": "ok", "settings": self.get_current_controls()}
+
+    def save_current_controls_to_db(
+        self,
+        camera_id: int | None = None,
+        control_mode: str | None = None,
+        exposure: float | int | None = None,
+        gain: float | int | None = None,
+        focus: int | None = None,
+        brightness: int | None = None,
+        contrast: int | None = None,
+        auto_exposure: bool | None = None,
+        auto_focus: bool | None = None,
+    ) -> dict:
+        """Apply (if provided) and persist camera control settings to the SQLite cameras table."""
+        if self.is_recording_active():
+            logger.warning("[CONTROL] Rejected save_current_controls_to_db — recording is active")
+            return {
+                "status": "error",
+                "locked": True,
+                "message": "Camera controls are locked while recording is active",
+                "settings": self.get_current_controls(),
+            }
+
+        target_mode = control_mode.lower() if isinstance(control_mode, str) and control_mode.lower() in ("auto", "manual") else None
+
+        # Sync runtime & hardware state with any explicit values passed by the Save button
+        if target_mode == "auto":
+            self.reset_controls()
+        elif any(v is not None for v in (target_mode, exposure, gain, focus, brightness, contrast, auto_exposure, auto_focus)):
+            self.update_controls(
+                exposure=exposure,
+                gain=gain,
+                focus=focus,
+                brightness=brightness,
+                contrast=contrast,
+                auto_focus=False if target_mode == "manual" else auto_focus,
+                auto_exposure=False if target_mode == "manual" else auto_exposure,
+                control_mode=target_mode or "manual",
+            )
+
+        from app.core.database import SessionLocal
+        from app.models.camera_model import Camera
+        from app.services import camera_service
+
+        db = SessionLocal()
+        try:
+            cam = None
+            resolved_id = camera_id or self._active_camera_id
+            if resolved_id is not None:
+                cam = db.query(Camera).filter(Camera.id == resolved_id).first()
+            if cam is None:
+                cam = camera_service.get_camera_config(db)
+            if cam is None:
+                cam = db.query(Camera).order_by(Camera.id.desc()).first()
+            if cam is None:
+                return {"status": "error", "message": "No camera record found in database"}
+
+            self._active_camera_id = cam.id
+            cam.control_mode = self.control_mode
+            if self.control_mode == "auto":
+                cam.exposure = 16.0
+                cam.gain = 400.0
+                cam.focus = 120
+                cam.brightness = 0
+                cam.contrast = 50
+                cam.auto_exposure = False
+                cam.auto_focus = False
+            else:
+                cam.exposure = round(self.current_exposure_us / 1000.0, 2)
+                cam.gain = float(self.current_gain)
+                cam.focus = int(self.current_focus)
+                cam.brightness = int(self.current_brightness)
+                cam.contrast = int(self.current_contrast)
+                cam.auto_exposure = False
+                cam.auto_focus = False
+
+            db.commit()
+            db.refresh(cam)
+
+            saved_settings = self.get_current_controls()
+            logger.info(
+                f"[CONTROL] Saved settings to DB (camera_id={cam.id}): "
+                f"mode={cam.control_mode}, exp={cam.exposure}ms, gain={cam.gain}, "
+                f"focus={cam.focus}, brightness={cam.brightness}, contrast={cam.contrast}"
+            )
+            realtime_log_service.add_log(
+                "camera",
+                "CAMERA",
+                f"Saved camera controls ({cam.control_mode}: exp={cam.exposure}ms, ISO {int(cam.gain or 400)}, focus={cam.focus})",
+                "success",
+            )
+            return {
+                "status": "ok",
+                "message": "Camera settings saved to database",
+                "camera_id": cam.id,
+                "settings": saved_settings,
+            }
+        except Exception as e:
+            db.rollback()
+            logger.error(f"[CONTROL] Failed to save controls to DB: {e}", exc_info=True)
+            return {"status": "error", "message": f"Failed to save camera settings: {e}"}
+        finally:
+            db.close()
 
     # ==================== Inference ====================
     # Duck Analyzer Worker — runs continuous DuckAnalyzer inference.
@@ -1917,6 +2153,10 @@ class OakCameraService:
         else:
             logger.info("[RECORD] Capture & recording threads already running (AE limit already applied at stream start)")
 
+        # Re-apply and lock active camera controls (exposure, gain, focus, brightness, contrast, AWB)
+        # so sensor parameters cannot vary or drift during recording.
+        self._apply_current_controls_to_hardware(lock_awb=True)
+
         path = _start(session_id, width, height, fps, resolved_root, rec_fmt)
         self._active_recording = active_recordings.get(session_id)
 
@@ -1975,6 +2215,9 @@ class OakCameraService:
 
         logger.info(f"[RECORD] Recording stopped and session cleared → {result}")
 
+        # Release AWB lock while keeping user's active manual/steady exposure & focus intact
+        self._apply_current_controls_to_hardware(lock_awb=False)
+
         # Stop capture threads only if streaming and pipeline are also not active
         streaming_active = bool(self._is_streaming or self._stream_subscribers or (self._stream_queue is not None))
         if not streaming_active and not self._is_running:
@@ -1992,7 +2235,11 @@ class OakCameraService:
         async with self._lifecycle_lock:
             if self._is_running:
                 logger.info("[START] Pipeline already running")
-                return {"status": "already_running"}
+                return {
+                    "status": "already_running",
+                    "camera_id": self._active_camera_id,
+                    "camera_settings": self.get_current_controls(),
+                }
 
             try:
                 if not self.is_connected:
@@ -2035,12 +2282,12 @@ class OakCameraService:
                 pipeline.start()
                 self._is_running = True
 
-                # Send AE limit immediately after pipeline starts.
-                # The control queue is ready as soon as the pipeline is running.
-                # Sending here (before capture threads start) ensures the camera
-                # applies the shutter cap from its very first exposure cycle.
+                # Enforce saved DB controls via runtime control queue right after pipeline starts
+                # so camera firmware cannot override initialControl settings.
                 if self.control_mode == "auto" and self._ae_limit_us is not None:
                     self._enforce_ae_limit()
+                else:
+                    self._apply_current_controls_to_hardware()
 
                 logger.info("[START] Pipeline ready — waiting for stream/start")
                 realtime_log_service.add_log(
@@ -2049,7 +2296,11 @@ class OakCameraService:
                     "Application initialized successfully",
                     "success"
                 )
-                return {"status": "started"}
+                return {
+                    "status": "started",
+                    "camera_id": self._active_camera_id,
+                    "camera_settings": self.get_current_controls(),
+                }
 
             except Exception as e:
                 logger.error(f"[START] Failed: {e}", exc_info=True)
@@ -2130,11 +2381,14 @@ class OakCameraService:
         if not self._start_capture_threads():
             return {"status": "error", "message": "Capture threads failed to start"}
 
-        # Enforce AE shutter limit via runtime control now that the pipeline is live.
+        # Enforce active saved controls via runtime control now that the pipeline is live.
         # This is more reliable than initialControl alone.
-        logger.info(f"[STREAMING] Step 1 — capture threads started")
-        self._enforce_ae_limit()
-        logger.info(f"[STREAMING] Step 2 — AE limit enforced | configured_fps={self._configured_fps} | ae_limit_us={self._ae_limit_us}")
+        logger.info("[STREAMING] Step 1 — capture threads started")
+        if self.control_mode == "auto" and self._ae_limit_us is not None:
+            self._enforce_ae_limit()
+        else:
+            self._apply_current_controls_to_hardware()
+        logger.info(f"[STREAMING] Step 2 — Controls enforced | configured_fps={self._configured_fps} | ae_limit_us={self._ae_limit_us}")
 
         self._is_streaming = True
         logger.info("[STREAMING] Started")
@@ -2188,6 +2442,8 @@ class OakCameraService:
             "streaming": self._is_streaming,
             "fps": round(self.current_fps, 1),
             "last_error": getattr(self, "_last_connection_error", None),
+            "camera_id": self._active_camera_id,
+            "camera_settings": self.get_current_controls(),
         }
 
 
