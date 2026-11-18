@@ -384,6 +384,12 @@ async def api_logging_middleware(request: Request, call_next):
             response.headers["X-Request-ID"] = req_id
             return response
 
+        # Expected startup readiness polling: /health returns 503 while ML model is loading.
+        # Don't flood error.log with false-positive 503 errors during normal startup.
+        if path == "/health" and response.status_code == 503 and not _backend_ready:
+            response.headers["X-Request-ID"] = req_id
+            return response
+
         if response.status_code >= 400:
             body = b""
             async for chunk in response.body_iterator:

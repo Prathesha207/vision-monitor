@@ -52,7 +52,7 @@ other_id_patience: 8
 provisional_match_dist: 0.10
 row_tolerance_frac: 0.06
 
-# shake stabilization
+# shake stabilization 
 anomaly_smoothing_frames: 15
 
 # tracking (for MOVING ducks)
