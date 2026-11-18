@@ -7,7 +7,7 @@ from app.models.camera_model import Camera
 
 
 from app.schemas.camera_schema import CameraCreate, CameraUpdate
-from app.schemas.basic_config_update_schema import BasicConfigUpdate
+from app.schemas.basic_config_schema import BasicConfigUpdate
 
 from app.core.logger import setup_logger
 from app.services.realtime_log_service import realtime_log_service

@@ -35,10 +35,7 @@ import concurrent.futures
 try:
     from duck_analyzer import DuckAnalyzer
 except ImportError:
-    try:
-        from app.ml.debug.extracted.duck_analyzer.analyzer import DuckAnalyzer
-    except ImportError:
-        DuckAnalyzer = None
+    DuckAnalyzer = None
 
 try:
     import torch
@@ -467,7 +464,7 @@ class VideoInferenceService:
             out_writer = None
             try:
                 if DuckAnalyzer is None:
-                    raise RuntimeError("DuckAnalyzer package is not installed. Run: pip install app/ml/whl/duck_analyzer-1.0.13-py3-none-any.whl")
+                    raise RuntimeError("DuckAnalyzer package is not installed. Run: pip install --no-deps app/ml/whl/duck_analyzer-1.0.20-py3-none-any.whl")
 
                 # ml_dir = folder that contains this service file (app/ml/)
                 ml_dir = os.path.dirname(os.path.abspath(__file__))

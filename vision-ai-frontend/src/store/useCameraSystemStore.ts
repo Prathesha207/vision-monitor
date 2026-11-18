@@ -60,30 +60,14 @@ export type CameraConfig = {
 
 export type BasicConfig = {
     camera?: CameraConfig;
-    training?: {
-        feature_window?: number;
-        anomaly_scorer_nn_count?: number;
-    };
     inference?: {
-        trained_model?: string;
-        min_detection_area?: number;
-        use_dynamic_threshold?: boolean;
+        mode?: "production" | "testing";
         processed_video?: boolean;
         raw_video?: boolean;
-        save_failed_frame?: boolean;
-        mode?: "production" | "testing";
         inference_video_path?: string;
         inference_video_testing_path?: string;
-        model1_frame_count?: number;
-        model2_frame_count?: number;
-        model3_frame_count?: number;
-        model1_pass_frames?: number;
-        model2_pass_frames?: number;
-        model3_pass_frames?: number;
-        model2_start_skip_frame?: number;
-        model3_start_skip_frame?: number;
-        recording_format?: "MJPEG" | "FFV1";
-        inference_format?: "MJPEG" | "FFV1";
+        recording_format?: "MP4" | "AVI" | "MJPEG" | "FFV1";
+        inference_format?: "MP4" | "AVI" | "MJPEG" | "FFV1";
     };
 };
 

@@ -106,7 +106,6 @@ pyinstaller --noconfirm --clean --onedir --name backend "$BACKEND_DIR/run.py" \
   --collect-all torchvision \
   --collect-all ultralytics \
   --collect-all lap \
-  --collect-all segmentation_models_pytorch \
   --collect-all depthai \
   --collect-all av \
   --collect-all duck_analyzer \

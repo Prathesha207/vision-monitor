@@ -31,10 +31,7 @@ from typing import Dict, Any, Optional, Tuple
 try:
     from duck_analyzer import DuckAnalyzer
 except ImportError:
-    try:
-        from app.ml.debug.extracted.duck_analyzer.analyzer import DuckAnalyzer
-    except ImportError:
-        DuckAnalyzer = None
+    DuckAnalyzer = None
 
 from app.ml import app_state  # shared GPU mutual-exclusion flag (video vs camera vs training)
 try:
@@ -150,7 +147,6 @@ def _get_or_create_session(session_id: str, expected_duck_count: int,
             ml_dir = _ML_DIR
             candidates = [
                 os.path.join(ml_dir, "model", "best.pt"),
-                os.path.join(ml_dir, "debug", "best.pt"),
                 os.path.join(ml_dir, "models", "best.pt"),
             ]
             if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
@@ -253,7 +249,7 @@ def run_inference(frame, session_id: str, expected_duck_count: int = 18,
     does: stats go one way, pixels go a separate way).
     """
     if DuckAnalyzer is None:
-        logger.error("DuckAnalyzer not installed. Run 'pip install ml/duck_analyzer-1.0.0-py3-none-any.whl'")
+        logger.error("DuckAnalyzer not installed. Run 'pip install --no-deps app/ml/whl/duck_analyzer-1.0.20-py3-none-any.whl'")
         return {"session_id": session_id, "status": "error",
                 "reasons": ["DuckAnalyzer not installed"], "done": True}, None
 

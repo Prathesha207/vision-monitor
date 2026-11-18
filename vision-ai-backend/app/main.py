@@ -139,10 +139,7 @@ def _preload_model_background():
         try:
             from duck_analyzer import DuckAnalyzer
         except ImportError:
-            try:
-                from app.ml.debug.extracted.duck_analyzer.analyzer import DuckAnalyzer
-            except ImportError:
-                DuckAnalyzer = None
+            DuckAnalyzer = None
 
         if DuckAnalyzer is not None and os.path.exists(cfg_path):
             logger.info("[STARTUP] Preloading ML model into memory (GPU if available)...")
@@ -160,7 +157,6 @@ def _preload_model_background():
             model_candidates = [
                 resource_path("app/ml/model/best.pt"),
                 os.path.join(ml_dir, "model", "best.pt"),
-                os.path.join(ml_dir, "debug", "best.pt"),
                 os.path.join(ml_dir, "models", "best.pt"),
             ]
             if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):

@@ -159,7 +159,7 @@ def write_spec(
 
     COLLECT_PACKAGES = [
         "app", "fastapi", "starlette", "uvicorn", "sqlalchemy", "cv2",
-        "torch", "torchvision", "ultralytics", "segmentation_models_pytorch",
+        "torch", "torchvision", "ultralytics",
         "depthai", "av", "duck_analyzer", "mediapipe", "matplotlib",
         "scipy", "lap", "imageio_ffmpeg",
     ]
