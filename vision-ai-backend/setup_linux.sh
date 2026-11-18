@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Install the backend and frontend correctly on a Linux development machine.
-# Run from vision-ai-backend after both sibling folders are present.
+# Install the backend and frontend on a Linux development machine.
+# Run from vision-ai-backend (or via root ./setup.sh / ./clean_setup.sh).
+# Pass --clean or -c to remove .venv and frontend dist before reinstalling.
 set -euo pipefail
 
 BACKEND_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,9 +14,12 @@ if [[ ! -f "$FRONTEND_DIR/package.json" ]]; then
   exit 1
 fi
 
+CLEAN_SETUP=0
 if [[ "${1:-}" == "--clean" || "${1:-}" == "-c" ]]; then
-  echo "Clean setup requested. Removing existing .venv..."
+  CLEAN_SETUP=1
+  echo "[CLEAN] Clean setup requested. Removing existing .venv and frontend dist..."
   rm -rf "$VENV_DIR"
+  rm -rf "$FRONTEND_DIR/dist"
 fi
 
 if [[ ! -d "$VENV_DIR" ]]; then
@@ -32,40 +36,51 @@ if [[ ! -d "$VENV_DIR" ]]; then
 fi
 
 source "$VENV_DIR/bin/activate"
-python -m pip install --upgrade pip
-python -m pip install -r "$BACKEND_DIR/requirements.txt"
-if [[ -f "$BACKEND_DIR/app/ml/requirements.txt" ]]; then
-  python -m pip install -r "$BACKEND_DIR/app/ml/requirements.txt"
-fi
+python -m pip install --upgrade pip setuptools wheel
 
-# The base requirements remain portable. Replace generic torch with CUDA torch
-# only when this Linux machine has an NVIDIA driver and GPU.
+# 1. Install CUDA PyTorch & torchvision FIRST (before requirements.txt so PyPI never pulls CPU torch)
 if command -v nvidia-smi >/dev/null 2>&1; then
   echo "NVIDIA GPU detected; verifying CUDA-enabled PyTorch..."
   if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
     if python -c "import torch; x=torch.ones((1,), device='cuda:0'); assert (x+1).item()==2; torch.cuda.synchronize(0)" 2>/dev/null; then
       echo "ARM64 vendor PyTorch with CUDA is already installed; keeping it."
     else
-      echo "ARM64 detected, but vendor CUDA PyTorch is not installed. Continuing with CPU PyTorch."
-      echo "Install the NVIDIA/platform ARM64 PyTorch package later for GPU inference."
+      echo "ARM64 detected, but vendor CUDA PyTorch is not installed. Installing standard PyTorch."
+      python -m pip install --prefer-binary torch torchvision
     fi
   else
-    if ! python -c "import torch; x=torch.ones((1,), device='cuda:0'); assert (x+1).item()==2; torch.cuda.synchronize(0)" 2>/dev/null; then
-      echo "Installing CUDA-enabled PyTorch compatible with this GPU..."
-      GPU_CC="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n 1 | tr -d '[:space:]')"
-      if awk -v cc="${GPU_CC:-0}" 'BEGIN {exit !(cc >= 12.0)}'; then
-        DEFAULT_CUDA_INDEX="https://download.pytorch.org/whl/cu130"
-      elif awk -v cc="${GPU_CC:-0}" 'BEGIN {exit !(cc >= 8.9)}'; then
-        DEFAULT_CUDA_INDEX="https://download.pytorch.org/whl/cu128"
+    if ! python -c "import torch, torchvision; x=torch.ones((1,), device='cuda:0'); assert (x+1).item()==2; torch.cuda.synchronize(0)" 2>/dev/null; then
+      TORCH_OK=0
+      if [[ -n "${PYTORCH_CUDA_INDEX:-}" ]]; then
+        echo "Installing CUDA PyTorch from custom index $PYTORCH_CUDA_INDEX..."
+        if python -m pip install --prefer-binary --index-url "$PYTORCH_CUDA_INDEX" torch==2.15.0 torchvision==0.29.2 \
+           || python -m pip install --prefer-binary --index-url "$PYTORCH_CUDA_INDEX" torch torchvision; then
+          TORCH_OK=1
+        fi
       else
-        DEFAULT_CUDA_INDEX="https://download.pytorch.org/whl/cu121"
+        # Try TrayCount tested CUDA 13.2 build first, then fallback to compatible CUDA indices
+        for ENTRY in \
+          "https://download.pytorch.org/whl/cu132|torch==2.15.0 torchvision==0.29.2" \
+          "https://download.pytorch.org/whl/cu130|torch torchvision" \
+          "https://download.pytorch.org/whl/cu128|torch torchvision" \
+          "https://download.pytorch.org/whl/cu124|torch torchvision"; do
+          IDX="${ENTRY%%|*}"
+          PKGS="${ENTRY##*|}"
+          echo "Attempting CUDA PyTorch install ($PKGS) from $IDX..."
+          # shellcheck disable=SC2086
+          if python -m pip install --prefer-binary --index-url "$IDX" $PKGS; then
+            if python -c "import torch; assert torch.cuda.is_available(); x=torch.ones((1,), device='cuda:0'); assert (x+1).item()==2; torch.cuda.synchronize(0)" 2>/dev/null; then
+              TORCH_OK=1
+              echo "CUDA kernels verified successfully from $IDX."
+              break
+            fi
+            echo "Installed from $IDX but CUDA kernel check failed; trying next fallback..."
+          fi
+        done
       fi
-      PYTORCH_CUDA_INDEX="${PYTORCH_CUDA_INDEX:-$DEFAULT_CUDA_INDEX}"
-      if ! python -m pip install --force-reinstall \
-        --index-url "$PYTORCH_CUDA_INDEX" \
-        torch torchvision; then
-        echo "CUDA wheel index $PYTORCH_CUDA_INDEX is unavailable for this Python/platform."
-        echo "Retry with another supported index using PYTORCH_CUDA_INDEX=... ./setup_linux.sh"
+      if [[ "$TORCH_OK" -ne 1 ]]; then
+        echo "ERROR: Could not install a working CUDA PyTorch build."
+        echo "Retry with a specific index: PYTORCH_CUDA_INDEX=https://download.pytorch.org/whl/cu128 ./setup_linux.sh"
         exit 1
       fi
     else
@@ -73,17 +88,36 @@ if command -v nvidia-smi >/dev/null 2>&1; then
     fi
   fi
 else
-  echo "No NVIDIA GPU detected; keeping CPU-compatible PyTorch."
+  echo "No NVIDIA GPU detected; installing CPU PyTorch (note: TrayCount inference requires a CUDA GPU)."
+  python -m pip install --prefer-binary torch torchvision
 fi
 
-DUCK_ANALYZER_WHEEL="$(find "$BACKEND_DIR/app/ml" -name 'duck_analyzer-*.whl' -print | sort -r | head -n 1)"
-if [[ -z "$DUCK_ANALYZER_WHEEL" ]]; then
-  echo "The bundled duck_analyzer wheel is missing."
+# 2. Install backend + TrayCount ML dependencies
+python -m pip install --prefer-binary -r "$BACKEND_DIR/requirements.txt"
+
+# 3. Install bundled TrayCount wheel
+TRAYCOUNT_WHEEL="$(find "$BACKEND_DIR/app/ml/whl" "$BACKEND_DIR/app/ml" -maxdepth 2 -name 'traycount-*.whl' -print 2>/dev/null | sort -V -r | head -n 1)"
+if [[ -z "$TRAYCOUNT_WHEEL" ]]; then
+  echo "ERROR: The bundled traycount wheel is missing from app/ml/whl."
   exit 1
 fi
-python -m pip install --no-deps --force-reinstall "$DUCK_ANALYZER_WHEEL"
+echo "Installing $(basename "$TRAYCOUNT_WHEEL")..."
+python -m pip install --no-deps --force-reinstall "$TRAYCOUNT_WHEEL"
 
-# Check Luxonis OAK camera udev rules on Linux
+# 4. Pre-flight smoke test
+python -c "
+import torch, torchvision, timm, safetensors, huggingface_hub, mediapipe, importlib.metadata as md
+from ultralytics import YOLO
+from traycount import TrayCounter
+print('PyTorch      :', torch.__version__)
+print('TorchVision  :', torchvision.__version__)
+print('TrayCount    :', md.version('traycount'))
+print('CUDA Active  :', torch.cuda.is_available())
+if torch.cuda.is_available():
+    print('GPU Device   :', torch.cuda.get_device_name(0))
+"
+
+# Check Luxonis OAK camera udev rules & headless MediaPipe OpenGL library on Linux
 if [[ ! -f /etc/udev/rules.d/80-movidius.rules ]]; then
   echo "--------------------------------------------------------"
   echo "NOTE: DepthAI OAK camera USB udev rules not detected."
@@ -92,10 +126,13 @@ if [[ ! -f /etc/udev/rules.d/80-movidius.rules ]]; then
   echo "  sudo udevadm control --reload-rules && sudo udevadm trigger"
   echo "--------------------------------------------------------"
 fi
+if ! ldconfig -p 2>/dev/null | grep -q "libGLESv2"; then
+  echo "NOTE: libGLESv2 not detected. On headless Linux, MediaPipe may require: sudo apt install -y libgles2"
+fi
 
-# Native Rollup/Vite modules must be installed on this exact Linux architecture.
+# 5. Native Rollup/Vite modules must be installed on this exact Linux architecture
 cd "$FRONTEND_DIR"
-npm install --include=optional
+npm install --include=optional || npm install --include=optional --ignore-scripts
+npm run build
 
-python -c "import torch; print('PyTorch:', torch.__version__); print('CUDA available:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"
 echo "Setup complete. Start development with: $BACKEND_DIR/run_dev_linux.sh"

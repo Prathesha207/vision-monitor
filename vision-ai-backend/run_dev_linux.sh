@@ -11,15 +11,15 @@ if [[ ! -x "$BACKEND_DIR/.venv/bin/python" ]]; then
 fi
 
 # Fast pre-flight check (<0.05s): installs requirements and wheel silently if anything is missing
-if ! "$BACKEND_DIR/.venv/bin/python" -c "import fastapi, uvicorn, cv2, torch, yaml, lap" 2>/dev/null; then
+if ! "$BACKEND_DIR/.venv/bin/python" -c "import fastapi, uvicorn, cv2, torch, torchvision, yaml, ultralytics, mediapipe, timm, safetensors, huggingface_hub, scipy" 2>/dev/null; then
   echo "Configuring backend environment (one-time silent setup)..."
-  "$BACKEND_DIR/.venv/bin/python" -m pip install --quiet -r "$BACKEND_DIR/requirements.txt"
+  "$BACKEND_DIR/.venv/bin/python" -m pip install --quiet --prefer-binary -r "$BACKEND_DIR/requirements.txt"
 fi
 
-if ! "$BACKEND_DIR/.venv/bin/python" -c "import duck_analyzer" 2>/dev/null; then
-  WHL_FILE="$(find "$BACKEND_DIR/app/ml" -name 'duck_analyzer-*.whl' -print | sort -r | head -n 1 || true)"
+if ! "$BACKEND_DIR/.venv/bin/python" -c "from traycount import TrayCounter" 2>/dev/null; then
+  WHL_FILE="$(find "$BACKEND_DIR/app/ml/whl" "$BACKEND_DIR/app/ml" -maxdepth 2 -name 'traycount-*.whl' -print 2>/dev/null | sort -V -r | head -n 1 || true)"
   if [[ -n "$WHL_FILE" && -f "$WHL_FILE" ]]; then
-    "$BACKEND_DIR/.venv/bin/python" -m pip install --quiet "$WHL_FILE" 2>/dev/null || true
+    "$BACKEND_DIR/.venv/bin/python" -m pip install --quiet --no-deps --force-reinstall "$WHL_FILE" 2>/dev/null || true
   fi
 fi
 
@@ -33,7 +33,7 @@ fi
 
 if [[ ! -x "$FRONTEND_DIR/node_modules/.bin/vite" ]]; then
   echo "Frontend dependencies are missing. Installing node_modules..."
-  cd "$FRONTEND_DIR" && npm install --include=optional
+  cd "$FRONTEND_DIR" && (npm install --include=optional || npm install --include=optional --ignore-scripts)
   cd "$BACKEND_DIR"
 fi
 

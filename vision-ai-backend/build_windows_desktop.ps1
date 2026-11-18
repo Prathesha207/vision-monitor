@@ -29,98 +29,99 @@ if (-not (Test-Path $ReleaseVenv)) {
   & $Python -m venv $ReleaseVenv
 }
 $VenvPython = Join-Path $ReleaseVenv 'Scripts\python.exe'
+& $VenvPython -m pip install --quiet --upgrade pip setuptools wheel
 
 # Auto-detect acceleration if 'auto' is specified
 if ($Acceleration -eq 'auto') {
   $HasNvidia = $false
-  $ComputeCap = 0.0
-
-  # 1. Primary detection: nvidia-smi (reliable for Optimus laptops and all NVIDIA drivers)
   $SmiOutput = & nvidia-smi --query-gpu=name,compute_cap --format=csv,noheader 2>$null
   if ($LASTEXITCODE -eq 0 -and $null -ne $SmiOutput) {
     $HasNvidia = $true
-    $ComputeCaps = $SmiOutput | ForEach-Object {
-        $parts = $_ -split ','
-        if ($parts.Count -ge 2) { [float]$parts[1].Trim() } else { 0.0 }
-    }
-    if ($ComputeCaps) { $ComputeCap = ($ComputeCaps | Measure-Object -Maximum).Maximum }
-    Write-Host "nvidia-smi detected NVIDIA GPU(s) with max Compute Capability: $ComputeCap"
+    Write-Host "nvidia-smi detected NVIDIA GPU(s): $SmiOutput"
   } else {
-    # 2. Fallback detection: WMI
     $NvidiaGpus = Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "NVIDIA" }
     if ($null -ne $NvidiaGpus -and @($NvidiaGpus).Count -gt 0) {
       $HasNvidia = $true
       Write-Host "WMI detected NVIDIA GPU: $(($NvidiaGpus | Select-Object -First 1).Name)"
     }
   }
-
-  if ($HasNvidia) {
-    $Acceleration = 'cuda'
-    
-    # 3. Target appropriate CUDA wheels based on Compute Capability
-    # sm_120 (12.0) = Blackwell (RTX 50-series) -> cu126+
-    # sm_89 (8.9) = Ada Lovelace (RTX 40-series) -> cu124
-    if ($ComputeCap -ge 12.0) {
-      $TargetCuda = "cu126"
-      $CudaIndex = "https://download.pytorch.org/whl/cu126"
-      Write-Host "Targeting CUDA 12.6+ (cu126) for Blackwell (RTX 50-series) support."
-    } elseif ($ComputeCap -ge 8.9) {
-      $TargetCuda = "cu124"
-      $CudaIndex = "https://download.pytorch.org/whl/cu124"
-      Write-Host "Targeting CUDA 12.4 (cu124) for Ada/Ampere optimization."
-    } else {
-      $TargetCuda = "cu121"
-      $CudaIndex = "https://download.pytorch.org/whl/cu121"
-      Write-Host "Targeting CUDA 12.1 (cu121) for broad compatibility."
-    }
-  } else {
-    $Acceleration = 'cpu'
-    $TargetCuda = "cpu"
-    Write-Host "No NVIDIA GPU detected on build host; targeting CPU acceleration."
-  }
-} else {
-  $TargetCuda = if ($Acceleration -eq 'cuda') { "cu121" } else { "cpu" }
-  $CudaIndex = if ($Acceleration -eq 'cuda') { "https://download.pytorch.org/whl/cu121" } else { "https://download.pytorch.org/whl/cpu" }
+  $Acceleration = if ($HasNvidia) { 'cuda' } else { 'cpu' }
 }
 
-if ($env:PYTORCH_CUDA_INDEX) { $CudaIndex = $env:PYTORCH_CUDA_INDEX }
-
-# Verify PyTorch and TorchVision status safely without triggering NativeCommandError on stderr
-$CurrentTorchVer = try {
-  & $VenvPython -c "try: import torch; print(torch.__version__)`nexcept Exception: pass" 2>$null
+# 1. Verify / Install PyTorch + TorchVision FIRST (CUDA build matching driver)
+$TorchCudaOk = try {
+  & $VenvPython -c "import torch, torchvision, importlib.metadata as md; _=md.version('torchvision'); assert torch.cuda.is_available(); t=torch.ones((1,), device='cuda:0'); assert (t+1).item()==2; torch.cuda.synchronize(0); print('CUDA_OK:' + torch.__version__)" 2>$null
 } catch { $null }
 
-$HasTorchVision = try {
-  & $VenvPython -c "try:`n    import torchvision, importlib.metadata`n    _ = importlib.metadata.version('torchvision')`n    print('True')`nexcept Exception:`n    pass" 2>$null
+$TorchCpuOk = try {
+  & $VenvPython -c "import torch, torchvision, importlib.metadata as md; _=md.version('torchvision'); print('CPU_OK:' + torch.__version__)" 2>$null
 } catch { $null }
-
-Write-Host "Installed PyTorch version: $CurrentTorchVer | TorchVision status: $HasTorchVision"
 
 if ($Acceleration -eq 'cuda') {
-  # Force reinstall if the installed PyTorch doesn't match our targeted CUDA wheel (or is missing)
-  if ($CurrentTorchVer -notmatch $TargetCuda -or $HasTorchVision -ne 'True') {
-    Write-Host "Installing/Updating CUDA PyTorch & TorchVision from $CudaIndex..."
-    & $VenvPython -m pip install --index-url $CudaIndex torch torchvision --upgrade --force-reinstall
-    if ($LASTEXITCODE -ne 0) { throw "Could not install CUDA PyTorch from $CudaIndex." }
+  if ($TorchCudaOk -like 'CUDA_OK:*') {
+    Write-Host "Operational CUDA PyTorch already installed: $($TorchCudaOk.Substring(8))"
   } else {
-    Write-Host "Correct CUDA PyTorch ($TargetCuda) is already installed."
+    $TorchInstalled = $false
+    if ($env:PYTORCH_CUDA_INDEX) {
+      & $VenvPython -m pip install --prefer-binary --index-url $env:PYTORCH_CUDA_INDEX torch==2.15.0 torchvision==0.29.2
+      if ($LASTEXITCODE -ne 0) {
+        & $VenvPython -m pip install --prefer-binary --index-url $env:PYTORCH_CUDA_INDEX torch torchvision
+      }
+      if ($LASTEXITCODE -eq 0) { $TorchInstalled = $true }
+    } else {
+      $CudaAttempts = @(
+        @{ Index = 'https://download.pytorch.org/whl/cu132'; Pkgs = @('torch==2.15.0', 'torchvision==0.29.2'); Label = 'cu132 (torch 2.15.0)' },
+        @{ Index = 'https://download.pytorch.org/whl/cu130'; Pkgs = @('torch', 'torchvision'); Label = 'cu130' },
+        @{ Index = 'https://download.pytorch.org/whl/cu128'; Pkgs = @('torch', 'torchvision'); Label = 'cu128' },
+        @{ Index = 'https://download.pytorch.org/whl/cu124'; Pkgs = @('torch', 'torchvision'); Label = 'cu124' }
+      )
+      foreach ($attempt in $CudaAttempts) {
+        Write-Host "Installing CUDA PyTorch ($($attempt.Label)) from $($attempt.Index)..."
+        & $VenvPython -m pip install --prefer-binary --index-url $attempt.Index @($attempt.Pkgs)
+        if ($LASTEXITCODE -eq 0) {
+          $VerifyCuda = & $VenvPython -c "import torch; assert torch.cuda.is_available(); t=torch.ones((1,), device='cuda:0'); assert (t+1).item()==2; torch.cuda.synchronize(0); print('OK')" 2>$null
+          if ($VerifyCuda -eq 'OK') {
+            $TorchInstalled = $true
+            break
+          }
+        }
+      }
+    }
+    if (-not $TorchInstalled) { throw 'Could not install a working CUDA PyTorch & TorchVision build.' }
   }
 } elseif ($Acceleration -eq 'cpu') {
-  if ($CurrentTorchVer -match 'cu' -or -not $CurrentTorchVer -or $HasTorchVision -ne 'True') {
-    Write-Host 'Installing CPU-only PyTorch & TorchVision for CPU bundle...'
-    & $VenvPython -m pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision --upgrade --force-reinstall
-    if ($LASTEXITCODE -ne 0) { throw "Could not install CPU PyTorch from PyTorch CPU index." }
+  if ($TorchCpuOk -like 'CPU_OK:*' -and $TorchCpuOk -notmatch 'cu') {
+    Write-Host "CPU PyTorch already installed: $($TorchCpuOk.Substring(7))"
   } else {
-    Write-Host "Correct CPU PyTorch is already installed."
+    Write-Host 'Installing CPU-only PyTorch & TorchVision for CPU bundle...'
+    & $VenvPython -m pip install --prefer-binary --index-url https://download.pytorch.org/whl/cpu torch torchvision --upgrade --force-reinstall
+    if ($LASTEXITCODE -ne 0) { throw 'Could not install CPU PyTorch from PyTorch CPU index.' }
   }
 }
 
-$DuckAnalyzerWheel = Get-ChildItem -Path (Join-Path $BackendDir 'app\ml') -Filter 'duck_analyzer-*.whl' -Recurse |
-  Sort-Object Name -Descending | Select-Object -First 1
-if (-not $DuckAnalyzerWheel) { throw 'The bundled duck_analyzer wheel is missing.' }
-$PipExtraArgs = if ($Acceleration -eq 'cuda' -and $CudaIndex) { @('--prefer-binary', '--extra-index-url', $CudaIndex) } else { @('--prefer-binary') }
-& $VenvPython -m pip install @PipExtraArgs $DuckAnalyzerWheel.FullName
-if ($LASTEXITCODE -ne 0) { throw 'Failed to install duck_analyzer wheel.' }
+# 2. Install backend + TrayCount ML requirements
+$ReqFile = Join-Path $BackendDir 'requirements.txt'
+if (Test-Path $ReqFile) {
+  & $VenvPython -m pip install --prefer-binary -r $ReqFile
+  if ($LASTEXITCODE -ne 0) { throw 'Failed to install backend requirements.txt.' }
+}
+
+# 3. Install bundled TrayCount wheel
+$WhlDir = Join-Path $BackendDir 'app\ml\whl'
+$SearchRoot = if (Test-Path $WhlDir) { $WhlDir } else { Join-Path $BackendDir 'app\ml' }
+$TrayCountWheel = Get-ChildItem -Path $SearchRoot -Filter 'traycount-*.whl' -Recurse |
+  Sort-Object {
+    if ($_.Name -match 'traycount-([0-9]+(\.[0-9]+)*)') {
+      try { [System.Version]$matches[1] } catch { [System.Version]'0.0.0' }
+    } else {
+      [System.Version]'0.0.0'
+    }
+  } -Descending | Select-Object -First 1
+if (-not $TrayCountWheel) { throw 'The bundled traycount wheel is missing from app\ml\whl.' }
+
+& $VenvPython -m pip install --prefer-binary --no-deps --force-reinstall $TrayCountWheel.FullName
+if ($LASTEXITCODE -ne 0) { throw "Failed to install $($TrayCountWheel.Name)." }
+
 if (-not $SkipPyInstaller -or -not (Test-Path (Join-Path $BackendDir 'dist\backend\backend.exe'))) {
   Push-Location $BackendDir
   try {
@@ -128,20 +129,26 @@ if (-not $SkipPyInstaller -or -not (Test-Path (Join-Path $BackendDir 'dist\backe
     Remove-Item -LiteralPath (Join-Path $BackendDir 'dist') -Recurse -Force -ErrorAction SilentlyContinue
 
     $PyInstallerArgs = @(
-      '--noconfirm', '--clean', '--onedir', '--name', 'backend', 'run.py',
-      '--add-data', 'app/ml/model;app/ml/model',
-      '--add-data', 'app/ml/config;app/ml/config',
-      '--add-data', 'app/ml/torch_hub;app/ml/torch_hub',
-      '--add-data', 'alembic;alembic'
+      '--noconfirm', '--clean', '--onedir', '--name', 'backend', 'run.py'
     )
+    foreach ($dataFolder in @('app/ml/config', 'app/ml/weights', 'app/ml/model', 'alembic')) {
+      if (Test-Path (Join-Path $BackendDir $dataFolder)) {
+        $PyInstallerArgs += @('--add-data', "$dataFolder;$dataFolder")
+      }
+    }
     $PyInstallerArgs += @(
       '--copy-metadata', 'torchvision',
       '--copy-metadata', 'ultralytics',
+      '--copy-metadata', 'timm',
+      '--copy-metadata', 'safetensors',
+      '--copy-metadata', 'huggingface_hub',
       '--collect-all', 'app', '--collect-all', 'fastapi', '--collect-all', 'starlette', '--collect-all', 'uvicorn',
       '--collect-all', 'sqlalchemy', '--collect-all', 'cv2', '--collect-all', 'torch', '--collect-all', 'torchvision',
       '--collect-all', 'ultralytics', '--collect-all', 'depthai',
       '--collect-all', 'av', '--collect-all', 'mediapipe',
-      '--collect-all', 'scipy', '--collect-all', 'lap', '--collect-all', 'imageio_ffmpeg', '--collect-all', 'duck_analyzer'
+      '--collect-all', 'scipy', '--collect-all', 'imageio_ffmpeg',
+      '--collect-all', 'timm', '--collect-all', 'safetensors', '--collect-all', 'huggingface_hub',
+      '--collect-all', 'traycount'
     )
     & $VenvPython -m PyInstaller @PyInstallerArgs
     if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed.' }

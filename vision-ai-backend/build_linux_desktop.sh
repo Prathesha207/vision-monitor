@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build Linux desktop artifacts from a native Ubuntu/Debian machine.
-# Run this script from vision-ai-backend or repo root:
+# Run this script from vision-ai-backend or repo root.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -41,61 +41,86 @@ fi
 if [[ -d "$BACKEND_DIR/.venv" && -x "$BACKEND_DIR/.venv/bin/python" ]]; then
   echo "Using verified backend virtual environment ($BACKEND_DIR/.venv)..."
   VENV_DIR="$BACKEND_DIR/.venv"
-  source "$VENV_DIR/bin/activate"
-  python -m pip install --upgrade pip
-  python -m pip install -r "$BACKEND_DIR/requirements.txt"
 else
   echo "Creating Linux build virtual environment ($VENV_DIR)..."
   python3 -m venv --system-site-packages "$VENV_DIR"
-  source "$VENV_DIR/bin/activate"
-  python -m pip install --upgrade pip
-  python -m pip install -r "$BACKEND_DIR/requirements.txt"
 fi
 
+source "$VENV_DIR/bin/activate"
+python -m pip install --upgrade pip setuptools wheel
+
+# 1. Install CUDA PyTorch & torchvision FIRST (before requirements.txt)
 if [[ "${USE_CUDA:-0}" == "1" || ( "${USE_CUDA:-auto}" == "auto" && -n "$(command -v nvidia-smi 2>/dev/null || true)" ) ]]; then
   echo "NVIDIA GPU detected/requested; verifying CUDA-enabled PyTorch..."
-  if python -c "import torch; raise SystemExit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
+  if python -c "import torch, torchvision; x=torch.ones((1,), device='cuda:0'); assert (x+1).item()==2; torch.cuda.synchronize(0)" 2>/dev/null; then
     echo "CUDA PyTorch is already operational: $(python -c 'import torch; print(torch.__version__, torch.cuda.get_device_name(0) if torch.cuda.is_available() else "")')"
-  elif [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
-    echo "ARM64 detected without vendor CUDA PyTorch; keeping existing environment."
-    python -m pip install torch torchvision 2>/dev/null || true
+  elif [[ "$MACHINE_ARCH" == "aarch64" || "$MACHINE_ARCH" == "arm64" ]]; then
+    echo "ARM64 detected without vendor CUDA PyTorch; installing standard PyTorch."
+    python -m pip install --prefer-binary torch torchvision 2>/dev/null || true
   else
-    # Auto-detect compute capability for Blackwell (GB10) / Ada (sm_89+) / Hopper (sm_90)
-    COMPUTE_CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n 1 | tr -d ' ' || echo "0.0")
-    if [[ -z "${PYTORCH_CUDA_INDEX:-}" ]]; then
-      if awk "BEGIN {exit !($COMPUTE_CAP >= 8.9)}"; then
-        PYTORCH_CUDA_INDEX="https://download.pytorch.org/whl/cu124"
-      else
-        PYTORCH_CUDA_INDEX="https://download.pytorch.org/whl/cu121"
+    TORCH_OK=0
+    if [[ -n "${PYTORCH_CUDA_INDEX:-}" ]]; then
+      echo "Installing CUDA PyTorch from custom index $PYTORCH_CUDA_INDEX..."
+      if python -m pip install --prefer-binary --index-url "$PYTORCH_CUDA_INDEX" torch==2.15.0 torchvision==0.29.2 \
+         || python -m pip install --prefer-binary --index-url "$PYTORCH_CUDA_INDEX" torch torchvision; then
+        TORCH_OK=1
       fi
+    else
+      for ENTRY in \
+        "https://download.pytorch.org/whl/cu132|torch==2.15.0 torchvision==0.29.2" \
+        "https://download.pytorch.org/whl/cu130|torch torchvision" \
+        "https://download.pytorch.org/whl/cu128|torch torchvision" \
+        "https://download.pytorch.org/whl/cu124|torch torchvision"; do
+        IDX="${ENTRY%%|*}"
+        PKGS="${ENTRY##*|}"
+        echo "Installing CUDA PyTorch ($PKGS) from $IDX..."
+        # shellcheck disable=SC2086
+        if python -m pip install --prefer-binary --index-url "$IDX" $PKGS; then
+          if python -c "import torch; assert torch.cuda.is_available(); x=torch.ones((1,), device='cuda:0'); assert (x+1).item()==2; torch.cuda.synchronize(0)" 2>/dev/null; then
+            TORCH_OK=1
+            break
+          fi
+        fi
+      done
     fi
-    echo "Installing CUDA PyTorch from $PYTORCH_CUDA_INDEX (Compute Cap: $COMPUTE_CAP)..."
-    python -m pip install --force-reinstall \
-      --index-url "$PYTORCH_CUDA_INDEX" \
-      torch torchvision
+    if [[ "$TORCH_OK" -ne 1 ]]; then
+      echo "ERROR: Could not install a working CUDA PyTorch build."
+      exit 1
+    fi
   fi
 else
   echo "Building with CPU-compatible PyTorch. Set USE_CUDA=1 to force CUDA."
+  python -m pip install --prefer-binary torch torchvision
 fi
 
-DUCK_ANALYZER_WHEEL="$(find "$BACKEND_DIR/app/ml" -name 'duck_analyzer-*.whl' -print | sort -r | head -n 1)"
-[[ -n "$DUCK_ANALYZER_WHEEL" ]] || { echo "The bundled duck_analyzer wheel is missing."; exit 1; }
-python -m pip install "$DUCK_ANALYZER_WHEEL"
+# 2. Install backend + TrayCount ML requirements
+python -m pip install --prefer-binary -r "$BACKEND_DIR/requirements.txt"
 
-if [[ -f "$BACKEND_DIR/app/ml/requirements.txt" ]]; then
-  python -m pip install -r "$BACKEND_DIR/app/ml/requirements.txt"
-fi
+# 3. Install bundled TrayCount wheel
+TRAYCOUNT_WHEEL="$(find "$BACKEND_DIR/app/ml/whl" "$BACKEND_DIR/app/ml" -maxdepth 2 -name 'traycount-*.whl' -print 2>/dev/null | sort -V -r | head -n 1)"
+[[ -n "$TRAYCOUNT_WHEEL" ]] || { echo "The bundled traycount wheel is missing from app/ml/whl."; exit 1; }
+python -m pip install --no-deps --force-reinstall "$TRAYCOUNT_WHEEL"
 
 cd "$BACKEND_DIR"
 rm -rf "$BACKEND_DIR/build" "$BACKEND_DIR/dist"
+
+DATA_ARGS=()
+for DATA_DIR in "app/ml/config" "app/ml/weights" "app/ml/model" "alembic"; do
+  if [[ -d "$BACKEND_DIR/$DATA_DIR" ]]; then
+    DATA_ARGS+=(--add-data "$BACKEND_DIR/$DATA_DIR:$DATA_DIR")
+  fi
+done
 
 pyinstaller --noconfirm --clean --onedir --name backend "$BACKEND_DIR/run.py" \
   --distpath "$BACKEND_DIR/dist" \
   --workpath "$BACKEND_DIR/build" \
   --specpath "$BACKEND_DIR" \
-  --add-data "$BACKEND_DIR/app/ml/model:app/ml/model" \
-  --add-data "$BACKEND_DIR/app/ml/config:app/ml/config" \
-  --add-data "$BACKEND_DIR/alembic:alembic" \
+  "${DATA_ARGS[@]}" \
+  --copy-metadata torchvision \
+  --copy-metadata ultralytics \
+  --copy-metadata timm \
+  --copy-metadata safetensors \
+  --copy-metadata huggingface_hub \
   --collect-all app \
   --collect-all fastapi \
   --collect-all starlette \
@@ -105,11 +130,15 @@ pyinstaller --noconfirm --clean --onedir --name backend "$BACKEND_DIR/run.py" \
   --collect-all torch \
   --collect-all torchvision \
   --collect-all ultralytics \
-  --collect-all lap \
   --collect-all depthai \
   --collect-all av \
-  --collect-all duck_analyzer \
-  --collect-all mediapipe
+  --collect-all mediapipe \
+  --collect-all scipy \
+  --collect-all imageio_ffmpeg \
+  --collect-all timm \
+  --collect-all safetensors \
+  --collect-all huggingface_hub \
+  --collect-all traycount
 
 # Strip non-runtime development files directly in dist/backend
 chmod +x "$BACKEND_DIR/dist/backend/backend"

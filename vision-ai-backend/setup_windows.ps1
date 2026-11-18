@@ -5,8 +5,8 @@ param(
 
 # ==============================================================================
 # Vision Monitor - Windows Environment Setup Script
-# Configures Python virtual environment, dependencies, CUDA PyTorch,
-# DuckAnalyzer wheel, and Node.js frontend packages without errors.
+# Configures Python virtual environment, CUDA PyTorch/TorchVision,
+# TrayCount ML dependencies & wheel, and Node.js frontend packages.
 # ==============================================================================
 $ErrorActionPreference = 'Continue'
 
@@ -49,11 +49,14 @@ function Find-ValidPython {
         }
     }
 
-    # Check common system install locations
     $defaultPaths = @(
+        "$env:LocalAppData\Programs\Python\Python314\python.exe",
+        "$env:LocalAppData\Programs\Python\Python313\python.exe",
         "$env:LocalAppData\Programs\Python\Python312\python.exe",
         "$env:LocalAppData\Programs\Python\Python311\python.exe",
         "$env:LocalAppData\Programs\Python\Python310\python.exe",
+        "C:\Python314\python.exe",
+        "C:\Python313\python.exe",
         "C:\Python312\python.exe",
         "C:\Python311\python.exe",
         "C:\Python310\python.exe"
@@ -76,7 +79,7 @@ function Find-ValidPython {
 $Python = Find-ValidPython
 if (-not $Python) {
     Write-Host "[ERROR] Python 3.10+ was not found on your system." -ForegroundColor Red
-    Write-Host "Please download and install Python 3.10, 3.11, or 3.12 from https://www.python.org/downloads/" -ForegroundColor Red
+    Write-Host "Please download and install Python 3.10+ from https://www.python.org/downloads/" -ForegroundColor Red
     Write-Host "Be sure to check 'Add Python to PATH' during installation." -ForegroundColor Red
     throw "Python 3.10+ not found."
 }
@@ -109,7 +112,7 @@ if (-not $NpmCmd) {
 
 if (-not $NpmCmd) {
     Write-Host "[ERROR] Node.js / npm was not found on your system." -ForegroundColor Red
-    Write-Host "Please download and install Node.js LTS (v18+) from https://nodejs.org/" -ForegroundColor Red
+    Write-Host "Please download and install Node.js LTS (v20+/22+) from https://nodejs.org/" -ForegroundColor Red
     throw "Node.js / npm not found."
 }
 
@@ -118,7 +121,7 @@ $NpmVersion = & $NpmExecutable --version 2>&1
 Write-Host "[OK] Using npm: v$NpmVersion ($NpmExecutable)" -ForegroundColor Green
 
 # ------------------------------------------------------------------------------
-# 3. Configure Python Virtual Environment (.venv) & Backend Packages
+# 3. Configure Python Virtual Environment (.venv) & Clean Reset
 # ------------------------------------------------------------------------------
 Write-Host ""
 Write-Host "[3/7] Setting up Python virtual environment..." -ForegroundColor Yellow
@@ -156,50 +159,16 @@ if (-not (Test-Path $VenvPython)) {
     Write-Host "Reusing existing virtual environment at $VenvDir."
 }
 
-# Fast check: are backend packages already installed?
-$BackendCheck = try {
-    & $VenvPython -c "
-import importlib.util as u
-pkgs = ['fastapi', 'uvicorn', 'ultralytics', 'cv2', 'mediapipe', 'yaml', 'torchvision']
-if all(u.find_spec(p) is not None for p in pkgs):
-    print('INSTALLED')
-else:
-    print('MISSING')
-" 2>$null
-} catch { 'MISSING' }
-if ($BackendCheck -eq 'INSTALLED') {
-    Write-Host "[OK] Backend dependencies (including torchvision) are already installed. (Skipping requirements reinstall)." -ForegroundColor Green
-} else {
-    Write-Host "Installing backend requirements..."
-    $ReqFile = Join-Path $BackendDir 'requirements.txt'
-    if (Test-Path $ReqFile) {
-        $CudaIndex = if ($env:PYTORCH_CUDA_INDEX) { $env:PYTORCH_CUDA_INDEX } else { 'https://download.pytorch.org/whl/cu124' }
-        & $VenvPython -m pip install --prefer-binary --extra-index-url $CudaIndex -r $ReqFile
-        if ($LASTEXITCODE -ne 0) {
-            throw "Failed to install Python requirements from $ReqFile."
-        }
-    }
-    $MlReqFile = Join-Path $BackendDir 'app\ml\requirements.txt'
-    if (Test-Path $MlReqFile) {
-        Write-Host "Installing ML requirements from $MlReqFile..."
-        & $VenvPython -m pip install --prefer-binary -r $MlReqFile
-        if ($LASTEXITCODE -ne 0) {
-            throw "Failed to install ML requirements from $MlReqFile."
-        }
-    }
-}
-
 # ------------------------------------------------------------------------------
-# 4. Check PyTorch Acceleration (GPU / Older Driver / CPU) & Torchvision
+# 4. Install & Verify PyTorch + TorchVision (CUDA FIRST before requirements.txt)
 # ------------------------------------------------------------------------------
 Write-Host ""
-Write-Host "[4/7] Verifying PyTorch, torchvision, and hardware acceleration..." -ForegroundColor Yellow
+Write-Host "[4/7] Verifying PyTorch, torchvision, and CUDA GPU acceleration..." -ForegroundColor Yellow
 
-# 1. Comprehensive NVIDIA hardware and driver detection
 $HasNvidia = $false
 $ComputeCap = 0.0
+$NvidiaGpus = $null
 
-# Try nvidia-smi first (extracts compute capability for exact CUDA version matching)
 $SmiPath = "nvidia-smi"
 if (-not (Get-Command nvidia-smi -ErrorAction SilentlyContinue)) {
     $SmiCandidates = @(
@@ -224,7 +193,6 @@ if ($SmiPath -ne "nvidia-smi" -or (Get-Command nvidia-smi -ErrorAction SilentlyC
     }
 }
 
-# Fallback detection if nvidia-smi fails or is missing
 if (-not $HasNvidia) {
     $AllVideoControllers = Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue
     $NvidiaGpus = @($AllVideoControllers) | Where-Object {
@@ -248,7 +216,6 @@ if (-not $HasNvidia) {
     }
 }
 
-# Test if an existing PyTorch and torchvision are already installed and whether CUDA is operational safely
 $TorchCheck = try {
     & $VenvPython -c "
 try:
@@ -281,59 +248,93 @@ except Exception:
 $GpuName = if ($NvidiaGpus) { ($NvidiaGpus | Select-Object -First 1).Name } else { 'NVIDIA GPU' }
 
 if ($TorchCheck -like 'CUDA_OPERATIONAL*' -and $TorchVisionCheck -eq 'TV_OK') {
-    Write-Host "[OK] PyTorch and torchvision are already installed and verified operational on $GpuName (GPU Accelerated)." -ForegroundColor Green
+    Write-Host "[OK] PyTorch and torchvision are already installed and verified operational ($($TorchCheck.Substring(17)))." -ForegroundColor Green
 } elseif ($HasNvidia) {
-    Write-Host "[INFO] NVIDIA GPU detected ($GpuName). Installing CUDA-accelerated PyTorch and torchvision..." -ForegroundColor Cyan
-    if ($ComputeCap -ge 12.0) {
-        # Blackwell GPUs (sm_120), including RTX 50-series, need a wheel
-        # containing compatible kernels. The old cu126 selection could see
-        # the device but fail at the first model operation.
-        $TargetCuda = 'cu130'
-        $CudaIndex = 'https://download.pytorch.org/whl/cu130'
-    } elseif ($ComputeCap -ge 8.9) {
-        $TargetCuda = 'cu124'
-        $CudaIndex = 'https://download.pytorch.org/whl/cu124'
-    } else {
-        $TargetCuda = 'cu121'
-        $CudaIndex = 'https://download.pytorch.org/whl/cu121'
-    }
-    if ($env:PYTORCH_CUDA_INDEX) { $CudaIndex = $env:PYTORCH_CUDA_INDEX }
-    Write-Host "[GPU INFO] Targeting CUDA $TargetCuda for maximum compatibility/performance." -ForegroundColor Cyan
-    Write-Host "Fetching CUDA wheels from $CudaIndex..."
-    & $VenvPython -m pip install --upgrade --force-reinstall --index-url $CudaIndex torch torchvision
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "[WARN] $TargetCuda install returned non-zero; retrying with cu128 fallback..." -ForegroundColor Yellow
-        & $VenvPython -m pip install --upgrade --force-reinstall --index-url https://download.pytorch.org/whl/cu128 torch torchvision
+    Write-Host "[INFO] NVIDIA GPU detected ($GpuName). Installing CUDA PyTorch and torchvision first..." -ForegroundColor Cyan
+    $TorchInstalled = $false
+
+    if ($env:PYTORCH_CUDA_INDEX) {
+        Write-Host "Fetching CUDA wheels from custom index $($env:PYTORCH_CUDA_INDEX)..."
+        & $VenvPython -m pip install --prefer-binary --index-url $env:PYTORCH_CUDA_INDEX torch==2.15.0 torchvision==0.29.2
         if ($LASTEXITCODE -ne 0) {
-            throw "Failed to install CUDA PyTorch and torchvision."
+            & $VenvPython -m pip install --prefer-binary --index-url $env:PYTORCH_CUDA_INDEX torch torchvision
+        }
+        if ($LASTEXITCODE -eq 0) { $TorchInstalled = $true }
+    } else {
+        # Try TrayCount tested CUDA 13.2 build first, then fallback to compatible CUDA indices
+        $CudaAttempts = @(
+            @{ Index = 'https://download.pytorch.org/whl/cu132'; Pkgs = @('torch==2.15.0', 'torchvision==0.29.2'); Label = 'cu132 (torch 2.15.0)' },
+            @{ Index = 'https://download.pytorch.org/whl/cu130'; Pkgs = @('torch', 'torchvision'); Label = 'cu130' },
+            @{ Index = 'https://download.pytorch.org/whl/cu128'; Pkgs = @('torch', 'torchvision'); Label = 'cu128' },
+            @{ Index = 'https://download.pytorch.org/whl/cu124'; Pkgs = @('torch', 'torchvision'); Label = 'cu124' }
+        )
+        foreach ($attempt in $CudaAttempts) {
+            Write-Host "Attempting CUDA PyTorch install ($($attempt.Label)) from $($attempt.Index)..." -ForegroundColor Cyan
+            & $VenvPython -m pip install --prefer-binary --index-url $attempt.Index @($attempt.Pkgs)
+            if ($LASTEXITCODE -eq 0) {
+                $KernelOk = & $VenvPython -c "import torch; assert torch.cuda.is_available(); t=torch.ones((1,), device='cuda:0'); assert (t+1).item()==2; torch.cuda.synchronize(0); print('OK')" 2>$null
+                if ($KernelOk -eq 'OK') {
+                    $TorchInstalled = $true
+                    Write-Host "[OK] Verified CUDA PyTorch ($($attempt.Label)) on GPU." -ForegroundColor Green
+                    break
+                }
+                Write-Host "[WARN] Installed $($attempt.Label) but CUDA kernel test failed; trying next fallback..." -ForegroundColor Yellow
+            } else {
+                Write-Host "[WARN] $($attempt.Label) unavailable for this Python/driver; trying next fallback..." -ForegroundColor Yellow
+            }
         }
     }
+
+    if (-not $TorchInstalled) {
+        throw "Failed to install a working CUDA PyTorch and torchvision build."
+    }
 } elseif ($TorchCheck -eq 'CPU_OPERATIONAL' -and $TorchVisionCheck -eq 'TV_OK') {
-    Write-Host "[OK] CPU PyTorch and torchvision are already installed and operational for CPU inference." -ForegroundColor Green
+    Write-Host "[OK] CPU PyTorch and torchvision are installed. (Note: TrayCount inference requires an NVIDIA CUDA GPU)." -ForegroundColor Yellow
 } else {
-    Write-Host "[INFO] No NVIDIA GPU hardware detected on this PC. Installing CPU-only PyTorch and torchvision..." -ForegroundColor Cyan
-    & $VenvPython -m pip install --upgrade torch torchvision
+    Write-Host "[WARN] No NVIDIA GPU detected. Installing CPU-only PyTorch (TrayCount inference requires CUDA GPU)..." -ForegroundColor Yellow
+    & $VenvPython -m pip install --prefer-binary torch torchvision
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to install CPU PyTorch and torchvision."
     }
 }
 
-# Strict verification: verify that torchvision metadata is functional right now
+# Install backend + ML requirements (after CUDA PyTorch so PyPI never overwrites CUDA torch)
+$BackendCheck = try {
+    & $VenvPython -c "
+import importlib.util as u
+pkgs = ['fastapi', 'uvicorn', 'ultralytics', 'cv2', 'mediapipe', 'yaml', 'timm', 'safetensors', 'huggingface_hub', 'scipy', 'torchvision']
+if all(u.find_spec(p) is not None for p in pkgs):
+    print('INSTALLED')
+else:
+    print('MISSING')
+" 2>$null
+} catch { 'MISSING' }
+
+if ($BackendCheck -eq 'INSTALLED' -and -not $Clean) {
+    Write-Host "[OK] Backend and ML dependencies are already installed." -ForegroundColor Green
+} else {
+    $ReqFile = Join-Path $BackendDir 'requirements.txt'
+    if (Test-Path $ReqFile) {
+        Write-Host "Installing backend and ML requirements from $ReqFile..."
+        & $VenvPython -m pip install --prefer-binary -r $ReqFile
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to install Python requirements from $ReqFile."
+        }
+    }
+}
+
+# Verify torchvision metadata & CUDA status
 $TorchVisionVerify = try {
     & $VenvPython -c "
 import torch, torchvision, importlib.metadata
-try:
-    _ = importlib.metadata.version('torchvision')
-    print('VERIFIED')
-except Exception:
-    print('FAILED')
+_ = importlib.metadata.version('torchvision')
+print('VERIFIED')
 " 2>$null
 } catch { 'FAILED' }
 if ($TorchVisionVerify -ne 'VERIFIED') {
     throw "PyTorch / torchvision verification failed: 'torchvision' package metadata is missing or corrupted."
 }
 
-# Confirm GPU hardware acceleration status
 $CudaFinalCheck = try {
     & $VenvPython -c "
 import torch
@@ -348,25 +349,26 @@ if ($CudaFinalCheck -like 'CUDA_ACTIVE:*') {
     $activeGpu = $CudaFinalCheck.Substring(12)
     Write-Host "[GPU SUCCESS] Hardware Acceleration Confirmed: $activeGpu is ready for ML inference!" -ForegroundColor Green
 } elseif ($HasNvidia) {
-    Write-Host "[WARNING] NVIDIA GPU hardware was detected on this PC, but PyTorch is in CPU mode. Please verify NVIDIA driver is installed." -ForegroundColor Yellow
+    Write-Host "[WARNING] NVIDIA GPU hardware was detected, but PyTorch is in CPU mode. Verify NVIDIA driver is up to date." -ForegroundColor Yellow
 } else {
-    Write-Host "[INFO] ML Inference configured for CPU mode." -ForegroundColor Cyan
+    Write-Host "[INFO] ML Inference configured for CPU mode (TrayCount requires CUDA GPU)." -ForegroundColor Cyan
 }
 
 # ------------------------------------------------------------------------------
-# 5. Install Bundled DuckAnalyzer Wheel
+# 5. Install Bundled TrayCount Wheel
 # ------------------------------------------------------------------------------
 Write-Host ""
-Write-Host "[5/7] Verifying DuckAnalyzer package..." -ForegroundColor Yellow
+Write-Host "[5/7] Verifying TrayCount ML package..." -ForegroundColor Yellow
 
-$DuckAnalyzerInstalled = & $VenvPython -c "import duck_analyzer; print('INSTALLED')" 2>$null
-if ($DuckAnalyzerInstalled -eq 'INSTALLED') {
-    Write-Host "[OK] DuckAnalyzer package is already installed." -ForegroundColor Green
+$TrayCountInstalled = & $VenvPython -c "from traycount import TrayCounter; print('INSTALLED')" 2>$null
+if ($TrayCountInstalled -eq 'INSTALLED' -and -not $Clean) {
+    Write-Host "[OK] TrayCount package is already installed." -ForegroundColor Green
 } else {
-    # Sort wheels by semantic version (e.g. 1.0.15 > 1.0.9 instead of string alphabetical sort)
-    $DuckAnalyzerWheel = Get-ChildItem -Path (Join-Path $BackendDir 'app\ml') -Filter 'duck_analyzer-*.whl' -Recurse -ErrorAction SilentlyContinue |
+    $WhlDir = Join-Path $BackendDir 'app\ml\whl'
+    $SearchRoot = if (Test-Path $WhlDir) { $WhlDir } else { Join-Path $BackendDir 'app\ml' }
+    $TrayCountWheel = Get-ChildItem -Path $SearchRoot -Filter 'traycount-*.whl' -Recurse -ErrorAction SilentlyContinue |
         Sort-Object {
-            if ($_.Name -match 'duck_analyzer-([0-9]+(\.[0-9]+)*)') {
+            if ($_.Name -match 'traycount-([0-9]+(\.[0-9]+)*)') {
                 try { [System.Version]$matches[1] } catch { [System.Version]'0.0.0' }
             } else {
                 [System.Version]'0.0.0'
@@ -374,14 +376,14 @@ if ($DuckAnalyzerInstalled -eq 'INSTALLED') {
         } -Descending |
         Select-Object -First 1
 
-    if (-not $DuckAnalyzerWheel) {
-        throw "The bundled duck_analyzer wheel is missing from app\ml."
+    if (-not $TrayCountWheel) {
+        throw "The bundled traycount wheel is missing from app\ml\whl."
     }
 
-    Write-Host "Installing $($DuckAnalyzerWheel.Name)..."
-    & $VenvPython -m pip install --prefer-binary --no-deps --force-reinstall $DuckAnalyzerWheel.FullName
+    Write-Host "Installing $($TrayCountWheel.Name)..."
+    & $VenvPython -m pip install --prefer-binary --no-deps --force-reinstall $TrayCountWheel.FullName
     if ($LASTEXITCODE -ne 0) {
-        throw "Failed to install $($DuckAnalyzerWheel.Name)."
+        throw "Failed to install $($TrayCountWheel.Name)."
     }
 }
 
@@ -402,7 +404,7 @@ if ((Test-Path $NodeModulesDir) -and (Test-Path $DistHtml)) {
         Write-Host "Installing frontend dependencies..."
         & $NpmExecutable install --include=optional
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "[WARN] npm install failed (e.g. electron@41 postinstall requires Node >= 22). Retrying with --ignore-scripts for web/dev build..." -ForegroundColor Yellow
+            Write-Host "[WARN] npm install failed (e.g. electron postinstall requires Node >= 22). Retrying with --ignore-scripts for web/dev build..." -ForegroundColor Yellow
             & $NpmExecutable install --include=optional --ignore-scripts
             if ($LASTEXITCODE -ne 0) {
                 throw "npm install failed in $FrontendDir."
@@ -433,10 +435,15 @@ try:
     import torch
     import torchvision
     import importlib.metadata
-    tv = importlib.metadata.version('torchvision')
+    import timm
+    import safetensors
+    import huggingface_hub
+    import mediapipe
     from ultralytics import YOLO
-    import duck_analyzer
-    print(f'PASS|{torch.__version__}|{tv}')
+    from traycount import TrayCounter
+    tv = importlib.metadata.version('torchvision')
+    tc = importlib.metadata.version('traycount')
+    print(f'PASS|{torch.__version__}|{tv}|{tc}')
 except Exception as e:
     print(f'FAIL|{e}', file=sys.stderr)
     sys.exit(1)
@@ -445,7 +452,7 @@ except Exception as e:
 if ($LASTEXITCODE -ne 0 -or -not ($SmokeTestResult -match '^PASS\|')) {
     throw "Pre-flight inference verification failed: $SmokeTestResult. Inference would fail at runtime."
 }
-Write-Host "[OK] Pre-flight inference smoke test PASSED! (YOLO, DuckAnalyzer, and torchvision ready)." -ForegroundColor Green
+Write-Host "[OK] Pre-flight inference smoke test PASSED! (YOLO, MediaPipe, timm, safetensors, TrayCount, and torchvision ready)." -ForegroundColor Green
 
 # ------------------------------------------------------------------------------
 # Completion Summary
@@ -457,10 +464,10 @@ Write-Host "=======================================================" -Foreground
 Write-Host ""
 
 & $VenvPython -c "
-import torch
-import torchvision
+import torch, torchvision, importlib.metadata as md
 print(f'  PyTorch Version     : {torch.__version__}')
 print(f'  TorchVision Version : {torchvision.__version__}')
+print(f'  TrayCount Version   : {md.version(\"traycount\")}')
 print(f'  CUDA Enabled        : {torch.cuda.is_available()}')
 if torch.cuda.is_available():
     print(f'  GPU Device          : {torch.cuda.get_device_name(0)}')
