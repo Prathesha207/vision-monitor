@@ -154,9 +154,10 @@ async def stream(request: Request, session_id: Optional[str] = None):
 
         try:
             while True:
-                if await request.is_disconnected():
-                    logger.info(f"[STREAM] Client disconnected — frames sent: {frames_sent}")
-                    break
+                if frames_sent % 30 == 0:
+                    if await request.is_disconnected():
+                        logger.info(f"[STREAM] Client disconnected — frames sent: {frames_sent}")
+                        break
 
                 if not oak_camera_service._is_streaming:
                     logger.info(f"[STREAM] Stream stopped — ending client stream cleanly (frames sent: {frames_sent})")
@@ -179,6 +180,21 @@ async def stream(request: Request, session_id: Optional[str] = None):
                         logger.info("[STREAM] Attempting to restart capture threads")
                         oak_camera_service._start_capture_threads()
                     continue
+
+                if jpeg is None:
+                    logger.info(f"[STREAM] Stream termination sentinel received — ending client stream (frames sent: {frames_sent})")
+                    break
+
+                # Discard any buffered backlog frames to guarantee real-time low latency
+                while not client_queue.empty():
+                    try:
+                        nxt = client_queue.get_nowait()
+                        if nxt is None:
+                            jpeg = None
+                            break
+                        jpeg = nxt
+                    except asyncio.QueueEmpty:
+                        break
 
                 if jpeg is None:
                     logger.info(f"[STREAM] Stream termination sentinel received — ending client stream (frames sent: {frames_sent})")

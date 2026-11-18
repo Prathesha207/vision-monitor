@@ -443,7 +443,8 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
                   }
                   setStreamError(false);
                   setIsFirstFrameLoaded((prev) => (!prev ? true : prev));
-                  if (!isRunning) {
+                  // Avoid synchronous 1080p canvas toDataURL encoding on every live MJPEG frame
+                  if (!isRunning && (!isCameraSource || hasCameraRecording || !lastCameraFrame)) {
                     captureFrame();
                   }
                 }}

@@ -336,6 +336,7 @@ from app.core.logger import setup_logger, current_request_id
 # Paths whose responses must NOT be buffered/read (streaming / binary / websocket-adjacent)
 STREAMING_PATH_PREFIXES = (
     "/oak/stream",
+    "/oak/inference/stream",
     "/video/stream",
     "/oak/inference/ws",
     "/oak/snapshot",

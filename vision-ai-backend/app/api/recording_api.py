@@ -106,6 +106,9 @@ def stop_recording(data: StopRecordingRequest):
             "filename": filename,
             "duration": result.get("duration", 0),
             "frames": result.get("frames_written", 0),
+            "dropped_frames": result.get("dropped_frames", 0),
+            "camera_frames_missing": result.get("camera_frames_missing", 0),
+            "codec": result.get("codec"),
             "stream_url": f"/video/stream/{ml_session_id}",
         }
     except HTTPException:
