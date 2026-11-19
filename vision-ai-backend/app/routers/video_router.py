@@ -501,6 +501,15 @@ async def start_video_inference(session_id: str, background_tasks: BackgroundTas
         if not session:
             return JSONResponse(status_code=404, content={"message": "Session not found."})
         
+        # Ensure any holding camera inference claims are cleanly released
+        from app.ml import app_state
+        if app_state.get_active_inference_kind() == "camera":
+            try:
+                from app.services.oak_camera_service import oak_camera_service
+                await asyncio.to_thread(oak_camera_service.stop_inference)
+            except Exception as e:
+                logger.warning(f"Auto-stopping camera inference before starting video run: {e}")
+
         # If an active background task is currently running, await stopping it so _gpu_lock is released
         if session.get("is_task_active", False):
             await ml_inference_service.stop_session(session_id, timeout=2.5)

@@ -149,9 +149,9 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
   const isWaitingForVideo = isVideoSource && !hasActiveVideo;
   const isCameraOffline = isCameraSource && !isCameraConnected && !hasCameraRecording;
 
-  // Ensure camera stream reconnects cleanly whenever running state changes while streaming
+  // Ensure stream reconnects cleanly whenever running state starts or camera stream toggles
   useEffect(() => {
-    if (isCameraSource && isStreaming) {
+    if (isRunning || (isCameraSource && isStreaming)) {
       setStreamCacheBuster(Date.now());
     }
   }, [isRunning, isCameraSource, isStreaming]);

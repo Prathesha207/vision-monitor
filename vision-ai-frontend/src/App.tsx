@@ -605,12 +605,7 @@ export default function App() {
   // Wrap toggle/stop/resume to pass startVideoInference
   const handleToggleRunning = async () => {
     if (sourceType === 'uploaded-video' || sourceType === 'sample-pond') {
-      const stats = useInferenceStore.getState().stats;
-      const isCompleted = stats?.status === 'completed' || stats?.progress >= 100;
-      if (!video.videoSessionId || isCompleted) {
-        if (isCompleted) {
-          await handleResetVideo();
-        }
+      if (!video.videoSessionId && !video.customVideoUrl) {
         uploadTriggerRef.current?.();
         return;
       }
@@ -675,12 +670,7 @@ export default function App() {
   };
   const handleResumeInference = async () => {
     if (sourceType === 'uploaded-video' || sourceType === 'sample-pond') {
-      const stats = useInferenceStore.getState().stats;
-      const isCompleted = stats?.status === 'completed' || stats?.progress >= 100;
-      if (!video.videoSessionId || isCompleted) {
-        if (isCompleted) {
-          await handleResetVideo();
-        }
+      if (!video.videoSessionId && !video.customVideoUrl) {
         uploadTriggerRef.current?.();
         return;
       }

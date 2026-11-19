@@ -91,7 +91,17 @@ export function useVideoPipeline({
       setFps(0);
       useInferenceStore.getState().resetStats();
       resetBBoxCache();
-      showToast('info', `Recorded video loaded: "${name}". Click START INFERENCE to run.`);
+
+      if (sessionId) {
+        setVideoSessionId(sessionId);
+        // Strictly and immediately start fresh inference on the recorded video
+        void startVideoInference(sessionId);
+      } else {
+        setIsRunning(false);
+      }
+
+      showToast('success', `Recorded video loaded. Starting inference...`);
+      addLog(`Recorded video loaded: "${name}". Inference started strictly.`, 'info');
       return;
     }
 
@@ -163,6 +173,9 @@ export function useVideoPipeline({
     useInferenceStore.getState().resetStats(); 
     resetBBoxCache();
     let sid = customSessionId || videoSessionId;
+    if (customSessionId && customSessionId !== videoSessionId) {
+      setVideoSessionId(customSessionId);
+    }
     if (!sid && (customVideoUrl || localPreviewUrl)) {
       const urlToTest = customVideoUrl || localPreviewUrl || '';
       const match = urlToTest.match(/\/video\/(?:stream|last_frame|raw)\/([a-zA-Z0-9_-]+)/);
