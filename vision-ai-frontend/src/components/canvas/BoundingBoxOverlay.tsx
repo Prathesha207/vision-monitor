@@ -45,11 +45,15 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
         .map((duck, idx) => {
           const isProvisional = duck.provisional;
           const isMissing = duck.statusEvent === 'missing';
-          // Only actual anomalous ducks (foreign species, excess duck, under-count frame, or explicit anomaly flag) are red
+          const isFalseMask = !isProvisional && (duck.statusEvent === 'false_mask' || (duck as any).false_mask === true || (duck as any).falseMask === true);
+          const isExcess = !isProvisional && (duck.statusEvent === 'excess' || (duck as any).excess === true);
+          // Only actual anomalous ducks (foreign species, excess duck, false mask, under-count frame, or explicit anomaly flag) are red
           const isIndividualAnomaly =
             !isProvisional &&
             !isMissing &&
             (duck.isAnomaly ||
+              isFalseMask ||
+              isExcess ||
               duck.species !== 'Duck');
           const isSelected = duck.id === selectedDuckId;
 
@@ -68,6 +72,20 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
             bgColor = isSelected ? 'bg-amber-500/35 animate-pulse' : 'bg-amber-500/15 animate-pulse';
             bracketColor = 'border-amber-400';
             tagStyle = 'bg-amber-950/90 text-amber-200 border border-amber-500/80 font-bold shadow-xs';
+            confColor = 'text-amber-300 font-bold';
+          } else if (isFalseMask) {
+            // False Mask / Excess Mask: RED / ROSE alert with pulse
+            borderColor = isSelected ? 'border-2 border-rose-400 animate-pulse' : 'border-2 border-rose-500 animate-pulse';
+            bgColor = isSelected ? 'bg-rose-500/35 animate-pulse' : 'bg-rose-500/15 animate-pulse';
+            bracketColor = 'border-rose-400';
+            tagStyle = 'bg-rose-950/95 text-rose-200 border border-rose-400 font-bold shadow-md animate-pulse';
+            confColor = 'text-rose-300 font-bold';
+          } else if (isExcess) {
+            // Excess Duck: AMBER / ORANGE alert
+            borderColor = isSelected ? 'border-2 border-amber-400' : 'border-2 border-amber-500';
+            bgColor = isSelected ? 'bg-amber-500/35' : 'bg-amber-500/15';
+            bracketColor = 'border-amber-400';
+            tagStyle = 'bg-amber-950/95 text-amber-200 border border-amber-400 font-bold shadow-xs';
             confColor = 'text-amber-300 font-bold';
           } else if (isProvisional) {
             // Provisional / Warming up duck: Amber/Yellow
@@ -139,6 +157,14 @@ export const BoundingBoxOverlay: React.FC<BoundingBoxOverlayProps> = ({
                     </span>
                   ) : isProvisional ? (
                     'WARMING_UP'
+                  ) : isFalseMask ? (
+                    <span className="font-black text-rose-200">
+                      #{duck.id} EXCESS MASK
+                    </span>
+                  ) : isExcess ? (
+                    <span className="font-black text-amber-200">
+                      #{duck.id} EXCESS DUCK
+                    </span>
                   ) : isIndividualAnomaly ? (
                     <span className="font-black text-rose-200">
                       {duck.species === 'Duck'

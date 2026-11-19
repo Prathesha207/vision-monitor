@@ -45,7 +45,7 @@ export const Header: React.FC<HeaderProps> = ({
     try {
       const baseUrl = getApiBaseUrl();
       const res = await fetch(`${baseUrl}/health`, { method: 'GET', cache: 'no-store' });
-      setBackendConnected(res.ok);
+      setBackendConnected(res.ok || res.status === 503);
     } catch {
       setBackendConnected(false);
     }

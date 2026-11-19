@@ -46,6 +46,15 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, _fallbac
   const addedIds = data.added_ids || [];
   const missingIds = data.missing_ids || [];
   const excessIds = data.excess_ids || [];
+  const maskAnomalies = Array.isArray(data.mask_anomalies) ? data.mask_anomalies : [];
+  const falseMaskIds = maskAnomalies
+    .filter((m: any) => m.type === 'false_mask')
+    .flatMap((m: any) => m.ids || [])
+    .map(String);
+  const maskMissingIds = maskAnomalies
+    .filter((m: any) => m.type === 'mask_missing')
+    .flatMap((m: any) => m.ids || [])
+    .map(String);
   const isWarmingUp = data.status === 'WARMING' || !data.anchor_locked;
 
   // Find thumbnails. Ensure we do not drop thumbnails when data.thumbnails is an empty array [] (which is truthy in JS!)
@@ -157,24 +166,50 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, _fallbac
         d.excess === true ||
         d.status === 'excess' ||
         excessIds.includes(displayId) ||
-        excessIds.includes(Number(displayId))
+        excessIds.includes(Number(displayId)) ||
+        excessIds.includes(rawId) ||
+        excessIds.includes(Number(rawId))
+      );
+
+      const isFalseMaskDetection = !isProvisional && (
+        d.false_mask === true ||
+        d.mask_anomaly === 'false_mask' ||
+        falseMaskIds.includes(rawId) ||
+        falseMaskIds.includes(displayId) ||
+        thumbObj?.event === 'false_mask'
+      );
+
+      const isMaskMissingDetection = !isProvisional && (
+        d.mask_anomaly === 'mask_missing' ||
+        maskMissingIds.includes(rawId) ||
+        maskMissingIds.includes(displayId) ||
+        thumbObj?.event === 'mask_missing'
       );
 
       let eventStatus: DuckEntity['statusEvent'] = undefined;
       if (isMissingDetection) {
         eventStatus = 'missing';
+      } else if (isFalseMaskDetection) {
+        eventStatus = 'false_mask';
+      } else if (isMaskMissingDetection) {
+        eventStatus = 'mask_missing';
       } else if (isExcessDetection) {
-        eventStatus = 'added';
+        eventStatus = 'excess';
       } else if (thumbObj?.event === 'confirmed') {
         eventStatus = 'confirmed';
       } else if (thumbObj?.event === 'other_present' || isOther) {
         eventStatus = 'other_present';
+      } else if (thumbObj?.event === 'added' || addedIds.includes(displayId) || addedIds.includes(Number(displayId))) {
+        eventStatus = 'added';
       }
 
       const isAnomaly = !isProvisional && (
         isOther ||
         isExcessDetection ||
-        isMissingDetection
+        isFalseMaskDetection ||
+        isMaskMissingDetection ||
+        isMissingDetection ||
+        d.isAnomaly === true
       );
 
       incomingDucks.push({
@@ -196,10 +231,15 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, _fallbac
         vy: 0,
         heading: 0,
         isAnomaly: isAnomaly,
-        thumbnail: thumbObj?.thumbnail,
+        thumbnail: (d as any).thumbnail || thumbObj?.thumbnail,
         provisional: isProvisional,
         statusEvent: isHand ? 'hand_present' : eventStatus,
-        handDetected: isHand
+        handDetected: isHand,
+        excess: isExcessDetection,
+        false_mask: isFalseMaskDetection,
+        falseMask: isFalseMaskDetection,
+        mask_anomaly: isFalseMaskDetection ? 'false_mask' : isMaskMissingDetection ? 'mask_missing' : undefined,
+        maskAnomaly: isFalseMaskDetection ? 'false_mask' : isMaskMissingDetection ? 'mask_missing' : undefined,
       });
     });
   }

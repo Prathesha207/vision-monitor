@@ -125,14 +125,18 @@ export function useAnomalyStatus({
     const isTooMany = !isWarmingUp && !hasHand && (backendReasons.includes('too_many_ducks') || backendReasons.includes('too_many'));
     const isCountMismatch = !isWarmingUp && !hasHand && (isTooFew || isTooMany);
     const hasForeign = !isWarmingUp && !hasHand && (backendReasons.includes('other_species_present') || foreignCount > 0);
+    const hasFalseMask = !isWarmingUp && !hasHand && backendReasons.includes('false_mask');
+    const hasMaskMissing = !isWarmingUp && !hasHand && backendReasons.includes('mask_missing');
+    const hasMaskAnomaly = hasFalseMask || hasMaskMissing;
 
-    // Backend-aligned anomaly verdict: single source of truth from analyzer.py
+    // Backend-aligned anomaly verdict: single source of truth from TrayCounter
     // NOTE: Hand present is NOT an anomaly (it is a temporary inspection pause).
     const isAnomaly = !isWarmingUp && !hasHand && (
       backendStatus === 'ANOMALY' ||
       isCountMismatch ||
       hasMissingDuck ||
-      hasForeign
+      hasForeign ||
+      hasMaskAnomaly
     );
     let message = hasHand ? 'HAND DETECTED' : isAnomaly ? 'ANOMALY' : isWarmingUp ? 'WARMING' : 'NORMAL';
     let subMessage = hasHand
@@ -170,6 +174,22 @@ export function useAnomalyStatus({
         type = 'MISSING_DUCK';
         const missing = missingIds.length > 0 ? `: ${missingIds.join(', ')}` : '';
         subMessage = `A tracked duck is missing from this frame${missing}.`;
+      } else if (hasFalseMask) {
+        type = 'FALSE_MASK';
+        const maskList = Array.isArray(backendStats.mask_anomalies) ? backendStats.mask_anomalies : [];
+        const details = maskList
+          .filter((m: any) => m.type === 'false_mask')
+          .map((m: any) => `Mask #${m.ids?.join(',')} on #${m.other_id}`)
+          .join(', ');
+        subMessage = details ? `Split mask detected: ${details}` : 'Split mask detected (two masks on one duck).';
+      } else if (hasMaskMissing) {
+        type = 'MASK_MISSING';
+        const maskList = Array.isArray(backendStats.mask_anomalies) ? backendStats.mask_anomalies : [];
+        const details = maskList
+          .filter((m: any) => m.type === 'mask_missing')
+          .map((m: any) => `Duck #${m.ids?.join(',')} swallowed in #${m.other_id}`)
+          .join(', ');
+        subMessage = details ? `Mask anomaly: ${details}` : 'Mask anomaly: one mask is covering multiple toys.';
       } else {
         type = 'FOREIGN_SPECIES';
         subMessage = `${foreignCount} non-duck detected.`;

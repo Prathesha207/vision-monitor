@@ -32,6 +32,8 @@ export interface InferenceStats {
   total_frames: number;
   progress: number;
   fps: number;
+  latency_ms?: number | string | Record<string, any>;
+  latency_breakdown?: any;
   detected_duck_count: number;
   expected_duck_count: number;
   detected_other_toy_count: number;
@@ -78,6 +80,7 @@ const initialStats: InferenceStats = {
   total_frames: 0,
   progress: 0,
   fps: 0,
+  latency_ms: 0,
   detected_duck_count: 0,
   expected_duck_count: 18, // matches App.tsx's own default -- keep these two in sync if you change one
   detected_other_toy_count: 0,

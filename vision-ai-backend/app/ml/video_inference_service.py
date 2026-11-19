@@ -33,9 +33,9 @@ import cv2
 import concurrent.futures
 
 try:
-    from duck_analyzer import DuckAnalyzer
+    from traycount import TrayCounter
 except ImportError:
-    DuckAnalyzer = None
+    TrayCounter = None
 
 try:
     import torch
@@ -47,6 +47,16 @@ from app.ml import app_state  # shared GPU mutual-exclusion flag with training_s
 from app.core.logger import setup_logger
 
 logger = setup_logger("video-inference")
+
+_shared_tray_counter: Optional[Any] = None
+
+def _set_shared_tray_counter(engine: Any) -> None:
+    global _shared_tray_counter
+    _shared_tray_counter = engine
+    logger.info("[VIDEO] Shared TrayCounter registered successfully.")
+
+# Backward compatibility alias
+_set_shared_analyzer = _set_shared_tray_counter
 
 
 import time
@@ -116,49 +126,19 @@ class VideoInferenceService:
             candidates.insert(1, os.path.join(sys._MEIPASS, "app", "ml", "config.yaml"))
         self.config_path = next((c for c in candidates if os.path.exists(c)), candidates[0])
 
-        self._shared_analyzer = None
+    def _get_or_create_tray_counter(self, config_path: str) -> Any:
+        global _shared_tray_counter
+        if _shared_tray_counter is not None:
+            return _shared_tray_counter
+        logger.info("Initializing a fresh TrayCounter instance for video session...")
+        tray_counter = TrayCounter(config_path)
+        tray_counter.load_model()
+        _shared_tray_counter = tray_counter
+        return tray_counter
 
-    def _get_or_create_analyzer(
-        self,
-        session_config_path: str,
-        expected_duck_count: int,
-        results_json_path: str,
-        thumbnail_dir: str,
-    ):
-        logger.info("Initializing a fresh DuckAnalyzer for this video session...")
-        analyzer = DuckAnalyzer(
-            session_config_path,
-            expected_duck_count=expected_duck_count
-        )
-        
-        # Optionally, restore GPU if it was globally downgraded but is now working
-        if str(getattr(analyzer, "_device_str", "")).lower() == "cpu" and is_cuda_operational():
-            logger.info("GPU is operational — starting analyzer on CUDA.")
-            analyzer._device_str = "cuda:0"
-            analyzer.use_half = bool(analyzer.cfg.get("use_half", False))
-            if hasattr(analyzer, "model") and analyzer.model is not None:
-                analyzer.model.to("cuda:0")
-            if hasattr(analyzer, "embedder") and analyzer.embedder is not None:
-                try:
-                    analyzer.embedder.device = "cuda:0"
-                    if hasattr(analyzer.embedder, "model") and analyzer.embedder.model is not None:
-                        analyzer.embedder.model.to("cuda:0")
-                    if hasattr(analyzer.embedder, "_mean"):
-                        analyzer.embedder._mean = analyzer.embedder._mean.to("cuda:0")
-                    if hasattr(analyzer.embedder, "_std"):
-                        analyzer.embedder._std = analyzer.embedder._std.to("cuda:0")
-                except Exception:
-                    pass
-                    
-        if hasattr(analyzer, "_gpu_fail_count"):
-            analyzer._gpu_fail_count = 0
-
-        analyzer.expected = int(expected_duck_count)
-        analyzer.cfg["results_json_path"] = results_json_path
-        analyzer.cfg["thumbnail_dir"] = thumbnail_dir
-        analyzer.thumbnail_dir = thumbnail_dir
-        
-        return analyzer
+    # Backward compatibility
+    def _get_or_create_analyzer(self, *args, **kwargs) -> Any:
+        return self._get_or_create_tray_counter(self.config_path)
 
     def stop_all_sessions(self):
         for sid, session in self.sessions.items():
@@ -319,9 +299,12 @@ class VideoInferenceService:
         if session:
             session["expected_ducks"] = count
             session["stats"]["expected_duck_count"] = count
-            analyzer = session.get("analyzer")
-            if analyzer:
-                analyzer.set_expected_duck_count(count)
+            tray_counter = session.get("tray_counter") or session.get("analyzer")
+            if tray_counter:
+                if hasattr(tray_counter, "expected"):
+                    tray_counter.expected = int(count)
+                if hasattr(tray_counter, "_expected_fixed"):
+                    tray_counter._expected_fixed = int(count)
 
     def _reset_session_stats(self, session_id: str):
         """Single source of truth for what a 'fresh run' of a session looks
@@ -460,11 +443,10 @@ class VideoInferenceService:
             logger.info(f"Starting inference for session {session_id}")
             
             cap = None
-            analyzer = None
             out_writer = None
             try:
-                if DuckAnalyzer is None:
-                    raise RuntimeError("DuckAnalyzer package is not installed. Run: pip install --no-deps app/ml/whl/duck_analyzer-1.0.20-py3-none-any.whl")
+                if TrayCounter is None:
+                    raise RuntimeError("traycount package is not installed.")
 
                 # ml_dir = folder that contains this service file (app/ml/)
                 ml_dir = os.path.dirname(os.path.abspath(__file__))
@@ -489,70 +471,6 @@ class VideoInferenceService:
 
                 output_path = os.path.join(session_dir, video_filename)
                 results_json_path = os.path.join(session_dir, "results.json")
-                # DuckAnalyzer expects a thumbnail_dir path in config; use system tempdir so no empty folder pollutes session_dir
-                thumbnail_dir = os.path.join(tempfile.gettempdir(), "vision_thumbnails")
-
-                # Load the canonical config (app/ml/config/config.yaml)
-                with open(self.config_path, "r") as f:
-                    session_cfg = yaml.safe_load(f) or {}
-
-                # Fail fast on missing required keys — before the model starts loading
-                required_cfg_keys = ["duck_class_id", "other_class_id", "conf", "row_tolerance_frac"]
-                missing_keys = [k for k in required_cfg_keys if k not in session_cfg]
-                if missing_keys:
-                    raise ValueError(f"config.yaml is missing required key(s): {missing_keys}")
-
-                # Resolve model_path to a portable absolute path (app/ml/model/best.pt first)
-                model_path = self._resolve_model_path(session_cfg.get("model_path"), ml_dir)
-                session_cfg["model_path"] = model_path
-
-                # Resolve roi_path portably without triggering uvicorn WatchFiles reloads
-                # When DuckAnalyzer writes runtime hand ROI calibration via open(self.roi_path, "w"),
-                # it must write outside the app/ tree to avoid restarting the server process mid-inference.
-                cfg_dir = os.path.dirname(os.path.abspath(self.config_path))
-                roi_raw = session_cfg.get("roi_path", "model/hand_roi.json")
-                roi_candidates = [
-                    os.path.join(ml_dir, roi_raw),
-                    os.path.join(ml_dir, "model", "hand_roi.json"),
-                    os.path.join(cfg_dir, roi_raw),
-                    os.path.join(cfg_dir, "hand_roi.json"),
-                    os.path.join(ml_dir, "hand_roi.json"),
-                ]
-                resolved_roi = next((r for r in roi_candidates if os.path.exists(r)), None)
-                runtime_roi_path = os.path.join(tempfile.gettempdir(), "vision_hand_roi.json")
-                if resolved_roi and not os.path.exists(runtime_roi_path):
-                    try:
-                        import shutil
-                        shutil.copy2(resolved_roi, runtime_roi_path)
-                    except Exception:
-                        pass
-                session_cfg["roi_path"] = runtime_roi_path if os.path.exists(runtime_roi_path) else (resolved_roi or runtime_roi_path)
-
-                # Production mode: DuckAnalyzer must NOT write frames to disk
-                # (the service writes the annotated MP4 and thumbnails itself).
-                session_cfg["save_local"] = False
-                session_cfg["annotated_dir"] = None
-                # Thumbnails per-session go into the session folder
-                session_cfg["thumbnail_dir"] = thumbnail_dir
-
-                # Dynamic device selection: verified operational GPU if CUDA works, else CPU
-                session_cfg["device"] = 0 if is_cuda_operational() else "cpu"
-
-                # Write resolved config to temporary file so DuckAnalyzer can open it without polluting session_dir
-                session_config_path = os.path.join(tempfile.gettempdir(), f"duck_cfg_{session_id}.yaml")
-                with open(session_config_path, "w") as f:
-                    yaml.dump(session_cfg, f)
-
-                analyzer = self._get_or_create_analyzer(
-                    session_config_path,
-                    expected_duck_count=session["expected_ducks"],
-                    results_json_path=results_json_path,
-                    thumbnail_dir=thumbnail_dir,
-                )
-
-                session["analyzer"] = analyzer
-                session["stats"]["output_dir"] = session_dir
-                session["stats"]["results_json_path"] = results_json_path
 
                 # Force FFmpeg backend. The default MSMF backend on Windows often deadlocks in PyInstaller.
                 cap = cv2.VideoCapture(temp_file_path, cv2.CAP_FFMPEG)
@@ -567,6 +485,22 @@ class VideoInferenceService:
                             logger.warning("OpenCV could not open raw upload; using browser transcode fallback")
                     if not cap.isOpened():
                         raise ValueError(f"Could not open video file: {temp_file_path}")
+
+                raw_fps = cap.get(cv2.CAP_PROP_FPS)
+                video_fps = raw_fps if (raw_fps and 10.0 <= raw_fps <= 120.0) else 30.0
+
+                tray_counter = self._get_or_create_tray_counter(self.config_path)
+                logger.info(f"Resetting TrayCounter for video session {session_id} (fps={video_fps}, expected={session['expected_ducks']})")
+                tray_counter.reset(
+                    fps=video_fps,
+                    expected_duck_count=session["expected_ducks"],
+                    session=session_id,
+                )
+
+                session["tray_counter"] = tray_counter
+                session["analyzer"] = tray_counter  # compatibility
+                session["stats"]["output_dir"] = session_dir
+                session["stats"]["results_json_path"] = results_json_path
 
                 total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
                 if total_frames <= 0:
@@ -656,26 +590,15 @@ class VideoInferenceService:
                     loop = asyncio.get_running_loop()
                     annotated_frame = frame.copy()
 
-                    def _infer_frame(analyzer_inst, frame_in):
-                        # Prevent YOLO BoT-SORT/ByteTrack from accumulating endless history over 1-hour videos
-                        try:
-                            if hasattr(analyzer_inst, "model") and hasattr(analyzer_inst.model, "predictor"):
-                                pred = analyzer_inst.model.predictor
-                                if pred and hasattr(pred, "trackers"):
-                                    for t in getattr(pred, "trackers", []):
-                                        if hasattr(t, "removed_stracks") and len(t.removed_stracks) > 100:
-                                            t.removed_stracks = t.removed_stracks[-50:]
-                        except Exception:
-                            pass
-                            
+                    def _infer_frame(engine, frame_in):
                         if torch is not None:
                             with torch.inference_mode():
-                                return analyzer_inst.process_frame(frame_in)
-                        return analyzer_inst.process_frame(frame_in)
+                                return engine.process_frame(frame_in)
+                        return engine.process_frame(frame_in)
 
                     try:
                         pending = loop.run_in_executor(
-                            self._ml_executor, _infer_frame, analyzer, annotated_frame
+                            self._ml_executor, _infer_frame, tray_counter, annotated_frame
                         )
                         result = await asyncio.wait_for(
                             pending,
@@ -684,11 +607,7 @@ class VideoInferenceService:
                         if not self._is_current_run(session_id, run_seq):
                             break
                         consecutive_failures = 0
-                        if hasattr(analyzer, "_gpu_fail_count"):
-                            analyzer._gpu_fail_count = 0
                     except asyncio.TimeoutError as frame_err:
-                        # Escalate to the same failure path as an ordinary exception below --
-                        # turns an otherwise invisible freeze into a logged, handled failure.
                         consecutive_failures += 1
                         logger.warning(
                             f"Session {session_id}: frame {frame_idx} inference TIMED OUT after "
@@ -711,11 +630,6 @@ class VideoInferenceService:
                             "annotated_frame": annotated_frame,
                         }
                     except Exception as frame_err:
-                        # One bad frame (corrupt decode, transient CUDA hiccup,
-                        # etc.) should not kill an otherwise-healthy session --
-                        # log it, skip it, keep the un-annotated frame in the
-                        # stream/output so timing stays in sync, and only bail
-                        # out if failures are piling up.
                         consecutive_failures += 1
                         logger.warning(
                             f"Session {session_id}: frame {frame_idx} inference failed "
@@ -723,93 +637,33 @@ class VideoInferenceService:
                             f"[{type(frame_err).__name__}]: {frame_err}",
                             exc_info=True
                         )
-
-                        # Emergency CPU fallback if GPU was active and failed
-                        recovered = False
-                        if not hasattr(analyzer, "_gpu_fail_count"):
-                            analyzer._gpu_fail_count = 0
-                            
-                        if hasattr(analyzer, "_device_str") and str(analyzer._device_str).lower() != "cpu":
-                            analyzer._gpu_fail_count += 1
-                            logger.warning(
-                                f"Session {session_id}: GPU frame error #{analyzer._gpu_fail_count} ({frame_err}); "
-                                "retrying this frame on CPU."
-                            )
-                            
-                            # If we hit 5 consecutive GPU failures, downgrade permanently
-                            if analyzer._gpu_fail_count >= 5:
-                                logger.error(f"Session {session_id}: GPU failed 5 times — downgrading session to CPU permanently.")
-                                analyzer._device_str = "cpu"
-                                analyzer.use_half = False
-                                try:
-                                    if hasattr(analyzer, "model") and analyzer.model is not None:
-                                        analyzer.model.to("cpu")
-                                    if hasattr(analyzer, "embedder") and analyzer.embedder is not None:
-                                        try:
-                                            analyzer.embedder.device = "cpu"
-                                            if hasattr(analyzer.embedder, "model") and analyzer.embedder.model is not None:
-                                                analyzer.embedder.model.to("cpu")
-                                            if hasattr(analyzer.embedder, "_mean"):
-                                                analyzer.embedder._mean = analyzer.embedder._mean.to("cpu")
-                                            if hasattr(analyzer.embedder, "_std"):
-                                                analyzer.embedder._std = analyzer.embedder._std.to("cpu")
-                                        except Exception:
-                                            pass
-                                except Exception as to_cpu_err:
-                                    logger.error(f"Session {session_id}: could not move model to CPU: {to_cpu_err}")
-
-                            # Retry the frame on CPU immediately
-                            try:
-                                result = await loop.run_in_executor(
-                                    self._ml_executor, _infer_frame, analyzer, annotated_frame
-                                )
-                                consecutive_failures = 0
-                                recovered = True
-                                logger.info(f"Session {session_id}: successfully recovered on CPU for frame {frame_idx}")
-                            except Exception as cpu_err:
-                                logger.error(f"Session {session_id}: CPU fallback retry also failed: {cpu_err}")
-
                         if consecutive_failures >= max_consecutive_failures:
                             raise RuntimeError(
                                 f"Aborting session: {max_consecutive_failures} consecutive frame failures (last error: {frame_err})"
                             ) from frame_err
 
-                        if not recovered:
-                            result = {
-                                "status": session["stats"].get("status", "processing"),
-                                "detected_duck_count": session["stats"].get("detected_duck_count", 0),
-                                "expected_duck_count": session["stats"].get("expected_duck_count", 0),
-                                "other_count": session["stats"].get("other_count", 0),
-                                "hand_detected": False,
-                                "missing_ids": [], "added_ids": [], "other_ids": [],
-                                "detections": [], "thumbnails": [],
-                                "annotated_frame": annotated_frame,
-                            }
+                        result = {
+                            "status": session["stats"].get("status", "processing"),
+                            "detected_duck_count": session["stats"].get("detected_duck_count", 0),
+                            "expected_duck_count": session["stats"].get("expected_duck_count", 0),
+                            "other_count": session["stats"].get("other_count", 0),
+                            "hand_detected": False,
+                            "missing_ids": [], "added_ids": [], "other_ids": [],
+                            "detections": [], "thumbnails": [],
+                            "annotated_frame": annotated_frame,
+                        }
                     
                     # Extract the annotated frame from analyzer result if present
                     if not self._is_current_run(session_id, run_seq):
                         break
-                    if isinstance(result, dict) and "annotated_frame" in result and result["annotated_frame"] is not None:
-                        annotated_frame = result["annotated_frame"]
 
-                    # ── Pass through EVERYTHING DuckAnalyzer returns — no re-interpretation ──
-                    # DuckAnalyzer._finish() is the single source of truth for all these
-                    # fields. This service is purely an orchestrator: it feeds frames in,
-                    # collects results, and relays them to the frontend unchanged.
+                    try:
+                        annotated_frame = tray_counter.draw(frame)
+                    except Exception as draw_err:
+                        logger.warning(f"TrayCounter draw failed on video frame {frame_idx}: {draw_err}")
+                        annotated_frame = frame
 
-                    missing_ids  = result.get("missing_ids", [])
-                    added_ids    = result.get("added_ids", [])
-                    excess_ids   = result.get("excess_ids", [])
-                    excess_count = result.get("excess_count", len(excess_ids))
-                    other_ids    = result.get("other_ids", [])
-                    other_count  = result.get("other_count", len(other_ids))
-                    hand_detected = bool(result.get("hand_detected", False))
-                    anchor_locked = bool(result.get("anchor_locked", getattr(analyzer, "anchor_locked", False)))
-                    reasons      = list(result.get("reasons", []))
-                    new_thumbnails = result.get("thumbnails", [])
-                    is_anomaly_frame = (result.get("status") == "ANOMALY")
-
-                    # Write the fully annotated frame (drawn by DuckAnalyzer) to the MP4
+                    # Write the fully annotated frame (drawn by TrayCounter) to the MP4
                     if out_writer:
                         out_writer.write(annotated_frame)
 
@@ -831,16 +685,127 @@ class VideoInferenceService:
                         except asyncio.QueueFull:
                             pass
 
-                    # Accumulate thumbnails (one-shot events from analyzer, not per-frame)
-                    if new_thumbnails:
-                        existing = {
-                            (str(t.get("id")), str(t.get("event")))
-                            for t in session["stats"]["thumbnails"]
+                    status = result.get("status", session["status"])
+                    counts = result.get("counts") or {}
+                    detected_ducks = counts.get("ducks", 0) if counts else session["expected_ducks"]
+                    other_count = counts.get("non_ducks", 0) if counts else 0
+                    missing_ids  = list(result.get("missing_ids", []))
+                    added_ids    = list(result.get("added_ids", []))
+                    excess_ids   = list(result.get("excess_ids", []))
+                    excess_count = result.get("excess_count", len(excess_ids))
+                    other_ids    = list(result.get("other_ids", []))
+                    reasons      = list(result.get("reasons", []))
+                    mask_anomalies = list(result.get("mask_anomalies", []))
+                    false_mask_ids = [int(i) for m in mask_anomalies if m.get("type") == "false_mask" for i in m.get("ids", [])]
+                    mask_missing_ids = [int(i) for m in mask_anomalies if m.get("type") == "mask_missing" for i in m.get("ids", [])]
+                    hand_detected = bool(result.get("paused") or status == "HAND")
+                    anchor_locked = bool(result.get("state") != "start" and status != "WARMING")
+                    is_anomaly_frame = (status == "ANOMALY")
+
+                    # 1. Collect all toy templates from TrayCounter (TrayCounter caches templates for every visible duck)
+                    all_templates = {}
+                    if hasattr(tray_counter, "templates"):
+                        try:
+                            all_templates = tray_counter.templates() or {}
+                        except Exception:
+                            all_templates = {}
+
+                    raw_thumbs = {}
+                    if isinstance(all_templates, dict):
+                        for tid, tdata in all_templates.items():
+                            if isinstance(tdata, dict) and tdata.get("b64"):
+                                raw_thumbs[int(tid)] = tdata["b64"]
+                            elif isinstance(tdata, str):
+                                raw_thumbs[int(tid)] = tdata
+
+                    frame_thumbs = result.get("thumbnails", {})
+                    if isinstance(frame_thumbs, dict):
+                        for tid, b64_val in frame_thumbs.items():
+                            if b64_val:
+                                raw_thumbs[int(tid)] = b64_val
+
+                    # Include any image crops provided directly in mask_anomalies
+                    for m in mask_anomalies:
+                        m_img = m.get("image")
+                        if m_img:
+                            for fid in m.get("ids", []):
+                                if int(fid) not in raw_thumbs:
+                                    raw_thumbs[int(fid)] = m_img
+
+                    # 2. Map toys to detections with computed bounding boxes for frontend
+                    detections = []
+                    toys = result.get("toys", [])
+                    for t in toys:
+                        outline = t.get("outline", [])
+                        all_pts = [pt for poly in outline for pt in poly] if outline else []
+                        if all_pts:
+                            xs = [p[0] for p in all_pts]
+                            ys = [p[1] for p in all_pts]
+                            bbox = [round(min(xs), 1), round(min(ys), 1), round(max(xs), 1), round(max(ys), 1)]
+                        else:
+                            c = t.get("center", [0, 0])
+                            bbox = [c[0] - 20, c[1] - 20, c[0] + 20, c[1] + 20]
+                        
+                        toy_id = t.get("id")
+                        is_duck = (t.get("kind") == "duck")
+                        is_excess = toy_id in excess_ids
+                        is_false_mask = toy_id in false_mask_ids
+                        is_mask_missing = toy_id in mask_missing_ids
+                        is_toy_anomaly = is_excess or (not is_duck) or (toy_id in other_ids) or is_false_mask or is_mask_missing
+
+                        thumb_uri = None
+                        if toy_id in raw_thumbs:
+                            raw_b = raw_thumbs[toy_id]
+                            thumb_uri = raw_b if str(raw_b).startswith("data:image") else f"data:image/jpeg;base64,{raw_b}"
+
+                        detections.append({
+                            "id": toy_id,
+                            "species": "Duck" if is_duck else "Unknown",
+                            "class_name": t.get("kind"),
+                            "confidence": t.get("confidence", 0.9),
+                            "bbox": bbox,
+                            "outline": outline,
+                            "isAnomaly": is_toy_anomaly,
+                            "excess": is_excess,
+                            "false_mask": is_false_mask,
+                            "mask_anomaly": "false_mask" if is_false_mask else ("mask_missing" if is_mask_missing else None),
+                            "provisional": not anchor_locked,
+                            "thumbnail": thumb_uri,
+                        })
+
+                    # 3. Accumulate thumbnails for gallery
+                    for toy_id, b64_str in raw_thumbs.items():
+                        if not b64_str:
+                            continue
+                        b64_uri = b64_str if str(b64_str).startswith("data:image") else f"data:image/jpeg;base64,{b64_str}"
+                        if toy_id in missing_ids:
+                            evt = "missing"
+                        elif toy_id in false_mask_ids:
+                            evt = "false_mask"
+                        elif toy_id in mask_missing_ids:
+                            evt = "mask_missing"
+                        elif toy_id in excess_ids:
+                            evt = "excess"
+                        elif toy_id in added_ids:
+                            evt = "added"
+                        elif toy_id in other_ids:
+                            evt = "other_present"
+                        else:
+                            evt = "confirmed"
+
+                        thumb_entry = {
+                            "id": toy_id,
+                            "event": evt,
+                            "thumbnail": b64_uri,
+                            "frame": frame_idx,
                         }
-                        session["stats"]["thumbnails"].extend(
-                            t for t in new_thumbnails
-                            if (str(t.get("id")), str(t.get("event"))) not in existing
-                        )
+                        existing_entry = next((t for t in session["stats"]["thumbnails"] if t.get("id") == toy_id), None)
+                        if existing_entry is not None:
+                            existing_entry["event"] = evt
+                            if b64_uri:
+                                existing_entry["thumbnail"] = b64_uri
+                        else:
+                            session["stats"]["thumbnails"].append(thumb_entry)
 
                     elapsed  = time.time() - start_time
                     fps      = frame_idx / elapsed if elapsed > 0 else 0
@@ -851,34 +816,39 @@ class VideoInferenceService:
                     else:
                         progress = 0.0
 
-                    raw_detected = result.get("detected_duck_count", 0)
-                    if hand_detected or result.get("status") == "HAND":
-                        detected_ducks = session["stats"].get("detected_duck_count") or session.get("expected_duck_count", 18)
+                    # Update stats — forward whl output keys directly without rounding
+                    raw_latency = result.get("latency_ms")
+                    if isinstance(raw_latency, dict):
+                        latency_val = raw_latency.get("total", 0)
+                    elif isinstance(raw_latency, (int, float)):
+                        latency_val = raw_latency
                     else:
-                        detected_ducks = raw_detected
+                        latency_val = 0
 
-                    # Update stats — forward whl output keys directly; keep aliases for frontend compat
                     session["stats"].update({
-                        "status":                 result.get("status", session["status"]),
+                        "status":                 status,
                         "frames_processed":       frame_idx,
-                        "frame":                  result.get("frame", frame_idx),
+                        "frame":                  result.get("frame_index", frame_idx),
                         "progress":               round(progress, 1),
                         "fps":                    round(fps, 1),
+                        "latency_ms":             latency_val,
+                        "latency_breakdown":      raw_latency,
                         "detected_duck_count":    detected_ducks,
-                        "expected_duck_count":    session.get("expected_duck_count") or result.get("expected_duck_count", 18),
+                        "expected_duck_count":    session.get("expected_ducks") or session.get("expected_duck_count", 18),
                         "other_count":            other_count,
                         "detected_other_toy_count": other_count,   # alias for older frontend code
                         "anchor_locked":          anchor_locked,
                         "hand_detected":          hand_detected,
                         "missing_ids":            missing_ids,
-                        "missing_count":          result.get("missing_count", len(missing_ids)),
+                        "missing_count":          len(missing_ids),
                         "added_ids":              added_ids,
-                        "added_count":            result.get("added_count", len(added_ids)),
+                        "added_count":            len(added_ids),
                         "excess_ids":             excess_ids,
                         "excess_count":           excess_count,
                         "other_ids":              other_ids,
+                        "mask_anomalies":          mask_anomalies,
                         "reasons":                reasons,
-                        "detections":             result.get("detections", []),
+                        "detections":             detections,
                         "is_anomaly_frame":       is_anomaly_frame,
                         "video_width":            width,
                         "video_height":           height,
@@ -947,28 +917,9 @@ class VideoInferenceService:
                 # at any time without receiving "Video file not found".
                 # Cleanup is only performed when the session is explicitly cleared.
 
-                # Clean up temporary session config if in temp directory
-                try:
-                    if session_config_path and os.path.exists(session_config_path):
-                        os.remove(session_config_path)
-                except Exception:
-                    pass
-
-                # Explicitly close and dereference the analyzer to free PyTorch/CUDA and MediaPipe memory
-                try:
-                    if session.get("analyzer"):
-                        if hasattr(session["analyzer"], "close"):
-                            session["analyzer"].close()
-                        # Nullify predictor to force GC of tracker history
-                        if hasattr(session["analyzer"], "model") and hasattr(session["analyzer"].model, "predictor"):
-                            session["analyzer"].model.predictor = None
-                    session["analyzer"] = None
-                    analyzer = None
-                    import gc
-                    gc.collect()
-                    logger.info(f"Released DuckAnalyzer resources for session {session_id}")
-                except Exception as cleanup_err:
-                    logger.warning(f"Error during DuckAnalyzer cleanup: {cleanup_err}")
+                # Release per-session engine references while keeping model weights in GPU for next session
+                session["tray_counter"] = None
+                session["analyzer"] = None
 
                 try:
                     if pending:
@@ -1078,11 +1029,3 @@ video_inference_service = VideoInferenceService()
 
 # Backward compatibility alias
 ml_inference_service = video_inference_service
-
-
-def _set_shared_analyzer(analyzer) -> None:
-    """Called by main.py lifespan startup to inject the pre-loaded DuckAnalyzer.
-    This avoids a second model load when the first inference session starts —
-    the model is already in GPU memory from startup."""
-    video_inference_service._shared_analyzer = analyzer
-    logger.info("[STARTUP] Pre-loaded DuckAnalyzer injected into VideoInferenceService.")

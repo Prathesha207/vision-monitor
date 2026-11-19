@@ -83,7 +83,7 @@ export function useCameraStatus(
         }
       }
     } catch (err) {
-      console.error("Could not fetch camera from database:", err);
+      console.warn("Could not fetch camera from database (backend may still be initializing):", err);
     }
   }, [addLog]);
 

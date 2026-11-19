@@ -113,12 +113,10 @@ export function useVideoPipeline({
     }
 
     // Always update local preview and customVideoUrl so the video frame shows immediately
-    const isStreamUrl = url.includes('/video/stream/');
     setLocalPreviewUrl(url);
     setCustomVideoUrl(url);
     setCustomVideoName(name);
     setSourceType('uploaded-video');
-    setAutoStartRecordedInference(true);
     setCameraStartingState('ready');
 
     // Clean slate: clear prior detections, frame counts, and stats for the new video
@@ -130,11 +128,14 @@ export function useVideoPipeline({
 
     if (sessionId) {
       setVideoSessionId(sessionId);
+      // Strictly and immediately start inference on the uploaded video
+      void startVideoInference(sessionId);
+    } else {
+      setIsRunning(false);
     }
     
-    setIsRunning(false);
-    showToast('success', `Video uploaded. Starting inference automatically...`);
-    addLog(`Video loaded: "${name}". Auto-starting inference.`, 'info');
+    showToast('success', `Video uploaded. Starting inference...`);
+    addLog(`Video loaded: "${name}". Inference started strictly.`, 'info');
   };
 
   const handleClearVideo = () => {

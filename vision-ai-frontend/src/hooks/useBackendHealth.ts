@@ -41,7 +41,7 @@ export function useBackendHealth() {
       try {
         const res = await fetch(`${getApiBaseUrl()}/health`, { method: 'GET', cache: 'no-store' });
         if (isMounted) {
-          setIsBackendConnected(res.ok);
+          setIsBackendConnected(res.ok || res.status === 503);
         }
       } catch {
         if (isMounted) setIsBackendConnected(false);

@@ -13,3 +13,7 @@ vision-ai-frontend/release-backend/
 test_env/
 
 *.db
+*.db-shm
+*.db-wal
+**/templates/
+

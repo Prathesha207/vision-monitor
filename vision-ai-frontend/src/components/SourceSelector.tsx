@@ -1,6 +1,6 @@
 import React from 'react';
 import { StreamSourceType } from '../types';
-import { Video, Camera, Play, Square, Loader2, Disc } from 'lucide-react';
+import { Video, Camera, Play, Square, Loader2, Disc, Trash2 } from 'lucide-react';
 import { playWaterDropSound } from '../utils/audio';
 import { NumberStepper } from './ui/NumberStepper';
 import { useInferenceStore } from '../store/inferenceStore';
@@ -54,7 +54,7 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
   customVideoName,
   customVideoUrl,
   hasActiveVideo = false,
-  onClearCustomVideo: _onClearCustomVideo,
+  onClearCustomVideo,
   isRunning = false,
   isStarting = false,
   isRecording = false,
@@ -223,6 +223,22 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({
                       )}
                     </span>
                   </button>
+
+                  {/* For Video Mode: Clear Video & Results button when a video is present and inference is not active */}
+                  {isVideoMode && hasActiveVideo && !isRunning && (
+                    <button
+                      disabled={isStarting || isVideoLoading}
+                      onClick={() => {
+                        playWaterDropSound();
+                        onClearCustomVideo?.();
+                      }}
+                      title="Clear video, all detection cards, and results"
+                      className="h-8 sm:h-9 flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 rounded-xl bg-rose-500/15 hover:bg-rose-500 text-rose-500 hover:text-white border border-rose-500/40 hover:border-rose-500 font-bold text-[11px] sm:text-xs shadow-xs active:scale-95 cursor-pointer transition-all shrink-0"
+                    >
+                      <Trash2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                      <span>CLEAR<span className="hidden sm:inline"> VIDEO</span></span>
+                    </button>
+                  )}
 
                   {/* For Camera: Record Button next to START INFERENCE when stream is active and inference not running */}
                   {isCameraMode && isStreaming && !isRunning && !cameraRecordSessionId && (

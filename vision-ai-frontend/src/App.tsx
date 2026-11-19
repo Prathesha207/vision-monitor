@@ -515,12 +515,36 @@ export default function App() {
 
   const uploadTriggerRef = React.useRef<(() => void) | null>(null);
 
-  const handleClearCustomVideo = () => {
+  const handleResetVideo = async () => {
+    playWaterDropSound();
+    setSelectedDuckId(null);
+    setIsRunning(false);
+    setDucks([]);
+    useInferenceStore.getState().resetStats();
+    resetBBoxCache();
+    inference.setFramesProcessed(0);
+    inference.setFps(0);
+    inference.setUptimeSeconds(0);
     sourceStateCache.current.video = null;
     setLastVideoFrame(undefined);
-    video.handleClearVideo();
-    showToast('info', 'Video cleared. Select or upload a new video.');
+    // Stop and clear backend session if one is active
+    if (video.videoSessionId) {
+      try {
+        await fetch(`${getApiBaseUrl()}/video/clear/${video.videoSessionId}`, { method: 'POST' });
+      } catch { }
+    }
+    // Clear the video pipeline state so the upload card shows again
+    video.setCustomVideoUrl(undefined);
+    video.setLocalPreviewUrl(undefined);
+    video.setVideoSessionId(null);
+    video.setCustomVideoName(undefined);
+    // Clear persisted session so a refresh after reset shows the upload card, not auto-resume
+    clearSessionState();
+    showToast('info', 'Video and all detection cards cleared');
+    addLog('Video cleared • Detection cards and counts reset.', 'info');
   };
+
+  const handleClearCustomVideo = handleResetVideo;
 
   const handleResetCamera = async () => {
     playWaterDropSound();
@@ -578,39 +602,15 @@ export default function App() {
     cameraService.stopStream().catch(() => { });
   };
 
-  const handleResetVideo = async () => {
-    playWaterDropSound();
-    setSelectedDuckId(null);
-    setIsRunning(false);
-    setDucks([]);
-    useInferenceStore.getState().resetStats();
-    resetBBoxCache();
-    inference.setFramesProcessed(0);
-    inference.setFps(0);
-    inference.setUptimeSeconds(0);
-    sourceStateCache.current.video = null;
-    setLastVideoFrame(undefined);
-    // Stop and clear backend session if one is active
-    if (video.videoSessionId) {
-      try {
-        await fetch(`${getApiBaseUrl()}/video/clear/${video.videoSessionId}`, { method: 'POST' });
-      } catch { }
-    }
-    // Clear the video pipeline state so the upload card shows again
-    video.setCustomVideoUrl(undefined);
-    video.setLocalPreviewUrl(undefined);
-    video.setVideoSessionId(null);
-    video.setCustomVideoName(undefined);
-    // Clear persisted session so a refresh after reset shows the upload card, not auto-resume
-    clearSessionState();
-    showToast('info', 'Video reset • Upload a new video to begin');
-    addLog('Video cleared • Ready for a new upload.', 'info');
-  };
-
   // Wrap toggle/stop/resume to pass startVideoInference
   const handleToggleRunning = async () => {
     if (sourceType === 'uploaded-video' || sourceType === 'sample-pond') {
-      if (!video.videoSessionId) {
+      const stats = useInferenceStore.getState().stats;
+      const isCompleted = stats?.status === 'completed' || stats?.progress >= 100;
+      if (!video.videoSessionId || isCompleted) {
+        if (isCompleted) {
+          await handleResetVideo();
+        }
         uploadTriggerRef.current?.();
         return;
       }
@@ -675,7 +675,12 @@ export default function App() {
   };
   const handleResumeInference = async () => {
     if (sourceType === 'uploaded-video' || sourceType === 'sample-pond') {
-      if (!video.videoSessionId) {
+      const stats = useInferenceStore.getState().stats;
+      const isCompleted = stats?.status === 'completed' || stats?.progress >= 100;
+      if (!video.videoSessionId || isCompleted) {
+        if (isCompleted) {
+          await handleResetVideo();
+        }
         uploadTriggerRef.current?.();
         return;
       }
@@ -922,6 +927,7 @@ export default function App() {
             }}
             isRecording={recording.isRecording || recording.isSaving}
             onShowToast={showToast}
+            onClearVideo={handleClearCustomVideo}
           />
         </div>
       </div>

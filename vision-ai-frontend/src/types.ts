@@ -19,11 +19,16 @@ export interface DuckEntity {
   quackTime?: number;
   thumbnail?: string;
   provisional?: boolean;
-  statusEvent?: 'added' | 'missing' | 'other_present' | 'confirmed' | 'hand_present';
+  statusEvent?: 'added' | 'missing' | 'other_present' | 'confirmed' | 'hand_present' | 'false_mask' | 'mask_missing' | 'excess';
   handDetected?: boolean;
+  excess?: boolean;
+  false_mask?: boolean;
+  falseMask?: boolean;
+  mask_anomaly?: string;
+  maskAnomaly?: string;
 }
 
-export type AnomalyType = 'NONE' | 'OVER_COUNT' | 'UNDER_COUNT' | 'MISSING_DUCK' | 'FOREIGN_SPECIES' | 'OUT_OF_BOUNDS' | 'UNKNOWN';
+export type AnomalyType = 'NONE' | 'OVER_COUNT' | 'UNDER_COUNT' | 'MISSING_DUCK' | 'FOREIGN_SPECIES' | 'FALSE_MASK' | 'MASK_MISSING' | 'OUT_OF_BOUNDS' | 'UNKNOWN';
 
 export interface AnomalyStatus {
   isAnomaly: boolean;

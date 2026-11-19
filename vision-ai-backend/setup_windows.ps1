@@ -131,14 +131,54 @@ $VenvPython = Join-Path $VenvDir 'Scripts\python.exe'
 
 if ($Clean) {
     Write-Host "[CLEAN] Clean setup requested. Terminating any running backend processes..." -ForegroundColor Yellow
-    Get-Process -Name "python", "uvicorn" -ErrorAction SilentlyContinue | Where-Object {
-        $_.Path -like "*$BackendDir*"
-    } | Stop-Process -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Milliseconds 500
+
+    # 1. Stop any process listening on backend port 8000
+    try {
+        $PortPids = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique
+        foreach ($ppid in $PortPids) {
+            if ($ppid -and $ppid -gt 0) {
+                Write-Host "[CLEAN] Stopping process listening on port 8000 (PID $ppid)..." -ForegroundColor Yellow
+                Stop-Process -Id $ppid -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {}
+
+    # 2. Stop any Python process matching CommandLine/Path OR with loaded DLLs/PYDs from .venv
+    # (catches uvicorn --reload child workers spawned via multiprocessing.spawn)
+    $LockingPids = New-Object System.Collections.Generic.HashSet[int]
+    $CimProcs = Get-CimInstance Win32_Process -Filter "Name like 'python%.exe' or Name='uvicorn.exe'" -ErrorAction SilentlyContinue
+    foreach ($lp in $CimProcs) {
+        if (($lp.ExecutablePath -like "*$BackendDir*") -or ($lp.CommandLine -like "*$BackendDir*") -or ($lp.CommandLine -like "*app.main:app*")) {
+            [void]$LockingPids.Add([int]$lp.ProcessId)
+        }
+    }
+    foreach ($proc in (Get-Process -Name "python", "pythonw", "uvicorn" -ErrorAction SilentlyContinue)) {
+        try {
+            if ($proc.Path -like "*$BackendDir*") {
+                [void]$LockingPids.Add($proc.Id)
+            } elseif ($proc.Modules | Where-Object { $_.FileName -like "*$VenvDir*" }) {
+                [void]$LockingPids.Add($proc.Id)
+            }
+        } catch {}
+    }
+    foreach ($lpid in $LockingPids) {
+        Write-Host "[CLEAN] Stopping locking Python process (PID $lpid)..." -ForegroundColor Yellow
+        Stop-Process -Id $lpid -Force -ErrorAction SilentlyContinue
+    }
+    Start-Sleep -Milliseconds 1000
 
     if (Test-Path $VenvDir) {
         Write-Host "[CLEAN] Removing existing virtual environment at $VenvDir..." -ForegroundColor Yellow
         Remove-Item -LiteralPath $VenvDir -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path $VenvDir) {
+            Start-Sleep -Seconds 1
+            Remove-Item -LiteralPath $VenvDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path $VenvDir) {
+            Write-Host "[ERROR] Could not fully delete $VenvDir because a file is still locked by another process." -ForegroundColor Red
+            Write-Host "Please run 'taskkill /F /IM python.exe' or close any running backend terminal / IDE Python server, then re-run." -ForegroundColor Yellow
+            throw "Failed to remove locked .venv directory."
+        }
     }
     $FrontendDist = Join-Path $FrontendDir 'dist'
     if (Test-Path $FrontendDist) {

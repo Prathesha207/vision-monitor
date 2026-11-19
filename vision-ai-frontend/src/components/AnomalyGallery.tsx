@@ -11,13 +11,27 @@ import { playWaterDropSound, playDuckQuackSound } from '../utils/audio';
 // caused).
 // ---------------------------------------------------------------------- //
 const isMissingDuck = (d: DuckEntity) => !d.provisional && d.statusEvent === 'missing';
-const isNewDuck = (d: DuckEntity) => !d.provisional && (d.statusEvent === 'added' || (d as any).excess === true);
+const isFalseMaskDuck = (d: DuckEntity) =>
+  !d.provisional && (
+    d.statusEvent === 'false_mask' ||
+    (d as any).false_mask === true ||
+    (d as any).falseMask === true ||
+    (d as any).mask_anomaly === 'false_mask' ||
+    (d as any).maskAnomaly === 'false_mask'
+  );
+const isExcessDuck = (d: DuckEntity) =>
+  !d.provisional && !isFalseMaskDuck(d) && (
+    d.statusEvent === 'excess' ||
+    (d as any).excess === true
+  );
 const isOtherDuck = (d: DuckEntity) =>
   !d.provisional && (
     d.statusEvent === 'other_present' ||
     d.id.startsWith('other-') ||
     (d.species !== 'Duck' && d.species !== 'Hand')
   );
+const isNewDuck = (d: DuckEntity) =>
+  !d.provisional && !isExcessDuck(d) && !isFalseMaskDuck(d) && d.statusEvent === 'added';
 
 interface DetectionCropCanvasProps {
   duck: DuckEntity;
@@ -72,8 +86,10 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
 }) => {
   const isProvisional = duck.provisional === true;
   const isMissing = isMissingDuck(duck);
-  const isNew = isNewDuck(duck);
+  const isFalseMask = isFalseMaskDuck(duck);
+  const isExcess = isExcessDuck(duck);
   const isOther = isOtherDuck(duck);
+  const isNew = isNewDuck(duck);
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -84,7 +100,7 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
       onToggleMissing(duck.id);
       return;
     }
-    if (isOther) playDuckQuackSound();
+    if (isOther || isFalseMask || isExcess) playDuckQuackSound();
     else playWaterDropSound();
     onSelect(duck.id);
   };
@@ -94,14 +110,22 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
     borderClasses = isSelected
       ? 'border border-dashed border-amber-400 bg-amber-500/25 shadow-[0_0_8px_rgba(245,158,11,0.3)]'
       : 'border border-dashed border-amber-500 dark:border-amber-400 bg-amber-500/10 hover:border-amber-500';
-  } else if (isNew) {
+  } else if (isFalseMask) {
     borderClasses = isSelected
-      ? 'border border-cyan-400 bg-cyan-500/25 shadow-[0_0_8px_rgba(6,182,212,0.3)]'
-      : 'border border-cyan-500/70 dark:border-cyan-400/70 bg-cyan-500/10 hover:border-cyan-400';
+      ? 'border-2 border-rose-400 bg-rose-500/30 shadow-[0_0_12px_rgba(244,63,94,0.4)]'
+      : 'border-2 border-rose-500 bg-rose-500/15 hover:border-rose-400';
+  } else if (isExcess) {
+    borderClasses = isSelected
+      ? 'border-2 border-amber-400 bg-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.4)]'
+      : 'border-2 border-amber-500 bg-amber-500/15 hover:border-amber-400';
   } else if (isOther) {
     borderClasses = isSelected
       ? 'border border-rose-400 bg-rose-500/25 shadow-[0_0_8px_rgba(244,63,94,0.3)]'
       : 'border border-rose-500 bg-rose-500/10 hover:border-rose-400 hover:shadow-xs';
+  } else if (isNew) {
+    borderClasses = isSelected
+      ? 'border border-cyan-400 bg-cyan-500/25 shadow-[0_0_8px_rgba(6,182,212,0.3)]'
+      : 'border border-cyan-500/70 dark:border-cyan-400/70 bg-cyan-500/10 hover:border-cyan-400';
   } else if (isProvisional) {
     borderClasses = isSelected
       ? 'border border-amber-400 bg-amber-500/25 shadow-[0_0_8px_rgba(245,158,11,0.3)]'
@@ -111,27 +135,33 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
   }
 
   const badgeLabel = isMissing ? 'MISSED'
-    : isOther ? 'OTHER'
-      : duck.statusEvent === 'hand_present' ? 'HAND'
-        : isNew ? 'NEW'
-          : isProvisional ? 'WARM'
-            : 'OK';
+    : isFalseMask ? 'EXCESS MASK'
+      : isExcess ? 'EXCESS'
+        : isOther ? 'OTHER'
+          : duck.statusEvent === 'hand_present' ? 'HAND'
+            : isNew ? 'NEW'
+              : isProvisional ? 'WARM'
+                : 'OK';
 
   const barColorClasses = isMissing
     ? 'bg-[var(--status-warn-bg)] border-[var(--status-warn-border)] text-[var(--status-warn-text)]'
-    : isNew
-      ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-600 dark:text-cyan-400'
-      : isOther
-        ? 'bg-[var(--status-anomaly-bg)] border-[var(--status-anomaly-border)] text-[var(--status-anomaly-text)]'
-        : isProvisional
-          ? 'bg-[var(--status-warn-bg)] border-[var(--status-warn-border)] text-[var(--status-warn-text)]'
-          : 'bg-[var(--status-normal-bg)] border-[var(--status-normal-border)] text-[var(--status-normal-text)]';
+    : isFalseMask
+      ? 'bg-[var(--status-anomaly-bg)] border-[var(--status-anomaly-border)] text-[var(--status-anomaly-text)]'
+      : isExcess
+        ? 'bg-amber-500/20 border-amber-500/40 text-amber-600 dark:text-amber-300'
+        : isNew
+          ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-600 dark:text-cyan-400'
+          : isOther
+            ? 'bg-[var(--status-anomaly-bg)] border-[var(--status-anomaly-border)] text-[var(--status-anomaly-text)]'
+            : isProvisional
+              ? 'bg-[var(--status-warn-bg)] border-[var(--status-warn-border)] text-[var(--status-warn-text)]'
+              : 'bg-[var(--status-normal-bg)] border-[var(--status-normal-border)] text-[var(--status-normal-text)]';
 
   return (
     <div
       onClick={handleClick}
       className={`flex flex-col h-full w-full rounded-md overflow-hidden shadow-2xs group cursor-pointer transition-colors min-h-0 select-none relative ${borderClasses}`}
-      title={`#${duck.id} ${duck.species} (${(duck.confidence * 100).toFixed(0)}%) - ${isMissing ? 'MISSING' : isNew ? 'NEW DETECTION' : isOther ? 'OTHER SPECIES' : isCountMismatch ? 'COUNT MISMATCH' : 'NORMAL'
+      title={`#${duck.id} ${duck.species} (${(duck.confidence * 100).toFixed(0)}%) - ${isMissing ? 'MISSING' : isFalseMask ? 'EXCESS MASK / FALSE MASK' : isExcess ? 'EXCESS DUCK' : isNew ? 'NEW DETECTION' : isOther ? 'OTHER SPECIES' : isCountMismatch ? 'COUNT MISMATCH' : 'NORMAL'
         }`}
     >
       <div className="relative w-full flex-1 min-h-0 overflow-hidden bg-stone-800 flex items-center justify-center">
@@ -145,7 +175,23 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
             <EyeOff className="w-2 h-2" />
           </div>
         )}
-        {!isMissing && isNew && (
+        {!isMissing && isFalseMask && (
+          <div
+            className="absolute top-0.5 right-0.5 px-1 py-0.2 rounded-full bg-rose-600 text-white flex items-center justify-center shadow-xs text-[7px] font-black leading-none ring-1 ring-white/30 animate-pulse"
+            title="Excess mask / false mask"
+          >
+            MASK
+          </div>
+        )}
+        {!isMissing && !isFalseMask && isExcess && (
+          <div
+            className="absolute top-0.5 right-0.5 px-1 py-0.2 rounded-full bg-amber-600 text-white flex items-center justify-center shadow-xs text-[7px] font-black leading-none ring-1 ring-white/30 animate-pulse"
+            title="Excess duck above expected count"
+          >
+            EXCESS
+          </div>
+        )}
+        {!isMissing && !isFalseMask && !isExcess && isNew && (
           <div
             className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-cyan-600 text-white flex items-center justify-center shadow-xs animate-pulse ring-1 ring-white/30"
             title="Newly added"
@@ -154,7 +200,7 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
           </div>
         )}
         {/* Round badge at top right: ONLY shown for other species / foreign objects */}
-        {!isMissing && !isNew && isOther && (
+        {!isMissing && !isFalseMask && !isExcess && !isNew && isOther && (
           <div
             className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-[var(--status-anomaly-text)] text-white flex items-center justify-center shadow-xs text-[8.5px] font-black leading-none ring-1 ring-white/30"
             title="Other species"
@@ -173,12 +219,14 @@ const DuckGalleryCard: React.FC<DuckGalleryCardProps> = memo(({
       <div className={`flex items-center justify-between px-1 py-0.5 gap-1 border-t shrink-0 font-bold ${barColorClasses}`}>
         <div className="flex items-center gap-1 min-w-0 flex-nowrap whitespace-nowrap overflow-hidden">
           <span className={`w-1.5 h-1.5 rounded-full shrink-0 flex-none self-center ${isMissing ? 'bg-amber-500 animate-pulse'
+            : isFalseMask ? 'bg-rose-500 shadow-xs animate-pulse ring-1 ring-rose-500/60'
+            : isExcess ? 'bg-amber-400 shadow-xs animate-pulse ring-1 ring-amber-400/60'
             : isNew ? 'bg-cyan-400 animate-pulse'
-              : isOther ? 'bg-[var(--status-anomaly-text)] shadow-xs animate-pulse ring-1 ring-[var(--status-anomaly-text)]/60'
-                : 'bg-[var(--status-normal-text)]'
+            : isOther ? 'bg-[var(--status-anomaly-text)] shadow-xs animate-pulse ring-1 ring-[var(--status-anomaly-text)]/60'
+            : 'bg-[var(--status-normal-text)]'
             }`} />
           <span className={`${textSize} truncate font-mono font-bold leading-none select-none tracking-tight self-center`}>
-            #{duck.id.padStart(2, '0')}
+            {isFalseMask ? `#${duck.id.padStart(2, '0')} MASK` : isExcess ? `#${duck.id.padStart(2, '0')} EXC` : `#${duck.id.padStart(2, '0')}`}
           </span>
         </div>
       </div>
@@ -218,7 +266,7 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
   anomalyStatus,
   expectedCount,
 }) => {
-  const [filter, setFilter] = useState<'all' | 'missed' | 'others'>('all');
+  const [filter, setFilter] = useState<'all' | 'excess' | 'missed' | 'others'>('all');
   const isCountMismatch = useMemo(() => {
     return Boolean(
       anomalyStatus?.isAnomaly &&
@@ -228,11 +276,18 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
     );
   }, [anomalyStatus]);
 
-  // Priority rank for sorting: other species (foreign/unknown) pinned at top,
-  // everything else (including missing) stays in stable numeric ID order.
+  // Priority rank for sorting:
+  // 1. Other species (foreign/unknown)
+  // 2. Excess mask / false mask
+  // 3. Excess duck (above expected count)
+  // 4. Missing duck
+  // 5. Normal tracked ducks in numeric order
   const rankOf = (d: DuckEntity) => {
     if (isOtherDuck(d)) return 0;
-    return 1;
+    if (isFalseMaskDuck(d)) return 1;
+    if (isExcessDuck(d)) return 2;
+    if (isMissingDuck(d)) return 3;
+    return 4;
   };
 
   const sortedDucks = useMemo(() => {
@@ -257,8 +312,11 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
   const missedCount = useMemo(() => sortedDucks.filter(isMissingDuck).length, [sortedDucks]);
   // Others = unknown / foreign species only
   const othersCount = useMemo(() => sortedDucks.filter(isOtherDuck).length, [sortedDucks]);
+  // Excess = excess ducks or excess / false masks
+  const excessCount = useMemo(() => sortedDucks.filter((d) => isExcessDuck(d) || isFalseMaskDuck(d)).length, [sortedDucks]);
 
   const filteredDucks = useMemo(() => {
+    if (filter === 'excess') return sortedDucks.filter((d) => isExcessDuck(d) || isFalseMaskDuck(d));
     if (filter === 'missed') return sortedDucks.filter(isMissingDuck);
     if (filter === 'others') return sortedDucks.filter(isOtherDuck);
     // 'all' always includes every duck — missing cards stay in their ID position, just flagged.
@@ -295,7 +353,7 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
         <button
           onClick={() => { playWaterDropSound(); setFilter('all'); }}
           title="Show all tracked ducks"
-          className={`flex-1 py-1 px-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${filter === 'all'
+          className={`flex-1 py-1 px-1 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors ${filter === 'all'
             ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] shadow-xs'
             : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
             }`}
@@ -305,9 +363,25 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
         </button>
 
         <button
+          onClick={() => { playWaterDropSound(); setFilter('excess'); }}
+          title="Excess ducks and excess/false masks"
+          className={`flex-1 py-1 px-1 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors ${filter === 'excess'
+            ? 'bg-amber-600 text-white shadow-xs'
+            : excessCount > 0
+              ? 'text-amber-500 bg-amber-500/15 font-extrabold animate-pulse'
+              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
+            }`}
+        >
+          <span>Excess</span>
+          <span className={`text-[8.5px] px-1.5 py-0.2 rounded-full font-mono ${excessCount > 0 ? 'bg-amber-500 text-white animate-pulse' : 'bg-black/20'}`}>
+            {excessCount}
+          </span>
+        </button>
+
+        <button
           onClick={() => { playWaterDropSound(); setFilter('missed'); }}
           title="Missing ducks"
-          className={`flex-1 py-1 px-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${filter === 'missed'
+          className={`flex-1 py-1 px-1 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors ${filter === 'missed'
             ? 'bg-amber-500 text-white shadow-xs'
             : missedCount > 0
               ? 'text-amber-600 dark:text-amber-400 bg-amber-500/10 font-extrabold'
@@ -324,7 +398,7 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
         <button
           onClick={() => { playWaterDropSound(); setFilter('others'); }}
           title="Other species / foreign objects"
-          className={`flex-1 py-1 px-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${filter === 'others'
+          className={`flex-1 py-1 px-1 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors ${filter === 'others'
             ? 'bg-rose-600 text-white shadow-xs'
             : othersCount > 0
               ? 'text-rose-600 bg-rose-600/10 font-extrabold'
@@ -344,7 +418,7 @@ export const DetectionGallery: React.FC<DetectionGalleryProps> = ({
         {filteredDucks.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center p-3 text-center text-[var(--text-secondary)] bg-[var(--bg-card-subtle)] rounded-xl border border-[var(--border-color)]">
             <span className="text-xs font-bold text-[var(--text-primary)]">
-              {filter === 'missed' ? 'No Missing Ducks' : filter === 'others' ? 'No Other Species' : 'No matching ducks'}
+              {filter === 'excess' ? 'No Excess Ducks / Masks' : filter === 'missed' ? 'No Missing Ducks' : filter === 'others' ? 'No Other Species' : 'No matching ducks'}
             </span>
             <span className="text-[10px] text-[var(--text-secondary)] mt-0.5">Change filter above to view all items</span>
           </div>

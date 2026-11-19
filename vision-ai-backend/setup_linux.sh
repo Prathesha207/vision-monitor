@@ -17,7 +17,11 @@ fi
 CLEAN_SETUP=0
 if [[ "${1:-}" == "--clean" || "${1:-}" == "-c" ]]; then
   CLEAN_SETUP=1
-  echo "[CLEAN] Clean setup requested. Removing existing .venv and frontend dist..."
+  echo "[CLEAN] Clean setup requested. Stopping any running backend processes..."
+  pkill -f "$VENV_DIR" 2>/dev/null || true
+  pkill -f "uvicorn app.main:app" 2>/dev/null || true
+  sleep 0.5
+  echo "[CLEAN] Removing existing .venv and frontend dist..."
   rm -rf "$VENV_DIR"
   rm -rf "$FRONTEND_DIR/dist"
 fi

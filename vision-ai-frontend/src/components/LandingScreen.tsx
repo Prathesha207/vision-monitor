@@ -44,19 +44,22 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
 
       try {
         const res = await fetch(`${getApiBaseUrl()}/health`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.status === 'ready') {
+        // Accept both 200 OK and 503 (model preloading fallback)
+        if (res.ok || res.status === 503) {
+          const data = await res.json().catch(() => null);
+          if (data && data.status === 'ready') {
             if (mountedRef.current) {
               setHealthStatus('ready');
               setHealthMessage('AI Engine ready');
             }
             return;
-          } else if (data.status === 'starting') {
+          } else if (data && data.status === 'starting') {
             if (mountedRef.current) {
               setHealthStatus('starting');
               setHealthMessage(
-                data.stage === 'loading_models' ? 'Loading AI models...' : 'Initializing inference engine...'
+                data.stage === 'loading_models'
+                  ? 'Loading AI models into GPU...'
+                  : (data.message || 'Initializing inference engine...')
               );
             }
           }
@@ -76,13 +79,14 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
         }
       }
 
-      if (elapsed > MAX_WAIT_MS) {
+      // If backend is actively reporting 'starting', it is alive and loading models — do NOT trigger error timeout
+      if (elapsed > MAX_WAIT_MS && healthStatus !== 'starting') {
         if (mountedRef.current) {
           setHealthStatus('error');
         }
-        return;
       }
 
+      // Keep polling so it auto-recovers as soon as the backend finishes loading
       if (mountedRef.current) {
         setTimeout(pollHealth, POLL_INTERVAL_MS);
       }
@@ -97,6 +101,9 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
 
   const handleRetry = () => {
     setDetailsVisible(false);
+    startTimeRef.current = Date.now();
+    setHealthStatus('connecting');
+    setHealthMessage('Connecting to AI engine...');
     setRetryCount((prev) => prev + 1);
   };
 

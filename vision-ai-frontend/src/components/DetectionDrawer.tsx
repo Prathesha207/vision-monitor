@@ -12,6 +12,7 @@ import {
   ArrowUp,
   ArrowDown,
   Hand,
+  Trash2,
 } from 'lucide-react';
 import { Badge, IconButton } from './ui';
 import { playWaterDropSound } from '../utils/audio';
@@ -35,6 +36,7 @@ interface DetectionDrawerProps {
   onUpdateCameraConfig?: (newConfig: Partial<CameraConfig>) => void;
   isRecording?: boolean;
   onShowToast?: (type: 'error' | 'success' | 'info', message: string) => void;
+  onClearVideo?: () => void;
 }
 
 export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
@@ -53,6 +55,7 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
   onUpdateCameraConfig,
   isRecording = false,
   onShowToast,
+  onClearVideo,
 }) => {
   const mlStats = useInferenceStore((state) => state.stats);
 
@@ -69,6 +72,13 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
   const displayFps = mlStats.status !== 'idle' ? mlStats.fps : metrics.fps;
   const displayFrames = mlStats.status !== 'idle' ? mlStats.frames_processed : metrics.framesProcessed;
   const displayProgress = mlStats.status !== 'idle' ? mlStats.progress : 100;
+  const rawLatency = mlStats.latency_ms;
+  const displayLatency = typeof rawLatency === 'number'
+    ? rawLatency
+    : typeof rawLatency === 'object' && (rawLatency as any)?.total != null
+    ? (rawLatency as any).total
+    : rawLatency;
+  const hasLatency = displayLatency !== null && displayLatency !== undefined && displayLatency !== '' && displayLatency !== 0 && displayLatency !== '0';
 
   // Calculate uptime strictly from frames / fps, defaulting to 30fps if unknown
   const fpsForTime = displayFps > 0 ? displayFps : 30;
@@ -247,6 +257,24 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
                 </div>
               )}
 
+              {anomalyStatus.type === 'FALSE_MASK' && (
+                <div className="my-1.5 p-1.5 rounded-xl flex items-start gap-2 bg-rose-500/15 border border-rose-500/40 text-rose-600 dark:text-rose-400 text-[11px] font-medium shrink-0">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span className="leading-tight">
+                    {anomalyStatus.subMessage || 'Excess mask detected on duck'}
+                  </span>
+                </div>
+              )}
+
+              {anomalyStatus.type === 'OVER_COUNT' && (
+                <div className="my-1.5 p-1.5 rounded-xl flex items-start gap-2 bg-amber-500/15 border border-amber-500/40 text-amber-600 dark:text-amber-300 text-[11px] font-medium shrink-0">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span className="leading-tight">
+                    {anomalyStatus.subMessage || 'Excess ducks detected above expected count'}
+                  </span>
+                </div>
+              )}
+
               {/* Stream Metrics Block */}
               <div className="mt-1.5 shrink-0">
                 <div className="flex justify-between items-center mb-1 px-0.5">
@@ -278,6 +306,23 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
                         <span className="font-bold text-[var(--text-primary)]">{displayFps.toFixed(1)}</span>
                         <span className="text-[var(--text-secondary)] ml-1">fps</span>
                       </div>
+
+                      {hasLatency && (
+                        <>
+                          <span className="text-[var(--border-color)] text-[10px]">&bull;</span>
+                          <div
+                            className="font-mono text-xs"
+                            title={
+                              mlStats.latency_breakdown && typeof mlStats.latency_breakdown === 'object'
+                                ? `Inference latency: ${displayLatency}ms (Models: ${mlStats.latency_breakdown.models ?? 'N/A'}ms, Total: ${mlStats.latency_breakdown.total ?? displayLatency}ms)`
+                                : `Inference latency: ${displayLatency}ms`
+                            }
+                          >
+                            <span className="font-bold text-[var(--text-primary)]">{displayLatency}</span>
+                            <span className="text-[var(--text-secondary)] ml-0.5 text-[10px]">ms</span>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -306,6 +351,25 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
                         <span>{displayFrames.toLocaleString()} frames</span>
                         <span>{formatTime(computedUptime)}</span>
                       </div>
+                      {displayProgress >= 100 && onClearVideo && (
+                        <div className="pt-1.5 flex items-center justify-between border-t border-[var(--border-color)] mt-1">
+                          <span className="text-[10px] font-bold text-emerald-500 flex items-center gap-1">
+                            <ShieldCheck className="w-3 h-3" />
+                            Completed
+                          </span>
+                          <button
+                            onClick={() => {
+                              playWaterDropSound();
+                              onClearVideo();
+                            }}
+                            title="Clear video and all detection cards"
+                            className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white border border-rose-500/30 transition-all cursor-pointer"
+                          >
+                            <Trash2 className="w-2.5 h-2.5" />
+                            <span>Clear Video &amp; Cards</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -339,6 +403,19 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
                 }`}>
                 {ducks.length} Total
               </span>
+              {onClearVideo && (
+                <button
+                  onClick={() => {
+                    playWaterDropSound();
+                    onClearVideo();
+                  }}
+                  title="Clear video and all detection cards"
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white border border-rose-500/30 transition-all cursor-pointer"
+                >
+                  <Trash2 className="w-2.5 h-2.5" />
+                  <span>Clear</span>
+                </button>
+              )}
             </div>
           )}
         </div>
