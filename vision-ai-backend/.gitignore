@@ -75,8 +75,8 @@ FailedFrames/
 # Local package/build artifacts
 *.mp4
 *.whl
-!app/ml/duck_analyzer-*.whl
-!app/ml/**/duck_analyzer-*.whl
+!app/ml/*.whl
+!app/ml/**/*.whl
 vision_ai.db*
 
 # =========================
