@@ -40,7 +40,7 @@ if [[ ! -d "$VENV_DIR" ]]; then
 fi
 
 source "$VENV_DIR/bin/activate"
-python -m pip install --upgrade pip setuptools wheel
+python -m pip install --upgrade pip "setuptools<80" wheel
 
 # 1. Install CUDA PyTorch & torchvision FIRST (before requirements.txt so PyPI never pulls CPU torch)
 if command -v nvidia-smi >/dev/null 2>&1; then
