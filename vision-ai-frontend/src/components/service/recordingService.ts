@@ -20,10 +20,11 @@ export interface StopRecordingResponse {
 
 export const recordingService = {
 
-  async startRecording(sessionId: string, recordingFormat?: string) {
+  async startRecording(sessionId: string, recordingFormat?: string, fps?: number) {
     const res = await api.post("/recording/start", {
       session_id: sessionId,
       recording_format: recordingFormat,
+      fps: fps,
     });
     return res.data as StartRecordingResponse;
   },

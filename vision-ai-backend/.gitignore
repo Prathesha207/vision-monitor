@@ -48,6 +48,7 @@ FailedFrames/
 # ML / AI Models
 # =========================
 *.pt
+!app/ml/weights/*.pt
 !app/ml/model/best.pt
 *.pth
 *.onnx

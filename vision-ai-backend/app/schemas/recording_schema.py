@@ -6,6 +6,7 @@ from pydantic import BaseModel
 class StartRecordingRequest(BaseModel):
     session_id: str
     recording_format: Optional[str] = None
+    fps: Optional[float] = None
 
 
 # ================= FRAME (optional / keep if needed) =================

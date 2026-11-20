@@ -43,18 +43,38 @@ async def start_camera(payload: Optional[StartCameraPayload] = None, db: Session
 
     if not camera or not camera.ip_address:
         try:
-            device_info = oak_camera_service._resolve_device_info("usb")
+            target_id = payload.ip_address if payload and payload.ip_address else ""
+            device_info = oak_camera_service._resolve_device_info(target_id)
             mxid = str(getattr(device_info, "mxid", "") or "")
-            if not mxid:
-                mxid = "usb"
-            
-            if not camera:
-                from app.schemas.camera_schema import CameraCreate
-                new_cam = CameraCreate(name="Auto USB Camera", ip_address=mxid, control_mode="auto")
-                camera = camera_service.create_camera(db, new_cam)
+            name = str(getattr(device_info, "name", "") or "")
+            desc_name = ""
+            try:
+                desc = device_info.getXLinkDeviceDesc()
+                desc_name = str(getattr(desc, "name", "") or "")
+            except Exception:
+                pass
+            resolved_ip = desc_name or name or mxid or "usb"
+            protocol = str(getattr(device_info, "protocol", "")).lower()
+            is_usb = "usb" in protocol or "usb" in resolved_ip.lower()
+            cam_name = f"OAK-D USB ({mxid[:8]})" if is_usb and mxid else (f"OAK IP Camera ({resolved_ip})" if not is_usb else "OAK Camera")
+
+            existing = db.query(Camera).filter(Camera.ip_address == resolved_ip).first()
+            if existing:
+                camera = existing
+                camera.is_enabled = True
+                db.commit()
+                db.refresh(camera)
             else:
-                from app.schemas.camera_schema import CameraUpdate
-                camera = camera_service.update_camera_partial(db, camera.id, CameraUpdate(ip_address=mxid))
+                from app.schemas.camera_schema import CameraCreate
+                new_cam = CameraCreate(
+                    name=cam_name,
+                    ip_address=resolved_ip,
+                    resolution="1920x1080",
+                    fps=30,
+                    control_mode="manual",
+                    is_enabled=True,
+                )
+                camera = camera_service.create_camera(db, new_cam)
         except Exception as e:
             logger.warning(f"[OAK DEVICE ENUM] {e}")
             realtime_log_service.add_log("camera", "WARN", f"No camera connected: {e}", "warning")
@@ -304,10 +324,18 @@ async def get_available_devices():
             except Exception:
                 pass
             is_usb = "usb" in protocol.lower() or "usb" in name.lower() or "usb" in state.lower()
+            ip_val = desc_name or name or mxid
+            if not is_usb and ip_val:
+                device_name = f"OAK PoE Camera ({ip_val})"
+            elif is_usb and mxid:
+                device_name = f"OAK-D USB ({mxid[:8]})"
+            else:
+                device_name = desc_name or name or "OAK Camera"
+
             devices.append({
                 "mxid": mxid,
-                "name": desc_name or name or (f"OAK USB ({mxid[:8]})" if is_usb else f"OAK Network ({mxid[:8]})"),
-                "ip_or_id": mxid if is_usb else (desc_name or name or mxid),
+                "name": device_name,
+                "ip_or_id": ip_val,
                 "protocol": "USB" if is_usb else "TCP/IP",
                 "state": state,
                 "is_usb": is_usb,

@@ -45,50 +45,53 @@ python -m pip install --upgrade pip setuptools wheel
 # 1. Install CUDA PyTorch & torchvision FIRST (before requirements.txt so PyPI never pulls CPU torch)
 if command -v nvidia-smi >/dev/null 2>&1; then
   echo "NVIDIA GPU detected; verifying CUDA-enabled PyTorch..."
-  if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
-    if python -c "import torch; x=torch.ones((1,), device='cuda:0'); assert (x+1).item()==2; torch.cuda.synchronize(0)" 2>/dev/null; then
-      echo "ARM64 vendor PyTorch with CUDA is already installed; keeping it."
-    else
-      echo "ARM64 detected, but vendor CUDA PyTorch is not installed. Installing standard PyTorch."
-      python -m pip install --prefer-binary torch torchvision
-    fi
+  if python -c "import torch, torchvision; x=torch.ones((1,), device='cuda:0'); assert (x+1).item()==2; torch.cuda.synchronize(0)" 2>/dev/null; then
+    echo "CUDA-enabled PyTorch is already installed and verified; GPU inference is available."
   else
-    if ! python -c "import torch, torchvision; x=torch.ones((1,), device='cuda:0'); assert (x+1).item()==2; torch.cuda.synchronize(0)" 2>/dev/null; then
-      TORCH_OK=0
-      if [[ -n "${PYTORCH_CUDA_INDEX:-}" ]]; then
-        echo "Installing CUDA PyTorch from custom index $PYTORCH_CUDA_INDEX..."
-        if python -m pip install --prefer-binary --index-url "$PYTORCH_CUDA_INDEX" torch==2.15.0 torchvision==0.29.2 \
-           || python -m pip install --prefer-binary --index-url "$PYTORCH_CUDA_INDEX" torch torchvision; then
+    TORCH_OK=0
+    if [[ -n "${PYTORCH_CUDA_INDEX:-}" ]]; then
+      echo "Installing CUDA PyTorch from custom index $PYTORCH_CUDA_INDEX..."
+      if python -m pip install --prefer-binary --index-url "$PYTORCH_CUDA_INDEX" torch torchvision; then
+        if python -c "import torch; assert torch.cuda.is_available(); x=torch.ones((1,), device='cuda:0'); assert (x+1).item()==2; torch.cuda.synchronize(0)" 2>/dev/null; then
           TORCH_OK=1
         fi
-      else
-        # Try TrayCount tested CUDA 13.2 build first, then fallback to compatible CUDA indices
-        for ENTRY in \
-          "https://download.pytorch.org/whl/cu132|torch==2.15.0 torchvision==0.29.2" \
-          "https://download.pytorch.org/whl/cu130|torch torchvision" \
-          "https://download.pytorch.org/whl/cu128|torch torchvision" \
-          "https://download.pytorch.org/whl/cu124|torch torchvision"; do
-          IDX="${ENTRY%%|*}"
-          PKGS="${ENTRY##*|}"
-          echo "Attempting CUDA PyTorch install ($PKGS) from $IDX..."
-          # shellcheck disable=SC2086
-          if python -m pip install --prefer-binary --index-url "$IDX" $PKGS; then
-            if python -c "import torch; assert torch.cuda.is_available(); x=torch.ones((1,), device='cuda:0'); assert (x+1).item()==2; torch.cuda.synchronize(0)" 2>/dev/null; then
-              TORCH_OK=1
-              echo "CUDA kernels verified successfully from $IDX."
-              break
-            fi
-            echo "Installed from $IDX but CUDA kernel check failed; trying next fallback..."
-          fi
-        done
-      fi
-      if [[ "$TORCH_OK" -ne 1 ]]; then
-        echo "ERROR: Could not install a working CUDA PyTorch build."
-        echo "Retry with a specific index: PYTORCH_CUDA_INDEX=https://download.pytorch.org/whl/cu128 ./setup_linux.sh"
-        exit 1
       fi
     else
-      echo "CUDA kernels ran successfully; GPU inference is available."
+      # Try official PyTorch CUDA indices from newest to older LTS releases
+      for ENTRY in \
+        "https://download.pytorch.org/whl/cu128|torch torchvision" \
+        "https://download.pytorch.org/whl/cu126|torch torchvision" \
+        "https://download.pytorch.org/whl/cu124|torch torchvision" \
+        "https://download.pytorch.org/whl/cu121|torch torchvision"; do
+        IDX="${ENTRY%%|*}"
+        PKGS="${ENTRY##*|}"
+        echo "Attempting CUDA PyTorch install ($PKGS) from $IDX..."
+        # shellcheck disable=SC2086
+        if python -m pip install --prefer-binary --index-url "$IDX" $PKGS; then
+          if python -c "import torch; assert torch.cuda.is_available(); x=torch.ones((1,), device='cuda:0'); assert (x+1).item()==2; torch.cuda.synchronize(0)" 2>/dev/null; then
+            TORCH_OK=1
+            echo "CUDA kernels verified successfully from $IDX."
+            break
+          fi
+          echo "Installed from $IDX but CUDA kernel check failed; trying next fallback..."
+        fi
+      done
+    fi
+
+    # Fallback for Jetson / specialized ARM platforms if PyTorch index didn't build CUDA kernels
+    if [[ "$TORCH_OK" -ne 1 && ("$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64") ]]; then
+      echo "Testing ARM64 standard PyTorch package..."
+      if python -m pip install --prefer-binary torch torchvision; then
+        if python -c "import torch; assert torch.cuda.is_available(); x=torch.ones((1,), device='cuda:0'); assert (x+1).item()==2; torch.cuda.synchronize(0)" 2>/dev/null; then
+          TORCH_OK=1
+        fi
+      fi
+    fi
+
+    if [[ "$TORCH_OK" -ne 1 ]]; then
+      echo "ERROR: Could not install a working CUDA PyTorch build."
+      echo "Retry with a specific index: PYTORCH_CUDA_INDEX=https://download.pytorch.org/whl/cu128 ./setup_linux.sh"
+      exit 1
     fi
   fi
 else

@@ -32,11 +32,17 @@ def start_recording(data: StartRecordingRequest, db: Session = Depends(get_db)):
             logger.warning(f"[RECORD] Invalid resolution '{resolution}' — fallback 1920x1080")
             width, height = 1920, 1080
 
+        target_fps = (
+            float(data.fps)
+            if data.fps and data.fps > 0
+            else float(oak_camera_service._configured_fps if oak_camera_service._configured_fps else (camera_config.fps or 30))
+        )
+
         path = oak_camera_service.start_recording(
             session_id=data.session_id,
             width=width,
             height=height,
-            fps=float(camera_config.fps or 30),
+            fps=target_fps,
             recording_format=data.recording_format,
         )
         return {

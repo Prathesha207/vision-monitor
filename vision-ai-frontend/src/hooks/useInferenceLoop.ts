@@ -234,6 +234,8 @@ export function useInferenceLoop({
         } catch (e) { }
       } else if (isCameraMode) {
         try { await cameraService.stopLiveInference(); } catch (e) { }
+        try { await cameraService.stopStream(); } catch (e) { }
+        setCameraIsStreaming?.(false);
       }
       if (!isCameraMode && videoSessionId) {
         try {
@@ -295,6 +297,8 @@ export function useInferenceLoop({
     const isCameraMode = sourceType === 'oak-camera' || sourceType === 'webcam';
     if (isCameraMode && !cameraRecordSessionId && !videoSessionId) {
       cameraService.stopLiveInference().catch(() => { });
+      cameraService.stopStream().catch(() => { });
+      setCameraIsStreaming?.(false);
     }
 
     // Full reset: clear all frontend state so UI is ready for a new inference
@@ -414,25 +418,13 @@ export function useInferenceLoop({
     resetBBoxCache();
     setIsStarting(true);
     if (isCameraMode) {
-      fetch(`${getApiBaseUrl()}/oak/inference/update_expected/live`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ count: expectedDucks })
-      })
-        .catch(() => { })
-        .then(() => cameraService.startLiveInference('live'))
-        .then((result: any) => {
+      (async () => {
+        try {
+          await startCameraPipeline();
+        } finally {
           setIsStarting(false);
-          if (result?.status === 'error') throw new Error(result.message || 'Inference start failed');
-          setIsRunning(true);
-          showToast('success', 'Inference started');
-          addLog('AI inference started on the live camera stream.', 'success');
-        })
-        .catch((error: any) => {
-          setIsStarting(false);
-          setIsRunning(false);
-          showToast('error', error instanceof Error ? error.message : 'Unable to start inference');
-        });
+        }
+      })();
     }
   };
 

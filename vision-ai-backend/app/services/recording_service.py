@@ -79,7 +79,7 @@ class RecordingSession:
         session_id: str,
         width: int,
         height: int,
-        fps: float = 30.0,           # kept for API compatibility; not used for timestamps
+        fps: float = 30.0,
         root_path: str | None = None,
         recording_format: str = "MP4",
     ):
@@ -89,6 +89,8 @@ class RecordingSession:
             root_path = str(desktop / "recordings")
         folder = os.path.join(root_path, now.strftime("%Y-%m-%d"))
         os.makedirs(folder, exist_ok=True)
+
+        self.fps: float = float(fps if fps and fps > 0 else 30.0)
 
         fmt = (recording_format or "MP4").upper()
 
@@ -168,13 +170,13 @@ class RecordingSession:
         )
 
     def _configure_stream(self, container, codec_name: str, options: dict):
-        stream = container.add_stream(codec_name, rate=1000)
+        fps_val = max(1, int(round(self.fps)))
+        stream = container.add_stream(codec_name, rate=fps_val)
         stream.width   = self.width
         stream.height  = self.height
         stream.pix_fmt = self.pix_fmt
-        # Keep encoder and muxer on the same 1ms clock as our PTS values
-        stream.time_base = Fraction(1, 1000)
-        stream.codec_context.time_base = Fraction(1, 1000)
+        stream.time_base = Fraction(1, fps_val)
+        stream.codec_context.time_base = Fraction(1, fps_val)
         if options:
             stream.options = options
         if codec_name == "ffv1":
@@ -305,13 +307,10 @@ class RecordingSession:
                     continue
 
                 try:
-                    if pts_ms <= self._last_encoded_pts:
-                        pts_ms = self._last_encoded_pts + 1
-                    self._last_encoded_pts = pts_ms
-
+                    fps_val = max(1, int(round(self.fps)))
                     frame = self._build_video_frame(payload)
-                    frame.pts = pts_ms
-                    frame.time_base = Fraction(1, 1000)
+                    frame.pts = self._frames_written
+                    frame.time_base = Fraction(1, fps_val)
 
                     for pkt in self.stream.encode(frame):
                         self._mux_packet(pkt)

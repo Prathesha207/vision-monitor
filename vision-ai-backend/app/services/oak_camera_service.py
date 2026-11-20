@@ -1161,7 +1161,7 @@ class OakCameraService:
                 logger.warning(f"[CONTROL] Runtime control apply failed: {e}")
 
     def reset_controls(self) -> dict:
-        """Resets physical camera controls to calibrated standard stream defaults (Focus=120, Exp=16ms, Gain=400).
+        """Resets camera controls to active database configuration or calibrated steady stream defaults.
         Disables continuous AF hunting and AE fluctuations so object movement does not cause blur or flicker.
         """
         if self.is_recording_active():
@@ -1173,40 +1173,66 @@ class OakCameraService:
                 "settings": self.get_current_controls(),
             }
 
-        self.current_brightness = 0
-        self.current_contrast = 50
-        self.current_gain = 400
-        self.current_focus = 120
-        self.current_exposure_us = 16000
-        self.auto_exposure_enabled = False
-        self.auto_focus_enabled = False
-        self.control_mode = "auto"
+        from app.core.database import SessionLocal
+        from app.models.camera_model import Camera
+        from app.services import camera_service
+
+        db = SessionLocal()
+        cam = None
+        try:
+            if self._active_camera_id is not None:
+                cam = db.query(Camera).filter(Camera.id == self._active_camera_id).first()
+            if cam is None:
+                cam = camera_service.get_camera_config(db)
+            if cam is not None:
+                self.current_brightness = cam.brightness if cam.brightness is not None else 0
+                self.current_contrast = cam.contrast if cam.contrast is not None else 50
+                self.current_gain = int(cam.gain) if cam.gain is not None else 400
+                self.current_focus = int(cam.focus) if cam.focus and cam.focus > 0 else 120
+                exp_ms = float(cam.exposure) if cam.exposure is not None else 16.0
+                self.current_exposure_us = int(round(exp_ms * 1000.0))
+                self.auto_exposure_enabled = bool(cam.auto_exposure)
+                self.auto_focus_enabled = bool(cam.auto_focus)
+                self.control_mode = cam.control_mode or "manual"
+            else:
+                self.current_brightness = 0
+                self.current_contrast = 50
+                self.current_gain = 400
+                self.current_focus = 120
+                self.current_exposure_us = 16000
+                self.auto_exposure_enabled = False
+                self.auto_focus_enabled = False
+                self.control_mode = "manual"
+        finally:
+            db.close()
 
         if not self._is_running or not self.is_connected or self._control_queue is None:
             return {
                 "status": "ok",
-                "message": "Controls reset to default steady stream",
+                "message": "Controls reset to saved database settings",
                 "settings": self.get_current_controls(),
             }
 
         ctrl = dai.CameraControl()
         try:
             ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
-            ctrl.setManualFocus(120)
-            ctrl.setManualExposure(16000, 400)
+            ctrl.setManualFocus(self.current_focus)
+            ctrl.setManualExposure(self.current_exposure_us, self.current_gain)
             try:
                 ctrl.setAutoWhiteBalanceMode(dai.CameraControl.AutoWhiteBalanceMode.AUTO)
                 ctrl.setAutoWhiteBalanceLock(False)
             except Exception:
                 pass
-            ctrl.setBrightness(0)
-            ctrl.setContrast(0)
+            hw_b = max(-10, min(10, round(self.current_brightness / 5.0)))
+            ctrl.setBrightness(hw_b)
+            hw_c = max(-10, min(10, round((self.current_contrast - 50) / 5.0)))
+            ctrl.setContrast(hw_c)
 
             self._control_queue.send(ctrl)
-            logger.info("[CONTROL] 🔄 Camera reset to standard steady stream (Focus=120, Exp=16ms, Gain=400, AF hunting OFF)")
+            logger.info(f"[CONTROL] 🔄 Camera reset to saved database settings (Focus={self.current_focus}, Exp={self.current_exposure_us}µs, Gain={self.current_gain})")
             return {
                 "status": "ok",
-                "message": "Camera hardware reset to steady stream defaults",
+                "message": "Camera controls reset to saved database settings",
                 "settings": self.get_current_controls(),
             }
         except Exception as e:
@@ -1288,7 +1314,7 @@ class OakCameraService:
                 should_send = True
             except Exception as e:
                 logger.warning(f"[CONTROL] setAutoExposureEnable failed: {e}")
-        elif auto_exposure is False or (auto_exposure is None and (exposure is not None or gain is not None)):
+        elif self.control_mode == "manual" or auto_exposure is False or (auto_exposure is None and (exposure is not None or gain is not None)):
             try:
                 ctrl.setAutoExposureLock(False)
                 ctrl.setManualExposure(self.current_exposure_us, self.current_gain)
@@ -1297,7 +1323,7 @@ class OakCameraService:
                 logger.warning(f"[CONTROL] setManualExposure failed: {e}")
 
         # 3. Focus Logic (Both auto_focus toggle and manual focus position)
-        if auto_focus is True:
+        if auto_focus is True and self.control_mode != "manual":
             try:
                 ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.CONTINUOUS_VIDEO)
                 try:
@@ -1307,7 +1333,7 @@ class OakCameraService:
                 should_send = True
             except Exception as e:
                 logger.warning(f"[CONTROL] setAutoFocusMode failed: {e}")
-        elif auto_focus is False or (auto_focus is None and focus is not None):
+        elif self.control_mode == "manual" or auto_focus is False or (auto_focus is None and focus is not None):
             try:
                 ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
                 ctrl.setManualFocus(self.current_focus)
@@ -1316,7 +1342,7 @@ class OakCameraService:
                 logger.warning(f"[CONTROL] setManualFocus failed: {e}")
 
         # 4. Hardware Brightness (-10 to 10)
-        if brightness is not None:
+        if self.control_mode == "manual" or brightness is not None:
             try:
                 hw_b = max(-10, min(10, round(self.current_brightness / 5.0)))
                 ctrl.setBrightness(hw_b)
@@ -1325,7 +1351,7 @@ class OakCameraService:
                 logger.debug(f"[CONTROL] setBrightness failed: {e}")
 
         # 5. Hardware Contrast (-10 to 10)
-        if contrast is not None:
+        if self.control_mode == "manual" or contrast is not None:
             try:
                 hw_c = max(-10, min(10, round((self.current_contrast - 50) / 5.0)))
                 ctrl.setContrast(hw_c)

@@ -11,6 +11,7 @@ import {
   Trash2,
   AlertCircle,
   Radio,
+  Lock,
 } from 'lucide-react';
 import { playWaterDropSound } from '../utils/audio';
 import { Modal, Button } from './ui';
@@ -20,6 +21,7 @@ interface CameraSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   config: CameraConfig;
+  isRecording?: boolean;
   onSaveConfig: (newConfig: CameraConfig) => void;
   onReconnect: (configToConnect?: CameraConfig) => Promise<void> | void;
 }
@@ -31,6 +33,16 @@ interface SavedCameraRow {
   resolution?: string;
   fps?: number;
   is_enabled?: boolean;
+  control_mode?: 'auto' | 'manual';
+  exposure?: number;
+  gain?: number;
+  focus?: number;
+  brightness?: number;
+  contrast?: number;
+  auto_exposure?: boolean;
+  auto_focus?: boolean;
+  recording_format?: string;
+  rotation_angle?: number;
 }
 
 interface HwDevice {
@@ -46,10 +58,14 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
   isOpen,
   onClose,
   config,
+  isRecording = false,
   onSaveConfig,
   onReconnect,
 }) => {
-  const [localConfig, setLocalConfig] = useState<CameraConfig>({ ...config });
+  const [localConfig, setLocalConfig] = useState<CameraConfig>({
+    ...config,
+    focus: (typeof config?.focus === 'number' && config.focus > 0) ? config.focus : 120,
+  });
   const [activeTab, setActiveTab] = useState<'stream' | 'image' | 'oak'>('stream');
 
   const [savedCameras, setSavedCameras] = useState<SavedCameraRow[]>([]);
@@ -74,16 +90,45 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
   const onReconnectRef = useRef(onReconnect);
   onReconnectRef.current = onReconnect;
 
-  // Load saved cameras + hardware scan
+  // Load saved cameras + hardware scan & hydrate localConfig with saved DB values
   const refreshAll = useCallback(async () => {
     setIsLoadingList(true);
     try {
       const cameras = await cameraService.checkCamera().catch(() => []);
-      if (Array.isArray(cameras)) setSavedCameras(cameras);
+      if (Array.isArray(cameras)) {
+        setSavedCameras(cameras);
+        // Find matching camera in DB
+        const targetId = config?.id;
+        const matched = (targetId ? cameras.find((c: any) => c.id === targetId) : null) || cameras.find((c: any) => c.is_enabled) || cameras[0];
+        if (matched) {
+          setLocalConfig((prev) => ({
+            ...prev,
+            id: matched.id,
+            sourceName: matched.name || prev.sourceName,
+            ipAddress: matched.ip_address || prev.ipAddress,
+            resolution: (matched.resolution as any) || prev.resolution || '1920x1080',
+            targetFps: matched.fps || prev.targetFps || 30,
+            rotationAngle: matched.rotation_angle ?? prev.rotationAngle ?? 0,
+            controlMode: matched.control_mode || prev.controlMode || 'manual',
+            exposure: typeof matched.exposure === 'number' ? matched.exposure : (prev.exposure ?? 16),
+            gain: typeof matched.gain === 'number' ? matched.gain : (prev.gain ?? 400),
+            iso: typeof matched.gain === 'number' ? matched.gain : (prev.iso ?? 400),
+            focus: typeof matched.focus === 'number' && matched.focus > 0 ? matched.focus : (prev.focus && prev.focus > 0 ? prev.focus : 120),
+            brightness: typeof matched.brightness === 'number' ? matched.brightness : (prev.brightness ?? 0),
+            contrast: typeof matched.contrast === 'number' ? matched.contrast : (prev.contrast ?? 50),
+            autoFocus: typeof matched.auto_focus === 'boolean' ? matched.auto_focus : false,
+            autoExposure: typeof matched.auto_exposure === 'boolean' ? matched.auto_exposure : false,
+            recordingFormat: matched.recording_format || prev.recordingFormat || 'MP4',
+          }));
+          if (matched.id) {
+            setActiveCameraId(matched.id);
+          }
+        }
+      }
     } finally {
       setIsLoadingList(false);
     }
-  }, []);
+  }, [config?.id]);
 
   const scanUsbDevices = useCallback(async () => {
     setIsScanning(true);
@@ -91,13 +136,32 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
       const devices = await cameraService.getAvailableDevices().catch(() => []);
       const list: HwDevice[] = Array.isArray(devices) ? devices : [];
       setHwDevices(list);
-      const usb = list.find((d) => d.is_usb) || list[0] || null;
+      const usb = list.find((d) => d.is_usb) || null;
+      const net = list.find((d) => !d.is_usb) || null;
       setDetectedUsb(usb);
-      return usb;
+      if (!usb && net) {
+        setNewType('ip');
+        if (!newIp.trim()) setNewIp(net.ip_or_id || net.name);
+        if (!newName.trim()) setNewName(net.name || `OAK IP Camera (${net.ip_or_id})`);
+      }
+      return usb || net;
     } finally {
       setIsScanning(false);
     }
-  }, []);
+  }, [newIp, newName]);
+
+  const isDeviceAlreadyConfigured = (dev?: HwDevice | null, ipStr?: string) => {
+    const target = (ipStr || dev?.ip_or_id || dev?.mxid || dev?.name || '').trim().toLowerCase();
+    if (!target) return false;
+    return savedCameras.some((c) => {
+      const cIp = (c.ip_address || '').trim().toLowerCase();
+      const cName = (c.name || '').trim().toLowerCase();
+      return (
+        (cIp && (cIp === target || target.includes(cIp) || cIp.includes(target))) ||
+        (cName && (cName === target || target.includes(cName) || cName.includes(target)))
+      );
+    });
+  };
 
   useEffect(() => {
     if (!isOpen) {
@@ -108,7 +172,11 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
       setErrorCameraId(null);
       return;
     }
-    setLocalConfig({ ...config, targetFps: config.targetFps || 30 });
+    setLocalConfig({
+      ...config,
+      targetFps: config.targetFps || 30,
+      focus: (typeof config.focus === 'number' && config.focus > 0) ? config.focus : 120,
+    });
     if (config.connected && config.id) {
       setActiveCameraId(typeof config.id === 'number' ? config.id : parseInt(String(config.id), 10) || null);
     } else {
@@ -131,6 +199,15 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
       ipAddress: row.ip_address,
       resolution: (row.resolution as any) || localConfig.resolution || '1920x1080',
       targetFps: row.fps || localConfig.targetFps || 30,
+      controlMode: row.control_mode || localConfig.controlMode || 'manual',
+      exposure: typeof row.exposure === 'number' ? row.exposure : (localConfig.exposure ?? 16),
+      gain: typeof row.gain === 'number' ? row.gain : (localConfig.gain ?? 400),
+      iso: typeof row.gain === 'number' ? row.gain : (localConfig.iso ?? 400),
+      focus: typeof row.focus === 'number' && row.focus > 0 ? row.focus : ((localConfig.focus && localConfig.focus > 0) ? localConfig.focus : 120),
+      brightness: typeof row.brightness === 'number' ? row.brightness : (localConfig.brightness ?? 0),
+      contrast: typeof row.contrast === 'number' ? row.contrast : (localConfig.contrast ?? 50),
+      autoFocus: typeof row.auto_focus === 'boolean' ? row.auto_focus : false,
+      autoExposure: typeof row.auto_exposure === 'boolean' ? row.auto_exposure : false,
       connected: true,
     };
     setLocalConfig(updated);
@@ -155,7 +232,11 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
     try {
       await cameraService.deleteCamera(row.id);
       setSavedCameras((prev) => prev.filter((c) => c.id !== row.id));
-      if (activeCameraId === row.id) setActiveCameraId(null);
+      if (activeCameraId === row.id) {
+        setActiveCameraId(null);
+        try { await cameraService.stopStream(); } catch {}
+        try { await cameraService.stop(); } catch {}
+      }
       if (errorCameraId === row.id) {
         setErrorCameraId(null);
         setErrorMessage(null);
@@ -223,8 +304,13 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
   };
 
   const handleSave = () => {
+    if (isRecording) return;
     playWaterDropSound();
-    onSaveConfig(localConfig);
+    const finalConfig: CameraConfig = {
+      ...localConfig,
+      focus: (typeof localConfig.focus === 'number' && localConfig.focus > 0) ? localConfig.focus : 120,
+    };
+    onSaveConfig(finalConfig);
     onClose();
   };
 
@@ -253,6 +339,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
             variant="primary"
             size="sm"
             onClick={handleSave}
+            disabled={isRecording}
             icon={<Check className="w-3.5 h-3.5" />}
             className="h-7 text-xs"
           >
@@ -261,6 +348,15 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
         </>
       }
     >
+      {/* Recording Lock Notice */}
+      {isRecording && (
+        <div className="mb-2.5 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300">
+          <Lock className="w-4 h-4 shrink-0 text-amber-500" />
+          <span className="leading-snug font-medium">
+            Recording in progress. Camera controls and connection settings are locked to prevent recording disruption.
+          </span>
+        </div>
+      )}
       {/* Tab Switcher: Compact */}
       <div className="flex border-b border-[var(--border-color)] pb-1.5 mb-3 -mt-1 shrink-0">
         {(['stream', 'image', 'oak'] as const).map((tab) => (
@@ -297,11 +393,12 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                         <button
                           key={res}
                           type="button"
+                          disabled={isRecording}
                           onClick={() => {
                             playWaterDropSound();
                             setLocalConfig({ ...localConfig, resolution: res });
                           }}
-                          className={`flex-1 py-1 px-2 rounded-md text-[11px] font-bold transition-all cursor-pointer text-center whitespace-nowrap ${isSelected
+                          className={`flex-1 py-1 px-2 rounded-md text-[11px] font-bold transition-all cursor-pointer text-center whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed ${isSelected
                             ? 'bg-[var(--accent-pond)] text-white shadow-xs'
                             : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                             }`}
@@ -327,10 +424,11 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                       min={1}
                       max={60}
                       step={1}
+                      disabled={isRecording}
                       value={localConfig.targetFps}
                       onChange={(e) => setLocalConfig({ ...localConfig, targetFps: parseInt(e.target.value, 10) })}
                       style={getSliderStyle(localConfig.targetFps, 1, 60)}
-                      className="w-full h-1.5 rounded cursor-pointer transition-all"
+                      className="w-full h-1.5 rounded cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                   </div>
                 </div>
@@ -358,11 +456,12 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                         <button
                           key={fmt.id}
                           type="button"
+                          disabled={isRecording}
                           onClick={() => {
                             playWaterDropSound();
                             setLocalConfig({ ...localConfig, recordingFormat: fmt.id });
                           }}
-                          className={`flex-1 py-1 px-2 rounded-md text-[11px] font-bold transition-all cursor-pointer text-center whitespace-nowrap ${isSelected
+                          className={`flex-1 py-1 px-2 rounded-md text-[11px] font-bold transition-all cursor-pointer text-center whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed ${isSelected
                             ? 'bg-[var(--accent-pond)] text-white shadow-xs'
                             : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                             }`}
@@ -391,12 +490,13 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                 <div className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
                   <button
                     type="button"
+                    disabled={isRecording}
                     onClick={() => {
                       playWaterDropSound();
                       setNewType('usb');
                       setErrorMessage(null);
                     }}
-                    className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer ${newType === 'usb'
+                    className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${newType === 'usb'
                       ? 'bg-[var(--accent-pond)] text-white shadow-xs'
                       : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                       }`}
@@ -405,12 +505,13 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                   </button>
                   <button
                     type="button"
+                    disabled={isRecording}
                     onClick={() => {
                       playWaterDropSound();
                       setNewType('ip');
                       setErrorMessage(null);
                     }}
-                    className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer ${newType === 'ip'
+                    className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${newType === 'ip'
                       ? 'bg-[var(--accent-pond)] text-white shadow-xs'
                       : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                       }`}
@@ -427,111 +528,145 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                 </label>
                 <input
                   type="text"
+                  disabled={isRecording}
                   placeholder={newType === 'usb' ? (detectedUsb?.name || 'e.g., Dock Inspection OAK-D') : 'e.g., Cam 01'}
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  className="w-full px-2.5 py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-xs font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-hidden focus:border-[var(--accent-pond)] focus:bg-[var(--bg-card)] transition-all"
+                  className="w-full px-2.5 py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-xs font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-hidden focus:border-[var(--accent-pond)] focus:bg-[var(--bg-card)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 />
               </div>
 
               {/* Interface Details: Compact */}
-              {newType === 'usb' ? (
-                <div className="p-2 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] flex items-center justify-between gap-2.5">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-6 h-6 rounded-md bg-[var(--bg-card)] border border-[var(--border-color)] flex items-center justify-center text-[var(--accent-pond)] shrink-0">
-                      <Usb className="w-3.5 h-3.5" />
-                    </div>
-                    <div className="min-w-0">
-                      {detectedUsb ? (
-                        <>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-bold text-[var(--text-primary)] truncate">
-                              {detectedUsb.name}
-                            </span>
-                            <span className="px-1.5 py-0.2 rounded text-[8px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                              READY
-                            </span>
+              {(() => {
+                const isCurrentAdded = newType === 'usb'
+                  ? isDeviceAlreadyConfigured(detectedUsb)
+                  : isDeviceAlreadyConfigured(null, newIp);
+
+                return (
+                  <>
+                    {newType === 'usb' ? (
+                      <div className="p-2 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] flex items-center justify-between gap-2.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-6 h-6 rounded-md bg-[var(--bg-card)] border border-[var(--border-color)] flex items-center justify-center text-[var(--accent-pond)] shrink-0">
+                            <Usb className="w-3.5 h-3.5" />
                           </div>
-                          <span className="text-[9px] text-[var(--text-muted)] font-mono block truncate">
-                            ID: {detectedUsb.mxid}
-                          </span>
-                        </>
-                      ) : (
-                        <div>
-                          <span className="text-xs font-bold text-[var(--text-primary)] block">
-                            No USB Device Detected
-                          </span>
-                          <span className="text-[9px] text-[var(--text-muted)]">
-                            Plug in camera and scan
-                          </span>
+                          <div className="min-w-0">
+                            {detectedUsb ? (
+                              <>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-bold text-[var(--text-primary)] truncate">
+                                    {detectedUsb.name}
+                                  </span>
+                                  <span className={`px-1.5 py-0.2 rounded text-[8px] font-mono font-bold border ${isCurrentAdded
+                                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                                    : 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30'}`}>
+                                    {isCurrentAdded ? 'CONFIGURED' : 'READY'}
+                                  </span>
+                                </div>
+                                <span className="text-[9px] text-[var(--text-muted)] font-mono block truncate">
+                                  {detectedUsb.mxid ? `ID: ${detectedUsb.mxid}` : `Address: ${detectedUsb.ip_or_id}`}
+                                </span>
+                              </>
+                            ) : (
+                              <div>
+                                <span className="text-xs font-bold text-[var(--text-primary)] block">
+                                  No USB Device Detected
+                                </span>
+                                <span className="text-[9px] text-[var(--text-muted)]">
+                                  Plug in camera and scan
+                                </span>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  </div>
 
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={isScanning}
-                    onClick={handleDetectUsb}
-                    className="h-6 px-2 text-[11px] font-bold shrink-0"
-                  >
-                    {isScanning ? (
-                      <Loader2 className="w-3 h-3 animate-spin text-[var(--accent-pond)]" />
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={isRecording || isScanning}
+                          onClick={handleDetectUsb}
+                          className="h-6 px-2 text-[11px] font-bold shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isScanning ? (
+                            <Loader2 className="w-3 h-3 animate-spin text-[var(--accent-pond)]" />
+                          ) : (
+                            'Scan'
+                          )}
+                        </Button>
+                      </div>
                     ) : (
-                      'Scan'
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-[10px] font-bold text-[var(--text-secondary)]">
+                            IP Address / Hostname
+                          </label>
+                          <button
+                            type="button"
+                            disabled={isRecording || isScanning}
+                            onClick={scanUsbDevices}
+                            className="text-[10px] font-medium text-[var(--accent-pond)] hover:underline flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                          >
+                            {isScanning ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
+                            Scan Network
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          disabled={isRecording}
+                          placeholder="e.g., 192.168.1.100"
+                          value={newIp}
+                          onChange={(e) => setNewIp(e.target.value)}
+                          className="w-full px-2.5 py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-xs font-mono font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-hidden focus:border-[var(--accent-pond)] focus:bg-[var(--bg-card)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        />
+                        {isCurrentAdded && (
+                          <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 block">
+                            ● This IP camera is already registered in Configured Cameras below.
+                          </span>
+                        )}
+                      </div>
                     )}
-                  </Button>
-                </div>
-              ) : (
-                <div>
-                  <label className="block text-[10px] font-bold text-[var(--text-secondary)] mb-0.5">
-                    IP Address / Hostname
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g., 192.168.1.100"
-                    value={newIp}
-                    onChange={(e) => setNewIp(e.target.value)}
-                    className="w-full px-2.5 py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-xs font-mono font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-hidden focus:border-[var(--accent-pond)] focus:bg-[var(--bg-card)] transition-all"
-                  />
-                </div>
-              )}
 
-              {/* Form Error Banner */}
-              {errorMessage && !errorCameraId && (
-                <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-[11px] flex items-start gap-1.5">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-rose-500" />
-                  <div className="min-w-0">
-                    <span className="font-bold">Error: </span>
-                    <span className="leading-relaxed break-words">{errorMessage}</span>
-                  </div>
-                </div>
-              )}
+                    {/* Form Error Banner */}
+                    {errorMessage && !errorCameraId && (
+                      <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-[11px] flex items-start gap-1.5">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-rose-500" />
+                        <div className="min-w-0">
+                          <span className="font-bold">Error: </span>
+                          <span className="leading-relaxed break-words">{errorMessage}</span>
+                        </div>
+                      </div>
+                    )}
 
-              {/* Compact Small Action Button (Right-aligned / Compact) */}
-              <div className="flex justify-end pt-0.5">
-                <Button
-                  variant="primary"
-                  size="sm"
-                  disabled={
-                    connectingId === 'new' ||
-                    (newType === 'usb' && !detectedUsb) ||
-                    (newType === 'ip' && !newIp.trim())
-                  }
-                  onClick={handleAddAndConnect}
-                  className="h-7 px-3.5 text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
-                >
-                  {connectingId === 'new' ? (
-                    <>
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      Connecting...
-                    </>
-                  ) : (
-                    'Add & Connect'
-                  )}
-                </Button>
-              </div>
+                    {/* Compact Small Action Button (Right-aligned / Compact) */}
+                    <div className="flex justify-end pt-0.5">
+                      <Button
+                        variant={isCurrentAdded ? "secondary" : "primary"}
+                        size="sm"
+                        disabled={
+                          isRecording ||
+                          connectingId === 'new' ||
+                          isCurrentAdded ||
+                          (newType === 'usb' && !detectedUsb) ||
+                          (newType === 'ip' && !newIp.trim())
+                        }
+                        onClick={handleAddAndConnect}
+                        className="h-7 px-3.5 text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        {connectingId === 'new' ? (
+                          <>
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            Connecting...
+                          </>
+                        ) : isCurrentAdded ? (
+                          'Already Added'
+                        ) : (
+                          'Add & Connect'
+                        )}
+                      </Button>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
             {/* ── 3. SAVED / REGISTERED CAMERAS (Compact Cards with Left Active Dot) ── */}
@@ -543,9 +678,9 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                 <button
                   type="button"
                   onClick={() => refreshAll()}
-                  disabled={isLoadingList}
+                  disabled={isRecording || isLoadingList}
                   title="Refresh device list"
-                  className="p-1 rounded border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-secondary)] hover:text-[var(--accent-pond)] hover:border-[var(--accent-pond)] transition-all cursor-pointer flex items-center gap-1 text-[10px] px-1.5 font-medium"
+                  className="p-1 rounded border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-secondary)] hover:text-[var(--accent-pond)] hover:border-[var(--accent-pond)] transition-all cursor-pointer flex items-center gap-1 text-[10px] px-1.5 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <RefreshCw className={`w-2.5 h-2.5 ${isLoadingList ? 'animate-spin text-[var(--accent-pond)]' : ''}`} />
                   Refresh
@@ -620,9 +755,9 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                           <Button
                             variant={isActive ? 'secondary' : 'primary'}
                             size="sm"
-                            disabled={isConnecting}
+                            disabled={isRecording || isConnecting}
                             onClick={() => handleConnectSaved(row)}
-                            className="h-6 text-[11px] px-2.5 font-bold"
+                            className="h-6 text-[11px] px-2.5 font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {isConnecting ? (
                               <Loader2 className="w-2.5 h-2.5 animate-spin" />
@@ -635,9 +770,9 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                           <button
                             type="button"
                             onClick={() => handleDelete(row)}
-                            disabled={deletingId === row.id}
+                            disabled={isRecording || deletingId === row.id}
                             title="Remove camera"
-                            className="p-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-red-500 hover:border-red-400 transition-all cursor-pointer"
+                            className="p-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-red-500 hover:border-red-400 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {deletingId === row.id ? (
                               <Loader2 className="w-3 h-3 animate-spin" />
@@ -681,13 +816,14 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                 min={100}
                 max={1600}
                 step={10}
+                disabled={isRecording}
                 value={localConfig.gain ?? localConfig.iso ?? 100}
                 onChange={(e) => {
                   const val = parseInt(e.target.value, 10);
                   setLocalConfig({ ...localConfig, gain: val, iso: val, autoExposure: false });
                 }}
                 style={getSliderStyle(localConfig.gain ?? localConfig.iso ?? 100, 100, 1600)}
-                className="w-full h-1.5 rounded cursor-pointer transition-all"
+                className="w-full h-1.5 rounded cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               />
               <div className="flex justify-between text-[9px] text-[var(--text-muted)] font-mono">
                 <span>100 (Clean)</span>
@@ -707,11 +843,12 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                 <div className="flex items-center gap-1.5">
                   <button
                     type="button"
+                    disabled={isRecording}
                     onClick={() => {
                       playWaterDropSound();
                       setLocalConfig({ ...localConfig, autoFocus: !localConfig.autoFocus });
                     }}
-                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all cursor-pointer ${
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                       localConfig.autoFocus
                         ? 'bg-blue-600 text-white shadow-xs'
                         : 'bg-[var(--btn-secondary-bg)] text-[var(--text-secondary)] border border-[var(--border-color)]'
@@ -729,12 +866,13 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                 min={0}
                 max={255}
                 step={1}
+                disabled={isRecording}
                 value={localConfig.focus ?? 120}
                 onChange={(e) => {
                   setLocalConfig({ ...localConfig, focus: parseInt(e.target.value, 10), autoFocus: false });
                 }}
                 style={getSliderStyle(localConfig.focus ?? 120, 0, 255)}
-                className="w-full h-1.5 rounded cursor-pointer transition-all"
+                className="w-full h-1.5 rounded cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               />
               <div className="flex justify-between text-[9px] text-[var(--text-muted)] font-mono">
                 <span>0 (Far / Infinity)</span>
@@ -753,11 +891,12 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                 <div className="flex items-center gap-1.5">
                   <button
                     type="button"
+                    disabled={isRecording}
                     onClick={() => {
                       playWaterDropSound();
                       setLocalConfig({ ...localConfig, autoExposure: !localConfig.autoExposure });
                     }}
-                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all cursor-pointer ${
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                       localConfig.autoExposure
                         ? 'bg-[var(--accent-pond)] text-white shadow-xs'
                         : 'bg-[var(--btn-secondary-bg)] text-[var(--text-secondary)] border border-[var(--border-color)]'
@@ -775,12 +914,13 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                 min={1}
                 max={33}
                 step={1}
+                disabled={isRecording}
                 value={localConfig.exposure ?? 10}
                 onChange={(e) => {
                   setLocalConfig({ ...localConfig, exposure: parseInt(e.target.value, 10), autoExposure: false });
                 }}
                 style={getSliderStyle(localConfig.exposure ?? 10, 1, 33)}
-                className="w-full h-1.5 rounded cursor-pointer transition-all"
+                className="w-full h-1.5 rounded cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               />
               <div className="flex justify-between text-[9px] text-[var(--text-muted)] font-mono">
                 <span>1 ms (Fast)</span>
@@ -802,10 +942,11 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                   type="range"
                   min={-50}
                   max={50}
+                  disabled={isRecording}
                   value={localConfig.brightness ?? 0}
                   onChange={(e) => setLocalConfig({ ...localConfig, brightness: parseInt(e.target.value, 10) })}
                   style={getSliderStyle(localConfig.brightness ?? 0, -50, 50)}
-                  className="w-full h-1.5 rounded cursor-pointer transition-all"
+                  className="w-full h-1.5 rounded cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 />
               </div>
 
@@ -820,10 +961,11 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                   type="range"
                   min={0}
                   max={100}
+                  disabled={isRecording}
                   value={localConfig.contrast ?? 50}
                   onChange={(e) => setLocalConfig({ ...localConfig, contrast: parseInt(e.target.value, 10) })}
                   style={getSliderStyle(localConfig.contrast ?? 50, 0, 100)}
-                  className="w-full h-1.5 rounded cursor-pointer transition-all"
+                  className="w-full h-1.5 rounded cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 />
               </div>
             </div>

@@ -34,7 +34,7 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
 
   const [exposure, setExposure] = useState<number>(() => normalizeExposureMs(config?.exposure, 16));
   const [gain, setGain] = useState<number>(config?.gain ?? 400);
-  const [focus, setFocus] = useState<number>(config?.focus ?? 120);
+  const [focus, setFocus] = useState<number>((typeof config?.focus === 'number' && config.focus > 0) ? config.focus : 120);
   const [brightness, setBrightness] = useState<number>(config?.brightness ?? 0);
   const [contrast, setContrast] = useState<number>(config?.contrast ?? 50);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'adjusting'>('synced');
@@ -74,7 +74,7 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
     if (config) {
       if (typeof config.exposure === 'number') setExposure(normalizeExposureMs(config.exposure, 16));
       if (typeof config.gain === 'number') setGain(config.gain);
-      if (typeof config.focus === 'number') setFocus(config.focus);
+      if (typeof config.focus === 'number') setFocus(config.focus > 0 ? config.focus : 120);
       if (typeof config.brightness === 'number') setBrightness(config.brightness);
       if (typeof config.contrast === 'number') setContrast(config.contrast);
       if (config.controlMode) setMode(config.controlMode);
@@ -221,7 +221,7 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
       control_mode: 'manual',
       exposure: newExp,
       gain,
-      focus,
+      focus: focus > 0 ? focus : 120,
       brightness,
       contrast,
       auto_exposure: false,
@@ -240,7 +240,7 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
       control_mode: 'manual',
       exposure,
       gain: newGain,
-      focus,
+      focus: focus > 0 ? focus : 120,
       brightness,
       contrast,
       auto_exposure: false,
@@ -251,15 +251,16 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
   // Handler: Change Focus (Lens Position)
   const handleFocusChange = (newFocus: number) => {
     if (controlsLocked) return;
+    const safeFocus = newFocus > 0 ? newFocus : 120;
     setFocus(newFocus);
     setHasUnsavedChanges(true);
     setJustSaved(false);
-    onUpdateConfig?.({ focus: newFocus, controlMode: 'manual' });
+    onUpdateConfig?.({ focus: safeFocus, controlMode: 'manual' });
     scheduleDispatch({
       control_mode: 'manual',
       exposure,
       gain,
-      focus: newFocus,
+      focus: safeFocus,
       brightness,
       contrast,
       auto_exposure: false,
@@ -278,7 +279,7 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
       control_mode: 'manual',
       exposure,
       gain,
-      focus,
+      focus: focus > 0 ? focus : 120,
       brightness: newB,
       contrast,
       auto_exposure: false,
@@ -297,7 +298,7 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
       control_mode: 'manual',
       exposure,
       gain,
-      focus,
+      focus: focus > 0 ? focus : 120,
       brightness,
       contrast: newC,
       auto_exposure: false,
@@ -321,7 +322,7 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
         control_mode: mode,
         exposure: mode === 'auto' ? 16 : exposure,
         gain: mode === 'auto' ? 400 : gain,
-        focus: mode === 'auto' ? 120 : focus,
+        focus: mode === 'auto' ? 120 : (focus > 0 ? focus : 120),
         brightness: mode === 'auto' ? 0 : brightness,
         contrast: mode === 'auto' ? 50 : contrast,
         auto_exposure: false,
@@ -335,7 +336,7 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
         exposure: normalizeExposureMs(saved?.exposure, mode === 'auto' ? 16 : exposure),
         gain: typeof saved?.gain === 'number' ? saved.gain : (mode === 'auto' ? 400 : gain),
         iso: typeof saved?.gain === 'number' ? saved.gain : (mode === 'auto' ? 400 : gain),
-        focus: typeof saved?.focus === 'number' ? saved.focus : (mode === 'auto' ? 120 : focus),
+        focus: typeof saved?.focus === 'number' && saved.focus > 0 ? saved.focus : (mode === 'auto' ? 120 : (focus > 0 ? focus : 120)),
         brightness: typeof saved?.brightness === 'number' ? saved.brightness : (mode === 'auto' ? 0 : brightness),
         contrast: typeof saved?.contrast === 'number' ? saved.contrast : (mode === 'auto' ? 50 : contrast),
         autoExposure: false,
@@ -356,31 +357,35 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
   };
 
   // Reset to Calibrated Default Values
+  // Reset to saved database settings
   const handleResetDefaults = async () => {
     if (controlsLocked) return;
-    const defaultExp = 16;
-    const defaultGain = 400;
-    const defaultFocus = 120;
-    const defaultB = 0;
-    const defaultC = 50;
+    const savedExp = normalizeExposureMs(config?.exposure, 16);
+    const savedGain = typeof config?.gain === 'number' ? config.gain : 400;
+    const savedFocus = typeof config?.focus === 'number' && config.focus > 0 ? config.focus : 120;
+    const savedB = typeof config?.brightness === 'number' ? config.brightness : 0;
+    const savedC = typeof config?.contrast === 'number' ? config.contrast : 50;
+    const savedMode = config?.controlMode || 'manual';
 
-    setExposure(defaultExp);
-    setGain(defaultGain);
-    setFocus(defaultFocus);
-    setBrightness(defaultB);
-    setContrast(defaultC);
-    setHasUnsavedChanges(true);
+    setExposure(savedExp);
+    setGain(savedGain);
+    setFocus(savedFocus);
+    setBrightness(savedB);
+    setContrast(savedC);
+    setMode(savedMode);
+    setHasUnsavedChanges(false);
     setJustSaved(false);
 
     onUpdateConfig?.({
-      exposure: defaultExp,
-      gain: defaultGain,
-      iso: defaultGain,
-      focus: defaultFocus,
-      brightness: defaultB,
-      contrast: defaultC,
-      autoExposure: false,
-      autoFocus: false,
+      exposure: savedExp,
+      gain: savedGain,
+      iso: savedGain,
+      focus: savedFocus,
+      brightness: savedB,
+      contrast: savedC,
+      controlMode: savedMode,
+      autoExposure: savedMode === 'auto',
+      autoFocus: savedMode === 'auto',
     });
 
     setSyncStatus('adjusting');
@@ -390,13 +395,14 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
     } catch {
       scheduleDispatch({
         reset: true,
-        exposure: defaultExp,
-        gain: defaultGain,
-        focus: defaultFocus,
-        brightness: defaultB,
-        contrast: defaultC,
-        auto_exposure: false,
-        auto_focus: false,
+        control_mode: savedMode,
+        exposure: savedExp,
+        gain: savedGain,
+        focus: savedFocus,
+        brightness: savedB,
+        contrast: savedC,
+        auto_exposure: savedMode === 'auto',
+        auto_focus: savedMode === 'auto',
       });
     }
   };
@@ -719,7 +725,7 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
               className="w-full h-7 rounded-xl border border-[var(--border-color)] hover:bg-[var(--btn-secondary-hover)] text-[var(--text-secondary)] text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              Reset Default Calibration
+              Reset to Saved Settings
             </button>
           </div>
         </div>

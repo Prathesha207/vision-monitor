@@ -277,7 +277,7 @@ export default function App() {
   // NOTE: isRunning=true means inference is active regardless of stream state flags —
   // this handles the post-refresh window where isRunning is seeded true but camera/video
   // flags haven't fully settled yet.
-  const hasActiveStream = isRunning || (isVideoSource && hasActiveVideo) || (isCameraSource && camera.isCameraDeviceActive && camera.cameraStartingState === 'ready');
+  const hasActiveStream = isRunning || (isVideoSource && hasActiveVideo) || (isCameraSource && (camera.isStreaming || (camera.isCameraDeviceActive && camera.cameraStartingState !== 'waking_camera')));
   const isStandby = !hasActiveStream && !isRunning && ducks.length === 0;
 
   // ─── Auto-resume after page refresh ───────────────────────────────
@@ -489,7 +489,10 @@ export default function App() {
         await camera.startCameraStream();
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
-      await recording.startRecording(camera.effectiveCameraConfig.recordingFormat || 'MP4');
+      await recording.startRecording(
+        camera.effectiveCameraConfig.recordingFormat || 'MP4',
+        camera.effectiveCameraConfig.targetFps || 30
+      );
     }
   };
 
@@ -619,8 +622,12 @@ export default function App() {
       }
     }
     if ((sourceType === 'oak-camera' || sourceType === 'webcam') && !video.cameraRecordSessionId) {
-      if (!isRunning && !camera.isStreaming) {
-        // Stream not started yet: start both stream and inference together!
+      if (isRunning) {
+        // Stop BOTH stream and inference
+        await handleStopInference();
+        return;
+      } else {
+        // Start BOTH stream and inference
         playWaterDropSound();
         await startCameraPipeline();
         return;
@@ -638,9 +645,11 @@ export default function App() {
     sourceStateCache.current.video = null;
     sourceStateCache.current.camera = null;
 
-    // Stop camera streaming if it's a live camera source
-    if (isCameraSource && camera.isStreaming) {
+    // Stop camera streaming and inference if it's a live camera source
+    if (isCameraSource) {
       camera.setIsStreaming(false);
+      setIsRunning(false);
+      try { await cameraService.stopLiveInference(); } catch { }
       try { await cameraService.stopStream(); } catch { }
     }
 
@@ -679,12 +688,10 @@ export default function App() {
       return;
     }
     if ((sourceType === 'oak-camera' || sourceType === 'webcam') && !video.cameraRecordSessionId) {
-      if (!camera.isStreaming || !camera.effectiveCameraConfig.connected) {
-        // Automatically start both stream and inference if camera is not active
-        playWaterDropSound();
-        await startCameraPipeline();
-        return;
-      }
+      // Start BOTH stream and inference together
+      playWaterDropSound();
+      await startCameraPipeline();
+      return;
     }
     inference.handleResumeInference(video.startVideoInference);
   };
@@ -949,23 +956,63 @@ export default function App() {
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         config={camera.effectiveCameraConfig}
+        isRecording={recording.isRecording || recording.isSaving}
         onSaveConfig={async (cfg) => {
-          camera.setCameraConfig(cfg);
+          const safeFocus = (typeof cfg.focus === 'number' && cfg.focus > 0) ? cfg.focus : 120;
+          const safeCfg: typeof cfg = { ...cfg, focus: safeFocus };
+          camera.setCameraConfig(safeCfg);
           try {
             const payload = {
-              name: cfg.sourceName || 'OAK Camera', ip_address: cfg.ipAddress || undefined,
-              resolution: cfg.resolution, fps: cfg.targetFps,
-              rotation_angle: cfg.rotationAngle ?? 0, control_mode: cfg.controlMode ?? 'auto',
-              exposure: cfg.exposure, gain: cfg.iso ?? cfg.gain, focus: cfg.focus,
-              brightness: cfg.brightness, contrast: cfg.contrast,
-              auto_focus: cfg.autoFocus, auto_exposure: cfg.autoExposure ?? true,
+              name: cfg.sourceName || 'OAK Camera',
+              ip_address: cfg.ipAddress || undefined,
+              resolution: cfg.resolution,
+              fps: cfg.targetFps,
+              rotation_angle: cfg.rotationAngle ?? 0,
+              control_mode: cfg.controlMode ?? 'manual',
+              exposure: cfg.exposure ?? 16,
+              gain: cfg.iso ?? cfg.gain ?? 400,
+              focus: safeFocus,
+              brightness: cfg.brightness ?? 0,
+              contrast: cfg.contrast ?? 50,
+              auto_focus: cfg.autoFocus ?? false,
+              auto_exposure: cfg.autoExposure ?? false,
               recording_format: cfg.recordingFormat || 'MP4',
             };
             const savedCamera = cfg.id
               ? await cameraService.updateCamera(cfg.id, payload)
               : await cameraService.createCamera(payload);
             if (savedCamera && savedCamera.id) {
-              camera.setCameraConfig((prev) => ({ ...prev, ...cfg, id: savedCamera.id }));
+              camera.setCameraConfig((prev) => ({ ...prev, ...safeCfg, id: savedCamera.id }));
+            }
+            // Sync controls directly to hardware & DB
+            await cameraService.saveCameraControls({
+              camera_id: savedCamera?.id || cfg.id,
+              control_mode: cfg.controlMode || 'manual',
+              exposure: cfg.exposure ?? 16,
+              gain: cfg.iso ?? cfg.gain ?? 400,
+              focus: safeFocus,
+              brightness: cfg.brightness ?? 0,
+              contrast: cfg.contrast ?? 50,
+              auto_exposure: cfg.autoExposure ?? false,
+              auto_focus: cfg.autoFocus ?? false,
+            }).catch(() => {});
+            // If resolution or targetFps changed while streaming, rebuild camera pipeline with new settings
+            const fpsChanged = cfg.targetFps && cfg.targetFps !== camera.effectiveCameraConfig.targetFps;
+            const resChanged = cfg.resolution && cfg.resolution !== camera.effectiveCameraConfig.resolution;
+            if ((fpsChanged || resChanged) && camera.isStreaming) {
+              try {
+                await cameraService.stopStream();
+                await cameraService.stop();
+                await cameraService.start({
+                  camera_id: savedCamera?.id || cfg.id,
+                  ip_address: cfg.ipAddress || undefined,
+                });
+                if (camera.startCameraStream) {
+                  await camera.startCameraStream();
+                }
+              } catch (err) {
+                console.warn('Failed to restart stream after config change:', err);
+              }
             }
             showToast('success', 'Camera settings saved to database');
           } catch (e) {

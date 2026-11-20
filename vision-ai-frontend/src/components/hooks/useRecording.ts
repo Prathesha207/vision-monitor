@@ -28,7 +28,7 @@ export function useRecording() {
     };
   }, []);
 
-  const startRecording = useCallback(async (recordingFormat: string = 'MP4') => {
+  const startRecording = useCallback(async (recordingFormat: string = 'MP4', fps?: number) => {
     const isProcessing = useInferenceStore.getState().stats.status === 'processing';
     if (isProcessing || isRecording || isSaving) return false;
 
@@ -36,7 +36,7 @@ export function useRecording() {
     sessionIdRef.current = newSessionId;
 
     try {
-      const res = await recordingService.startRecording(newSessionId, recordingFormat);
+      const res = await recordingService.startRecording(newSessionId, recordingFormat, fps);
       if (res && res.status === 'recording') {
         setIsRecording(true);
         setRecordingDuration(0);

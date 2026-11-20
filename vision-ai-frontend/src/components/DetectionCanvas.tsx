@@ -196,7 +196,7 @@ export const DetectionCanvas: React.FC<DetectionCanvasProps> = ({
 
   const isOverlayShowing =
     Boolean(isStarting) ||
-    Boolean(isCameraSource && !hasCameraRecording && isCameraConnected && cameraStartingState !== 'ready') ||
+    Boolean(isCameraSource && !hasCameraRecording && isCameraConnected && (cameraStartingState === 'waking_camera' || cameraStartingState === 'waiting_frame')) ||
     Boolean((isVideoSource || hasCameraRecording) && (hasActiveVideo || hasCameraRecording) && isRunning && !isFirstFrameLoaded);
 
   const isHandPresent =

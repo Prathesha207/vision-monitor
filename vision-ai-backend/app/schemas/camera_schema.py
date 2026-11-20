@@ -15,16 +15,16 @@ class CameraBase(BaseModel):
     control_mode: Literal["auto", "manual"] = "auto"
 
     # Manual Controls
-    exposure: Optional[float] = Field(default=None, ge=0)
-    gain: Optional[float] = Field(default=None, ge=0)
-    focus: Optional[int] = Field(default=None, ge=0)
+    exposure: Optional[float] = Field(default=16.0, ge=0)
+    gain: Optional[float] = Field(default=400.0, ge=0)
+    focus: Optional[int] = Field(default=120, ge=0)
 
-    brightness: Optional[int] = Field(default=None, ge=-50, le=100)
-    contrast: Optional[int] = Field(default=None, ge=0, le=100)
+    brightness: Optional[int] = Field(default=0, ge=-50, le=100)
+    contrast: Optional[int] = Field(default=50, ge=0, le=100)
 
     # Auto Toggles
-    auto_exposure: bool = True
-    auto_focus: bool = True
+    auto_exposure: bool = False
+    auto_focus: bool = False
 
     # Streaming / AI
     stream_url: Optional[str] = None
@@ -43,7 +43,7 @@ class CameraUpdate(BaseModel):
     name: Optional[str] = None
     ip_address: Optional[str] = None
     resolution: Optional[str] = None
-    fps: Optional[int] = Field(default=None, ge=5, le=30)
+    fps: Optional[int] = Field(default=None, ge=5, le=60)
     rotation_angle: Optional[int] = Field(default=None, ge=0, le=360)
 
     control_mode: Optional[Literal["auto", "manual"]] = None

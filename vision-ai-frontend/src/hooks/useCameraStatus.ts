@@ -28,7 +28,7 @@ export function useCameraStatus(
     connected: false,
   });
   const [isCameraDeviceActive, setIsCameraDeviceActive] = useState<boolean>(false);
-  const [cameraStartingState, setCameraStartingState] = useState<'idle' | 'waking_camera' | 'waiting_frame' | 'ready'>('idle');
+  const [cameraStartingState, setCameraStartingState] = useState<'idle' | 'waking_camera' | 'waiting_frame' | 'ready'>('ready');
   const [cameraConnected, setCameraConnected] = useState<boolean | null>(null);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -103,12 +103,19 @@ export function useCameraStatus(
           const data = await res.json();
           if (isMounted) {
             const isOnline = Boolean(data.connected || data.running || data.streaming);
+            const isStreamActive = Boolean(data.streaming);
             const justCameOnline = isOnline && !wasOnlineRef.current;
             wasOnlineRef.current = isOnline;
 
             setCameraConfig((prev) => (prev.connected !== isOnline ? { ...prev, connected: isOnline } : prev));
             setIsCameraDeviceActive(isOnline);
             setCameraConnected(isOnline);
+            if (isStreamActive) {
+              setIsStreaming(true);
+            }
+            if (isOnline) {
+              setCameraStartingState('ready');
+            }
             if (justCameOnline) {
               if (data.camera_settings) {
                 applyBackendCameraSettings(data.camera_settings, data.camera_id);
@@ -124,6 +131,7 @@ export function useCameraStatus(
             // Only force false if the hardware is completely offline
             if (!isOnline) {
               setIsStreaming(false);
+              setCameraStartingState('ready');
             }
           }
         } else {
