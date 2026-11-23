@@ -1,5 +1,5 @@
 # ==============================================================================
-# Vision Monitor - Windows Development Runner
+# Duck Monitor - Windows Development Runner
 # Mirrors run_dev_linux.sh: auto-checks venv, requirements, traycount wheel,
 # CUDA kernels, node_modules, finds a free port, and starts backend + frontend.
 # ==============================================================================
@@ -11,12 +11,12 @@ $BackendDir = if ($MyInvocation.MyCommand.Path) {
     Get-Location
 }
 $ProjectRoot = Split-Path -Parent $BackendDir
-$FrontendDir = Join-Path $ProjectRoot 'vision-ai-frontend'
+$FrontendDir = Join-Path $ProjectRoot 'frontend'
 $VenvPython = Join-Path $BackendDir '.venv\Scripts\python.exe'
 $SetupScript = Join-Path $BackendDir 'setup_windows.ps1'
 
 Write-Host "=======================================================" -ForegroundColor Cyan
-Write-Host "       Starting Vision Monitor Development Mode        " -ForegroundColor Cyan
+Write-Host "       Starting Duck Monitor Development Mode        " -ForegroundColor Cyan
 Write-Host "=======================================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -130,17 +130,17 @@ if ($Port -ne $TargetPort) {
 
 # 7. Start Backend and Frontend in dedicated console windows
 Write-Host ""
-Write-Host "[1/2] Starting Vision Monitor Backend API (Port $Port)..." -ForegroundColor Cyan
+Write-Host "[1/2] Starting Duck Monitor Backend API (Port $Port)..." -ForegroundColor Cyan
 $BackendCmd = "`"$VenvPython`" -m uvicorn app.main:app --reload --reload-dir app --reload-exclude .venv* --reload-exclude data* --reload-exclude recordings* --port $Port"
-Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "title Vision Monitor - Backend API && $BackendCmd" -WorkingDirectory $BackendDir
+Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "title Duck Monitor - Backend API && $BackendCmd" -WorkingDirectory $BackendDir
 
-Write-Host "[2/2] Starting Vision Monitor Frontend UI (Port 5173)..." -ForegroundColor Cyan
+Write-Host "[2/2] Starting Duck Monitor Frontend UI (Port 5173)..." -ForegroundColor Cyan
 $FrontendCmd = "set VITE_API_BASE_URL=http://localhost:$Port && npm run dev"
-Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "title Vision Monitor - Frontend UI && $FrontendCmd" -WorkingDirectory $FrontendDir
+Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "title Duck Monitor - Frontend UI && $FrontendCmd" -WorkingDirectory $FrontendDir
 
 Write-Host ""
 Write-Host "=======================================================" -ForegroundColor Green
-Write-Host "[SUCCESS] Vision Monitor development servers started!" -ForegroundColor Green
+Write-Host "[SUCCESS] Duck Monitor development servers started!" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Frontend Application : http://localhost:5173" -ForegroundColor White
 Write-Host "  Backend Health Check : http://localhost:$Port/health" -ForegroundColor White

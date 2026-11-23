@@ -9,7 +9,7 @@ param(
 # 64-bit Windows machine: PyInstaller and PyTorch must be built natively.
 $ErrorActionPreference = 'Stop'
 $BackendDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$FrontendDir = Join-Path (Split-Path -Parent $BackendDir) 'vision-ai-frontend'
+$FrontendDir = Join-Path (Split-Path -Parent $BackendDir) 'frontend'
 $ReleaseVenv = if (Test-Path (Join-Path $BackendDir '.venv')) {
   Join-Path $BackendDir '.venv'
 } else {
@@ -23,7 +23,7 @@ if (-not $PythonCmd) { throw 'Python was not found in PATH. Please install Pytho
 $Python = $PythonCmd.Source
 
 if (-not [Environment]::Is64BitOperatingSystem) { throw 'A 64-bit Windows host is required.' }
-if (-not (Test-Path (Join-Path $FrontendDir 'package.json'))) { throw 'vision-ai-frontend must be beside vision-ai-backend.' }
+if (-not (Test-Path (Join-Path $FrontendDir 'package.json'))) { throw 'frontend must be beside backend.' }
 
 if (-not (Test-Path $ReleaseVenv)) {
   & $Python -m venv $ReleaseVenv
@@ -182,8 +182,7 @@ Push-Location $FrontendDir
 try {
   Remove-Item -LiteralPath (Join-Path $FrontendDir 'dist_app\win-unpacked') -Recurse -Force -ErrorAction SilentlyContinue
   Remove-Item -Path (Join-Path $FrontendDir 'dist_app\*.nsis.7z*') -Force -ErrorAction SilentlyContinue
-  Remove-Item -Path (Join-Path $FrontendDir 'dist_app\Vision-Monitor*') -Recurse -Force -ErrorAction SilentlyContinue
-  Remove-Item -Path (Join-Path $FrontendDir 'dist_app\Vision-AI*') -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-Item -Path (Join-Path $FrontendDir 'dist_app\Duck-Monitor*') -Recurse -Force -ErrorAction SilentlyContinue
 
   if (-not (Test-Path (Join-Path $FrontendDir 'node_modules'))) {
     & npm.cmd ci --include=optional

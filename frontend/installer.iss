@@ -1,8 +1,8 @@
-#define MyAppName "Vision AI"
+#define MyAppName "Duck Monitor"
 #define MyAppVersion "0.1.0"
-#define MyAppPublisher "Vision-AI"
-#define MyAppURL "https://github.com/vision-ai/vision-ai"
-#define MyAppExeName "Vision-AI.exe"
+#define MyAppPublisher "Duck-Monitor"
+#define MyAppURL "https://github.com/Prathesha207/duck-monitor"
+#define MyAppExeName "Duck-Monitor.exe"
 
 [Setup]
 AppId={{D3A58E89-B41F-4DC7-817B-67E95C5C29C1}
@@ -12,9 +12,9 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={autopf}\Vision-AI
+DefaultDirName={autopf}\Duck-Monitor
 DisableProgramGroupPage=yes
-OutputBaseFilename=Vision-AI-windows-x64-cuda-setup
+OutputBaseFilename=Duck-Monitor-windows-x64-cuda-setup
 OutputDir=dist_app
 Compression=lzma2/fast
 SolidCompression=yes
