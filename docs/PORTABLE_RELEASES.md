@@ -4,8 +4,8 @@ Each installer includes Electron, the Python backend, model weights, Python
 libraries, and native video/ML dependencies. An end user does **not** need to
 install Python, Node.js, PyTorch, or the project source code.
 
-Release staging uses `vision-ai-frontend/release-backend`; it deliberately
-does not use `vision-ai-frontend/backend`, which may contain local logs and
+Release staging uses `duck-monitor-frontend/release-backend`; it deliberately
+does not use `duck-monitor-frontend/backend`, which may contain local logs and
 database data.
 
 Build each target on its own native OS and CPU architecture. PyInstaller and
@@ -18,7 +18,7 @@ PyTorch cannot safely cross-compile these artifacts.
 | Linux x64 | `./build_linux_desktop.sh` on x86_64 Linux | AppImage and `.deb` |
 | Linux ARM64 | `./build_linux_desktop.sh` on aarch64 Linux | AppImage and `.deb` |
 
-Run Windows commands from `vision-ai-backend` in PowerShell. Run Linux commands
+Run Windows commands from `duck-monitor-backend` in PowerShell. Run Linux commands
 from that same directory after `chmod +x build_linux_desktop.sh`.
 
 The GitHub workflows build the same artifacts: `windows-desktop.yml` produces
@@ -45,10 +45,10 @@ instead of replacing it.
 
 1. Install the generated artifact on a clean machine of the matching platform
    and architecture.
-2. Open Vision AI and wait for the splash screen to close.
+2. Open Duck Monitor and wait for the splash screen to close.
 3. Upload a short video or connect a camera, then confirm analysis completes.
 4. On an NVIDIA target, inspect the backend log or model status and confirm
    CUDA is selected; repeat once without an NVIDIA GPU to confirm CPU fallback.
 
 Release artifacts are intentionally not committed. They are in
-`vision-ai-frontend/dist_app` and can be uploaded by the CI workflow.
+`duck-monitor-frontend/dist_app` and can be uploaded by the CI workflow.

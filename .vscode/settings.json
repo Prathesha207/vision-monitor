@@ -1,12 +1,12 @@
 {
-  "python.defaultInterpreterPath": "${workspaceFolder}/vision-ai-backend/.venv/Scripts/python.exe",
+  "python.defaultInterpreterPath": "${workspaceFolder}/duck-monitor-backend/.venv/Scripts/python.exe",
   "python.analysis.extraPaths": [
-    "${workspaceFolder}/vision-ai-backend",
-    "${workspaceFolder}/vision-ai-backend/app"
+    "${workspaceFolder}/duck-monitor-backend",
+    "${workspaceFolder}/duck-monitor-backend/app"
   ],
   "python.autoComplete.extraPaths": [
-    "${workspaceFolder}/vision-ai-backend",
-    "${workspaceFolder}/vision-ai-backend/app"
+    "${workspaceFolder}/duck-monitor-backend",
+    "${workspaceFolder}/duck-monitor-backend/app"
   ],
   "python.analysis.diagnosticSeverityOverrides": {
     "reportMissingModuleSource": "none"

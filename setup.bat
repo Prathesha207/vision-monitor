@@ -1,9 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
-title Vision Monitor Setup
+title Duck Monitor Setup
 
 echo =======================================================
-echo          Vision Monitor Setup (Windows)
+echo          Duck Monitor Setup (Windows)
 echo =======================================================
 echo.
 
@@ -16,7 +16,7 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0vision-ai-backend\setup_windows.ps1" %*
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0duck-monitor-backend\setup_windows.ps1" %*
 if %ERRORLEVEL% NEQ 0 (
     echo.
     echo =======================================================
@@ -29,6 +29,6 @@ if %ERRORLEVEL% NEQ 0 (
 echo.
 echo =======================================================
 echo [SUCCESS] Setup completed successfully!
-echo To launch Vision Monitor, simply double-click run.bat
+echo To launch Duck Monitor, simply double-click run.bat
 echo =======================================================
 pause

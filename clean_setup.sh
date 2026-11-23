@@ -2,7 +2,7 @@
 set -e
 
 echo "======================================================="
-echo "        Vision Monitor - Clean Setup (Linux)"
+echo "        Duck Monitor - Clean Setup (Linux)"
 echo "======================================================="
 echo ""
 echo "This will remove the existing Python virtual environment (.venv)"
@@ -10,7 +10,7 @@ echo "and frontend dist build, then perform a fresh setup from scratch."
 echo ""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-cd "$SCRIPT_DIR/vision-ai-backend"
+cd "$SCRIPT_DIR/duck-monitor-backend"
 chmod +x setup_linux.sh
 ./setup_linux.sh --clean
 

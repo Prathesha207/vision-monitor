@@ -5,8 +5,8 @@ on:
   push:
     branches: [main]
     paths:
-      - "vision-ai-backend/**"
-      - "vision-ai-frontend/**"
+      - "duck-monitor-backend/**"
+      - "duck-monitor-frontend/**"
       - ".github/workflows/linux-desktop.yml"
 
 permissions:
@@ -42,7 +42,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: vision-ai-frontend/package-lock.json
+          cache-dependency-path: duck-monitor-frontend/package-lock.json
 
       - name: Install Linux runtime and build dependencies
         run: |
@@ -51,15 +51,15 @@ jobs:
 
       - name: Build bundled backend and Linux desktop artifacts
         run: |
-          chmod +x vision-ai-backend/build_linux_desktop.sh
-          vision-ai-backend/build_linux_desktop.sh
+          chmod +x duck-monitor-backend/build_linux_desktop.sh
+          duck-monitor-backend/build_linux_desktop.sh
 
       - name: Upload Linux installers
         uses: actions/upload-artifact@v4
         with:
-          name: vision-ai-linux-${{ matrix.arch }}
+          name: duck-monitor-linux-${{ matrix.arch }}
           if-no-files-found: error
           retention-days: 14
           path: |
-            vision-ai-frontend/dist_app/*.AppImage
-            vision-ai-frontend/dist_app/*.deb
+            duck-monitor-frontend/dist_app/*.AppImage
+            duck-monitor-frontend/dist_app/*.deb

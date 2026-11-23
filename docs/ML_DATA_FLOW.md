@@ -116,10 +116,10 @@ These mechanisms are separate from the JSON inference update. The automatic anom
 
 ## Main files
 
-- Backend inference worker: `vision-ai-backend/app/services/oak_camera_service.py`
-- Backend live WebSocket: `vision-ai-backend/app/routers/oak_camera_router.py`
-- Backend uploaded-video status: `vision-ai-backend/app/routers/video_router.py`
-- Frontend transport handling: `vision-ai-frontend/src/App.tsx`
-- Frontend payload mapper: `vision-ai-frontend/src/utils/mlDataMapper.ts`
-- Frontend stats store: `vision-ai-frontend/src/store/inferenceStore.ts`
-- Frontend detection overlay: `vision-ai-frontend/src/components/DetectionCanvas.tsx`
+- Backend inference worker: `duck-monitor-backend/app/services/oak_camera_service.py`
+- Backend live WebSocket: `duck-monitor-backend/app/routers/oak_camera_router.py`
+- Backend uploaded-video status: `duck-monitor-backend/app/routers/video_router.py`
+- Frontend transport handling: `duck-monitor-frontend/src/App.tsx`
+- Frontend payload mapper: `duck-monitor-frontend/src/utils/mlDataMapper.ts`
+- Frontend stats store: `duck-monitor-frontend/src/store/inferenceStore.ts`
+- Frontend detection overlay: `duck-monitor-frontend/src/components/DetectionCanvas.tsx`

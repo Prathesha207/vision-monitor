@@ -1,8 +1,8 @@
 @echo off
 echo =======================================================
-echo     Vision Monitor Build (Windows Desktop App)
+echo     Duck Monitor Build (Windows Desktop App)
 echo =======================================================
-cd /d "%~dp0vision-ai-backend"
+cd /d "%~dp0duck-monitor-backend"
 powershell -ExecutionPolicy Bypass -File build_windows_desktop.ps1
 if %ERRORLEVEL% NEQ 0 (
     echo.
@@ -13,6 +13,6 @@ if %ERRORLEVEL% NEQ 0 (
 echo.
 echo =======================================================
 echo Build completed successfully!
-echo You can find the installer (.exe) in: vision-ai-frontend\dist_app
+echo You can find the installer (.exe) in: duck-monitor-frontend\dist_app
 echo =======================================================
 pause

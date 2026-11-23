@@ -1,0 +1,447 @@
+import { useState, useEffect } from 'react';
+import type { StreamSourceType, LogEntry, DuckEntity } from '../types';
+import { getApiBaseUrl } from '../lib/api';
+import { useInferenceStore } from '../store/inferenceStore';
+import { mapDetectionsToDucks, resetBBoxCache } from '../utils/mlDataMapper';
+import { DEFAULT_VIDEO_WIDTH, DEFAULT_VIDEO_HEIGHT } from '../utils/constants';
+import { playWaterDropSound } from '../utils/audio';
+
+export function useInferenceLoop({
+  sourceType,
+  videoSessionId,
+  cameraRecordSessionId,
+  expectedDucks,
+  showToast,
+  addLog,
+  startCameraPipeline,
+  setDucks,
+  setVideoDimensions,
+  cameraService,
+  setCameraIsStreaming,
+  isRunning,
+  setIsRunning,
+  isStarting,
+  setIsStarting,
+  fps,
+  setFps,
+  framesProcessed,
+  setFramesProcessed,
+  uptimeSeconds,
+  setUptimeSeconds,
+  setLastCameraFrame,
+}: {
+  sourceType: StreamSourceType;
+  videoSessionId: string | null;
+  cameraRecordSessionId?: string | null;
+  expectedDucks: number;
+  showToast: (type: 'error' | 'success' | 'info', message: string) => void;
+  addLog: (message: string, level?: LogEntry['level']) => void;
+  startCameraPipeline: () => Promise<boolean>;
+  setDucks: (ducks: DuckEntity[]) => void;
+  setVideoDimensions: (dim: { width: number; height: number }) => void;
+  cameraService: any;
+  setCameraIsStreaming?: (val: boolean) => void;
+  isRunning: boolean;
+  setIsRunning: (val: boolean) => void;
+  isStarting: boolean;
+  setIsStarting: (val: boolean) => void;
+  fps: number;
+  setFps: (val: number) => void;
+  framesProcessed: number;
+  setFramesProcessed: (val: number) => void;
+  uptimeSeconds: number;
+  setUptimeSeconds: (val: number) => void;
+  setLastCameraFrame?: (frame: string) => void;
+}) {
+  useEffect(() => {
+    if (!isRunning) return;
+
+    const isCameraSource = sourceType === 'oak-camera' || sourceType === 'webcam';
+    const effectiveVideoSessionId = isCameraSource ? cameraRecordSessionId : videoSessionId;
+    const isLive = isCameraSource && !effectiveVideoSessionId;
+
+    if (!isLive && !effectiveVideoSessionId) return;
+
+    if (isLive) {
+      let ws: WebSocket | null = null;
+      let isMounted = true;
+      const connectWs = () => {
+        const wsUrl = getApiBaseUrl().replace('http', 'ws') + '/oak/inference/ws/live';
+        ws = new WebSocket(wsUrl);
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (!isMounted) return;
+            useInferenceStore.getState().setStats(data);
+
+            if (data.status === 'error' || data.status === 'stopped' || data.done) {
+              setIsRunning(false);
+              if (data.status === 'error') {
+                const errDetail = data.reasons?.join(', ') || data.error || data.message || 'Camera inference failed';
+                showToast('error', `Inference error: ${errDetail}`);
+                addLog(`Inference stopped on error: ${errDetail}`, 'error');
+              }
+              return;
+            }
+
+            if (data.frame && setLastCameraFrame) {
+              setLastCameraFrame(data.frame);
+            }
+            if (data.status !== 'queued' && data.status !== 'idle') {
+              setFps(data.metrics?.fps || data.fps || 0);
+              setFramesProcessed(data.frames_processed || 0);
+              setUptimeSeconds(Math.floor((data.frames_processed || 0) / (data.metrics?.fps || data.fps || 30)));
+
+              if (data.video_width && data.video_height) {
+                setVideoDimensions({ width: data.video_width, height: data.video_height });
+              }
+
+              const vw = data.video_width || DEFAULT_VIDEO_WIDTH;
+              const vh = data.video_height || DEFAULT_VIDEO_HEIGHT;
+              const incomingDucks = mapDetectionsToDucks(data, vw, vh, expectedDucks);
+              if (data.status !== "HAND" && !data.hand_detected) {
+                setDucks(incomingDucks);
+              }
+            }
+          } catch (e) { }
+        };
+        ws.onclose = () => {
+          if (isMounted) setTimeout(connectWs, 2000);
+        };
+      };
+      connectWs();
+      return () => { isMounted = false; if (ws) ws.close(); };
+    }
+
+    const sessionId = effectiveVideoSessionId as string;
+
+    // React's strict mode / unmounts could overlap. We use a generation ref 
+    // to absolutely ensure an older inflight fetch cannot overwrite a newer generation's state.
+    const runGeneration = Date.now() + Math.random();
+    let isMounted = true;
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let consecutive404s = 0;
+
+    const pollBackend = async () => {
+      try {
+        const res = await fetch(`${getApiBaseUrl()}/video/status/${sessionId}`);
+        if (res.status === 404) {
+          consecutive404s += 1;
+          if (consecutive404s >= 10) {
+            console.warn(`[DuckAI] Session ${sessionId} is no longer active on the backend. Polling stopped.`);
+            return;
+          }
+          if (isMounted) timeoutId = setTimeout(pollBackend, 800);
+          return;
+        }
+
+        consecutive404s = 0;
+        if (!res.ok) {
+          if (isMounted) timeoutId = setTimeout(pollBackend, 500);
+          return;
+        }
+
+        const data = await res.json();
+        if (!isMounted) return;
+
+        useInferenceStore.getState().setStats(data);
+
+        if (data.status === 'error' || data.status === 'stopped' || data.done) {
+          setIsRunning(false);
+          if (data.status === 'error') {
+            const errDetail = data.reasons?.join(', ') || data.error || data.message || 'Video inference failed';
+            showToast('error', `Inference failed: ${errDetail}`);
+            addLog(`Inference failed: ${errDetail}`, 'anomaly');
+          }
+          return;
+        }
+
+        if (data.status !== 'queued' && data.status !== 'idle') {
+          setFps(data.fps || 0);
+          setFramesProcessed(data.frames_processed || 0);
+          setUptimeSeconds(Math.floor((data.frames_processed || 0) / (data.fps || 30)));
+
+          if (data.video_width && data.video_height) {
+            setVideoDimensions({ width: data.video_width, height: data.video_height });
+          }
+
+          const vw = data.video_width || DEFAULT_VIDEO_WIDTH;
+          const vh = data.video_height || DEFAULT_VIDEO_HEIGHT;
+          const incomingDucks = mapDetectionsToDucks(data, vw, vh, expectedDucks);
+
+          if (data.status !== "HAND" && !data.hand_detected) {
+            setDucks(incomingDucks);
+          }
+
+          if (data.status === 'completed') {
+            setIsRunning(false);
+            showToast('success', 'Video inference completed.');
+            addLog('Video inference processing completed.', 'success');
+            return;
+          }
+        
+        }
+
+        const pollInterval = Math.max(120, Math.min(250, Math.floor(1000 / (data?.fps || 15))));
+        if (isMounted) {
+          timeoutId = setTimeout(pollBackend, pollInterval);
+        }
+        return;
+
+      } catch (err) {
+        if (isMounted && isRunning) {
+          timeoutId = setTimeout(pollBackend, 200);
+        }
+      }
+    };
+
+    pollBackend();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isMounted) {
+        clearTimeout(timeoutId);
+        pollBackend();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
+    };
+    // NOTE: cameraRecordSessionId added to deps — this is what makes the
+    // effect correctly tear down the websocket and switch to polling (or
+    // vice versa) the instant a recording is loaded or cleared.
+  }, [isRunning, videoSessionId, cameraRecordSessionId, sourceType]);
+
+  const handleToggleRunning = async (startVideoInference: (customSessionId?: string) => Promise<void>) => {
+    playWaterDropSound();
+    const isCameraMode = sourceType === 'oak-camera' || sourceType === 'webcam';
+
+    if (isRunning) {
+      setIsRunning(false);
+      showToast('info', 'Inference paused. Click Resume or Start.');
+      addLog('Inference paused • Model evaluation temporarily suspended.', 'info');
+
+      if (isCameraMode && cameraRecordSessionId) {
+        // Stopping inference on a loaded recording — this is a video-service
+        // session, so stop it the same way uploaded-video does.
+        try {
+          await fetch(`${getApiBaseUrl()}/video/stop/${cameraRecordSessionId}`, { method: 'POST' });
+        } catch (e) { }
+      } else if (isCameraMode) {
+        try { await cameraService.stopLiveInference(); } catch (e) { }
+        try { await cameraService.stopStream(); } catch (e) { }
+        setCameraIsStreaming?.(false);
+      }
+      if (!isCameraMode && videoSessionId) {
+        try {
+          await fetch(`${getApiBaseUrl()}/video/stop/${videoSessionId}`, { method: 'POST' });
+        } catch (e) { }
+      }
+    } else {
+      if (isCameraMode && cameraRecordSessionId) {
+        // GPU-contention fix: a recording uses the video-inference GPU
+        // claim, which is refused while the camera claim is held. Always
+        // release live camera inference/stream first, even if the user
+        // believes it's already stopped.
+        setIsStarting(true);
+        try { await cameraService.stopLiveInference(); } catch (e) { }
+        try { await cameraService.stopStream(); } catch (e) { }
+        setCameraIsStreaming?.(false);
+        await startVideoInference(cameraRecordSessionId);
+        setIsStarting(false);
+      } else if (isCameraMode) {
+        setIsStarting(true);
+        await startCameraPipeline();
+        setIsStarting(false);
+      } else {
+        // BUGFIX: this branch (plain uploaded-video / sample-pond "Start" after
+        // a Stop) used to call startVideoInference() directly without clearing
+        // any frontend state first. The backend now always begins a genuinely
+        // fresh run (see start_run()/_reset_session_stats() server-side), but
+        // the frontend was still showing whatever ducks/fps/progress were left
+        // over from the previous run until the first status poll came back,
+        // which is exactly the "UI shows the old inference/overlay state"
+        // symptom. Clear local state up front so the UI honestly reflects
+        // "starting fresh" immediately, matching what handleResumeInference
+        // already does for the camera-live path below.
+        setFramesProcessed(0);
+        setFps(0);
+        setUptimeSeconds(0);
+        setDucks([]);
+        useInferenceStore.getState().resetStats();
+        resetBBoxCache();
+        await startVideoInference();
+      }
+    }
+  };
+
+  const handleStopInference = async () => {
+    playWaterDropSound();
+    setIsRunning(false);
+
+    const sids = Array.from(new Set([videoSessionId, cameraRecordSessionId].filter(Boolean))) as string[];
+
+    for (const sid of sids) {
+      try {
+        await fetch(`${getApiBaseUrl()}/video/stop/${sid}`, { method: 'POST' });
+      } catch (err) {
+        console.error("Failed to stop backend inference", err);
+      }
+    }
+
+    const isCameraMode = sourceType === 'oak-camera' || sourceType === 'webcam';
+    if (isCameraMode && !cameraRecordSessionId && !videoSessionId) {
+      cameraService.stopLiveInference().catch(() => { });
+      cameraService.stopStream().catch(() => { });
+      setCameraIsStreaming?.(false);
+    }
+
+    // Full reset: clear all frontend state so UI is ready for a new inference
+    setFramesProcessed(0);
+    setFps(0);
+    setUptimeSeconds(0);
+    setDucks([]);
+    useInferenceStore.getState().resetStats();
+    resetBBoxCache();
+
+    showToast('info', 'Inference stopped • Ready for new inference');
+    addLog('Inference stopped • Canvas, detections, and cards cleared.', 'info');
+  };
+
+  /**
+   * BUGFIX: this function did not exist at all. Whatever "Reset" button the
+   * UI has was either wired to nothing or, at best, to a local state clear
+   * that never touched the backend -- explaining "The Reset button
+   * currently does nothing."
+   *
+   * This fully resets both sides:
+   *  - Backend: POST /video/reset/{session_id} for every session id this
+   *    hook knows about (both uploaded-video and any loaded camera
+   *    recording). The backend reset handler stops the task, releases the
+   *    analyzer, deletes temp files, and drops the session from memory --
+   *    so the *next* upload creates a completely clean session with no
+   *    stale task/id/results/overlay/progress from before.
+   *  - Frontend: clears every piece of local run state (ducks, fps,
+   *    frames/uptime counters, the shared inference store, and the bbox
+   *    cache) so no residual overlay is drawn.
+   *
+   * IMPORTANT: this hook is only given `videoSessionId` /
+   * `cameraRecordSessionId` as read-only props -- it does not own the state
+   * that holds them, so it cannot itself forget the old session id. Pass a
+   * `clearSessionIds` callback from the parent component that sets its own
+   * videoSessionId / cameraRecordSessionId state back to null, or the next
+   * "Start" will keep pointing at the session id this function just told
+   * the backend to delete (404s / "session not found"). This is also what
+   * makes "upload another video after Reset without a page refresh" work:
+   * the parent must treat a null session id as "no session yet, next
+   * upload creates a fresh one" rather than trying to reuse the old id.
+   */
+  const handleResetInference = async (clearSessionIds?: () => void) => {
+    playWaterDropSound();
+
+    // Stop any in-flight polling / websocket loop immediately.
+    setIsRunning(false);
+    setIsStarting(false);
+
+    const sids = Array.from(new Set([videoSessionId, cameraRecordSessionId].filter(Boolean))) as string[];
+
+    for (const sid of sids) {
+      try {
+        const res = await fetch(`${getApiBaseUrl()}/video/reset/${sid}`, { method: 'POST' });
+        if (!res.ok) {
+          console.warn(`[DuckAI] Reset request for session ${sid} returned ${res.status}`);
+        }
+      } catch (err) {
+        console.error('[DuckAI] Failed to reset backend session', sid, err);
+      }
+    }
+
+    const isCameraMode = sourceType === 'oak-camera' || sourceType === 'webcam';
+    if (isCameraMode) {
+      try { await cameraService.stopLiveInference(); } catch (e) { }
+      try { await cameraService.stopStream(); } catch (e) { }
+      setCameraIsStreaming?.(false);
+    }
+
+    setFramesProcessed(0);
+    setFps(0);
+    setUptimeSeconds(0);
+    setDucks([]);
+    useInferenceStore.getState().resetStats();
+    resetBBoxCache();
+
+    clearSessionIds?.();
+
+    showToast('info', 'Inference reset. Upload a new video or start again.');
+    addLog('Inference session fully reset • Backend and frontend state cleared.', 'info');
+  };
+
+  const handleResumeInference = (startVideoInference: (customSessionId?: string) => Promise<void>) => {
+    const isCameraMode = sourceType === 'oak-camera' || sourceType === 'webcam';
+
+    if (sourceType === 'uploaded-video' || sourceType === 'sample-pond') {
+      // BUGFIX: same stale-overlay issue as handleToggleRunning's start
+      // branch -- this path skipped clearing frontend state entirely.
+      playWaterDropSound();
+      setFramesProcessed(0);
+      setFps(0);
+      setUptimeSeconds(0);
+      setDucks([]);
+      useInferenceStore.getState().resetStats();
+      resetBBoxCache();
+      void startVideoInference();
+      return;
+    }
+
+    if (isCameraMode && cameraRecordSessionId) {
+      // Resuming inference on a loaded recording — video-service path with GPU guard
+      playWaterDropSound();
+      (async () => {
+        try { await cameraService.stopLiveInference(); } catch (e) { }
+        try { await cameraService.stopStream(); } catch (e) { }
+        setCameraIsStreaming?.(false);
+        await startVideoInference(cameraRecordSessionId);
+      })();
+      return;
+    }
+
+    playWaterDropSound();
+    setFramesProcessed(0);
+    setFps(0);
+    setDucks([]);
+    useInferenceStore.getState().resetStats();
+    resetBBoxCache();
+    setIsStarting(true);
+    if (isCameraMode) {
+      (async () => {
+        try {
+          await startCameraPipeline();
+        } finally {
+          setIsStarting(false);
+        }
+      })();
+    }
+  };
+
+  return {
+    isRunning,
+    setIsRunning,
+    isStarting,
+    setIsStarting,
+    fps,
+    setFps,
+    framesProcessed,
+    setFramesProcessed,
+    uptimeSeconds,
+    setUptimeSeconds,
+    handleToggleRunning,
+    handleStopInference,
+    handleResumeInference,
+    handleResetInference,
+  };
+}
