@@ -4,14 +4,14 @@ param(
 )
 
 # ==============================================================================
-# Vision Monitor - Windows Environment Setup Script
+# Duck Monitor - Windows Environment Setup Script
 # Configures Python virtual environment, CUDA PyTorch/TorchVision,
 # TrayCount ML dependencies & wheel, and Node.js frontend packages.
 # ==============================================================================
 $ErrorActionPreference = 'Continue'
 
 Write-Host "=======================================================" -ForegroundColor Cyan
-Write-Host "       Vision Monitor - Automated Setup (Windows)      " -ForegroundColor Cyan
+Write-Host "       Duck Monitor - Automated Setup (Windows)      " -ForegroundColor Cyan
 Write-Host "=======================================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -22,7 +22,7 @@ $BackendDir = if ($MyInvocation.MyCommand.Path) {
     Get-Location
 }
 $ProjectRoot = Split-Path -Parent $BackendDir
-$FrontendDir = Join-Path $ProjectRoot 'vision-ai-frontend'
+$FrontendDir = Join-Path $ProjectRoot 'frontend'
 
 Write-Host "[SETUP] Backend Directory : $BackendDir"
 Write-Host "[SETUP] Frontend Directory: $FrontendDir"

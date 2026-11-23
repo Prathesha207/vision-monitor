@@ -77,7 +77,7 @@ FailedFrames/
 *.whl
 !app/ml/*.whl
 !app/ml/**/*.whl
-vision_ai.db*
+duck_monitor.db*
 
 # =========================
 # Electron
