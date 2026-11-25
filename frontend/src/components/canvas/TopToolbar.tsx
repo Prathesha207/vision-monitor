@@ -83,8 +83,8 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           </div>
         ) : isCameraSource && isStreaming ? (
           <div className="flex items-center h-7 sm:h-8 px-2.5 sm:px-3 rounded-xl bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--border-color)] shadow-xs shrink-0 select-none">
-            <div className="flex items-center gap-1.5 text-sky-400 font-bold text-xs sm:text-sm">
-              <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse shrink-0 shadow-[0_0_6px_rgba(56,189,248,0.6)]" />
+            <div className="flex items-center gap-1.5 text-[var(--accent-pond)] font-bold text-xs sm:text-sm">
+              <span className="w-2 h-2 rounded-full bg-[var(--accent-pond)] animate-pulse shrink-0 shadow-[0_0_6px_rgba(41,95,152,0.6)]" />
               <span>LIVE STREAM</span>
             </div>
           </div>

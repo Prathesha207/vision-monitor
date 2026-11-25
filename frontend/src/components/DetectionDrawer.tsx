@@ -76,8 +76,8 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
   const displayLatency = typeof rawLatency === 'number'
     ? rawLatency
     : typeof rawLatency === 'object' && (rawLatency as any)?.total != null
-    ? (rawLatency as any).total
-    : rawLatency;
+      ? (rawLatency as any).total
+      : rawLatency;
   const hasLatency = displayLatency !== null && displayLatency !== undefined && displayLatency !== '' && displayLatency !== 0 && displayLatency !== '0';
 
   // Calculate uptime strictly from frames / fps, defaulting to 30fps if unknown
@@ -351,7 +351,7 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
                         <span>{displayFrames.toLocaleString()} frames</span>
                         <span>{formatTime(computedUptime)}</span>
                       </div>
-                      {displayProgress >= 100 && onClearVideo && (
+                      {/* {displayProgress >= 100 && onClearVideo && (
                         <div className="pt-1.5 flex items-center justify-between border-t border-[var(--border-color)] mt-1">
                           <span className="text-[10px] font-bold text-emerald-500 flex items-center gap-1">
                             <ShieldCheck className="w-3 h-3" />
@@ -369,7 +369,7 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
                             <span>Clear Video &amp; Cards</span>
                           </button>
                         </div>
-                      )}
+                      )} */}
                     </div>
                   )}
                 </div>
@@ -403,7 +403,7 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
                 }`}>
                 {ducks.length} Total
               </span>
-              {onClearVideo && (
+              {/* {onClearVideo && (
                 <button
                   onClick={() => {
                     playWaterDropSound();
@@ -415,7 +415,7 @@ export const DetectionDrawer: React.FC<DetectionDrawerProps> = ({
                   <Trash2 className="w-2.5 h-2.5" />
                   <span>Clear</span>
                 </button>
-              )}
+              )} */}
             </div>
           )}
         </div>

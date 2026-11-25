@@ -593,10 +593,10 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
           <div className="flex flex-col gap-1.5 p-2.5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
-                <Focus className="w-3.5 h-3.5 text-blue-500" />
+                <Focus className="w-3.5 h-3.5 text-[var(--accent-pond)]" />
                 <span className="text-xs font-bold text-[var(--text-primary)]">Focus Lens</span>
               </div>
-              <span className="font-mono text-xs font-bold text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded">
+              <span className="font-mono text-xs font-bold text-[var(--accent-pond)] bg-[var(--accent-pond-subtle)] px-1.5 py-0.5 rounded">
                 {focus} / 255
               </span>
             </div>

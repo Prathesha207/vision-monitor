@@ -773,6 +773,34 @@ class VideoInferenceService:
                             "thumbnail": thumb_uri,
                         })
 
+                    # Inject mask anomalies (e.g. mask_missing where the toy has no mask and was omitted from toys)
+                    for m in mask_anomalies:
+                        m_box = m.get("box")
+                        if not m_box or len(m_box) != 4:
+                            continue
+                        m_type = m.get("type")
+                        for fid in m.get("ids", []):
+                            fid_int = int(fid)
+                            if not any(d.get("id") == fid_int for d in detections):
+                                thumb_uri = None
+                                if fid_int in raw_thumbs:
+                                    raw_b = raw_thumbs[fid_int]
+                                    thumb_uri = raw_b if str(raw_b).startswith("data:image") else f"data:image/jpeg;base64,{raw_b}"
+                                detections.append({
+                                    "id": fid_int,
+                                    "species": "Duck",
+                                    "class_name": "duck",
+                                    "confidence": 0.0,
+                                    "bbox": m_box,
+                                    "outline": [],
+                                    "isAnomaly": True,
+                                    "excess": False,
+                                    "false_mask": m_type == "false_mask",
+                                    "mask_anomaly": m_type,
+                                    "provisional": not anchor_locked,
+                                    "thumbnail": thumb_uri,
+                                })
+
                     # 3. Accumulate thumbnails for gallery
                     for toy_id, b64_str in raw_thumbs.items():
                         if not b64_str:

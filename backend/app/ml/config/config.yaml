@@ -2,7 +2,7 @@
 # Values copied from the project config (configs/autolabel_v2.yaml, 2026-11-18); comments kept.
 
 weights:                           # the 4 model files (relative to this config file)
-  toy_model: ../weights/best_seg_v3.pt          # ducks / non-ducks / tray segmentation (YOLO11m-seg, trained 2026-11-18)
+  toy_model: ../weights/best_seg_v4_ep20.pt     # ducks / non-ducks / tray segmentation (YOLO11m-seg; 1.3.0: v4 trained 2026-11-24, before best_seg_v3.pt)
   person_model: ../weights/yolo11m-seg.pt       # COCO person segmentation = arms + hands in the tray
   hand_model: ../weights/hand_landmarker.task   # MediaPipe hand landmarker
   embed_model: ../weights/dinov2_vits14.safetensors   # DINOv2 ViT-S/14 (timm) - tells same-coloured toys apart
@@ -11,7 +11,8 @@ weights:                           # the 4 model files (relative to this config 
 output:
   expected_duck_count: null        # null = the ducks counted at the end of warm-up (per video / session); a number = use that
                                    # (reset(expected_duck_count=...) overrides both)
-  templates_dir: null              # null = keep templates in memory only (tray_counter.templates()), never saved to disk
+  templates_dir: templates         # template pictures saved as <this>/<session>/id_04_duck.jpg (relative to this file);
+                                   # null = keep them in memory only (tc.templates())
   template_margin: 0.15            # template crop = the toy's box + this share of its width / height on each side
   template_jpeg_quality: 90        # JPEG quality of templates / thumbnails (0-100)
   fps_window: 30                   # result 'fps' = frames processed per second over the last this many frames
@@ -43,6 +44,8 @@ toy_cleanup:                       # one mask per toy (v2_helpers.toy_cleanup). 
   merge_inside_frac: 0.9           # a mask lying >= this share inside another = the same toy -> merged (union, higher score + its class)
   weak_covered_frac: 0.8           # then: a weaker mask lying >= this share on stronger toy masks is not a toy -> dropped
   compute_scale: 2                 # decide on masks shrunk by this factor (faster; the shares barely change)
+  fast: true                       # 1.3.0: same rule, numbers copied to the CPU once per merge round (2026-11-25 test, Farhan_1790
+                                   # 1086 frames: identical output, 112 -> 22 ms per frame). false = the 1.2.2 code path
 
 # --- toys on the tray only ---
 on_tray_base_frac: 0.2             # where a toy stands = bottom 20% of its outline; it counts only if that is inside the tray outline

@@ -35,7 +35,7 @@
 @property --accent-pond {
   syntax: '<color>';
   inherits: true;
-  initial-value: #17a2b8;
+  initial-value: #295F98;
 }
 
 @layer base {
@@ -59,10 +59,10 @@
 
     --accent-duck: #D97706;
     --accent-duck-light: #FEF3C7;
-    --accent-main: #17a2b8;
-    --accent-pond: #17a2b8;
-    --accent-pond-dark: #117a8b;
-    --accent-pond-subtle: #E8F6F8;
+    --accent-main: #295F98;
+    --accent-pond: #295F98;
+    --accent-pond-dark: #1E4773;
+    --accent-pond-subtle: #EAF1F8;
 
     --status-anomaly-bg: #FEF2F2;
     --status-anomaly-border: #FECACA;
@@ -76,8 +76,8 @@
     --status-warn-border: #FDE68A;
     --status-warn-text: #B45309;
 
-    --btn-primary-bg: #17a2b8;
-    --btn-primary-hover: #138496;
+    --btn-primary-bg: #295F98;
+    --btn-primary-hover: #1E4773;
     --btn-primary-text: #FFFFFF;
 
     --btn-secondary-bg: #F4EFEA;
@@ -87,8 +87,8 @@
 
     --glass-bg: rgba(255, 255, 255, 0.94);
     --hud-bg: rgba(255, 255, 255, 0.96);
-    --scrollbar-thumb: rgba(23, 162, 184, 0.22);
-    --scrollbar-thumb-hover: rgba(23, 162, 184, 0.55);
+    --scrollbar-thumb: rgba(41, 95, 152, 0.22);
+    --scrollbar-thumb-hover: rgba(41, 95, 152, 0.55);
     --terminal-bg: #EFE9E2;
     --terminal-border: #DFD7CB;
   }

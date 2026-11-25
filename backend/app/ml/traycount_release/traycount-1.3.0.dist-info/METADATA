@@ -1,0 +1,16 @@
+Metadata-Version: 2.4
+Name: traycount
+Version: 1.3.0
+Summary: Ducks / non-ducks on a turning tray: counts, toy IDs, pause while a hand is in the tray, missing toys
+Requires-Python: >=3.10
+Requires-Dist: torch
+Requires-Dist: torchvision
+Requires-Dist: ultralytics
+Requires-Dist: mediapipe
+Requires-Dist: timm
+Requires-Dist: safetensors
+Requires-Dist: huggingface_hub
+Requires-Dist: opencv-python
+Requires-Dist: numpy
+Requires-Dist: scipy
+Requires-Dist: PyYAML

@@ -559,7 +559,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                                   </span>
                                   <span className={`px-1.5 py-0.2 rounded text-[8px] font-mono font-bold border ${isCurrentAdded
                                     ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                                    : 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30'}`}>
+                                    : 'bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border-[var(--accent-pond)]/30'}`}>
                                     {isCurrentAdded ? 'CONFIGURED' : 'READY'}
                                   </span>
                                 </div>
@@ -837,7 +837,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
             <div className="p-2.5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] space-y-1.5">
               <div className="flex items-center justify-between text-xs font-bold text-[var(--text-primary)]">
                 <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-blue-500" />
+                  <span className="w-2 h-2 rounded-full bg-[var(--accent-pond)]" />
                   <span>Focus Lens Position</span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -850,13 +850,13 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                     }}
                     className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                       localConfig.autoFocus
-                        ? 'bg-blue-600 text-white shadow-xs'
+                        ? 'bg-[var(--btn-primary-bg)] hover:bg-[var(--btn-primary-hover)] text-white shadow-xs'
                         : 'bg-[var(--btn-secondary-bg)] text-[var(--text-secondary)] border border-[var(--border-color)]'
                     }`}
                   >
                     {localConfig.autoFocus ? 'AUTO (AF)' : 'MANUAL'}
                   </button>
-                  <span className="font-mono text-xs font-bold text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded">
+                  <span className="font-mono text-xs font-bold text-[var(--accent-pond)] bg-[var(--accent-pond-subtle)] px-2 py-0.5 rounded">
                     {localConfig.focus ?? 120} / 255
                   </span>
                 </div>

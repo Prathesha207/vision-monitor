@@ -175,15 +175,13 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, _fallbac
         d.false_mask === true ||
         d.mask_anomaly === 'false_mask' ||
         falseMaskIds.includes(rawId) ||
-        falseMaskIds.includes(displayId) ||
-        thumbObj?.event === 'false_mask'
+        falseMaskIds.includes(displayId)
       );
 
       const isMaskMissingDetection = !isProvisional && (
         d.mask_anomaly === 'mask_missing' ||
         maskMissingIds.includes(rawId) ||
-        maskMissingIds.includes(displayId) ||
-        thumbObj?.event === 'mask_missing'
+        maskMissingIds.includes(displayId)
       );
 
       let eventStatus: DuckEntity['statusEvent'] = undefined;
@@ -289,6 +287,78 @@ export const mapDetectionsToDucks = (data: any, vw: number, vh: number, _fallbac
       statusEvent: 'missing'
     });
   });
+
+  // Inject mask anomalies (e.g. mask_missing where the toy has no mask and was omitted from visible detections)
+  if (!isWarmingUp && Array.isArray(data.mask_anomalies)) {
+    data.mask_anomalies.forEach((m: any) => {
+      const box = m.box;
+      if (!Array.isArray(box) || box.length !== 4) return;
+      const ids = Array.isArray(m.ids) ? m.ids : [];
+      ids.forEach((idNum: any) => {
+        const idStr = String(idNum);
+        if (!incomingDucks.some((d) => d.id === idStr)) {
+          const px = (box[0] / vw) * 100;
+          const py = (box[1] / vh) * 100;
+          const pw = ((box[2] - box[0]) / vw) * 100;
+          const ph = ((box[3] - box[1]) / vh) * 100;
+          const thumbObj = allThumbnails.slice().reverse().find((t: any) =>
+            String(t.id) === idStr || Number(t.id) === Number(idStr)
+          );
+          incomingDucks.push({
+            id: idStr,
+            species: 'Duck',
+            confidence: 0.0,
+            x: px,
+            y: py,
+            width: pw,
+            height: ph,
+            vx: 0,
+            vy: 0,
+            heading: 0,
+            isAnomaly: true,
+            thumbnail: thumbObj?.thumbnail,
+            provisional: false,
+            statusEvent: m.type === 'false_mask' ? 'false_mask' : 'mask_missing',
+            false_mask: m.type === 'false_mask',
+            falseMask: m.type === 'false_mask',
+            mask_anomaly: m.type,
+            maskAnomaly: m.type,
+          });
+        }
+      });
+    });
+  }
+
+  // Preserve tracked session ducks in the gallery even during momentary per-frame mask drops
+  if (!isWarmingUp && (data.anchor_locked || data.status === 'NORMAL')) {
+    allThumbnails.forEach((t: any) => {
+      const idStr = String(t.id);
+      // Skip if already in incomingDucks (from live detections, missing_ids, or mask_anomalies)
+      if (incomingDucks.some((d) => d.id === idStr)) return;
+      // Skip foreign objects and hands
+      if (t.event === 'other_present' || idStr.startsWith('other-')) return;
+
+      const cached = lastKnownBBoxes.get(idStr);
+      const isExcess = excessIds.includes(idStr) || excessIds.includes(Number(idStr));
+      incomingDucks.push({
+        id: idStr,
+        species: 'Duck',
+        confidence: 0.9,
+        x: cached ? cached.x : -100,
+        y: cached ? cached.y : -100,
+        width: cached ? cached.width : 0,
+        height: cached ? cached.height : 0,
+        vx: 0,
+        vy: 0,
+        heading: 0,
+        isAnomaly: isExcess,
+        thumbnail: t.thumbnail,
+        provisional: false,
+        statusEvent: isExcess ? 'excess' : 'confirmed',
+        excess: isExcess,
+      });
+    });
+  }
 
   return incomingDucks;
 };

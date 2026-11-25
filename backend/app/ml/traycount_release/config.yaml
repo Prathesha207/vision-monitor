@@ -1,0 +1,239 @@
+# TrayCount config - thresholds and parameters only. Paths are RELATIVE to this file.
+# Values copied from the project config (configs/autolabel_v2.yaml, 2026-11-18); comments kept.
+
+weights:                           # the 4 model files (relative to this config file)
+  toy_model: weights/best_seg_v4_ep20.pt     # ducks / non-ducks / tray segmentation (YOLO11m-seg; 1.3.0: v4 trained 2026-11-24, before best_seg_v3.pt)
+  person_model: weights/yolo11m-seg.pt       # COCO person segmentation = arms + hands in the tray
+  hand_model: weights/hand_landmarker.task   # MediaPipe hand landmarker
+  embed_model: weights/dinov2_vits14.safetensors   # DINOv2 ViT-S/14 (timm) - tells same-coloured toys apart
+
+# --- results for the application (traycount 1.1.0) ---
+output:
+  expected_duck_count: null        # null = the ducks counted at the end of warm-up (per video / session); a number = use that
+                                   # (reset(expected_duck_count=...) overrides both)
+  templates_dir: templates         # template pictures saved as <this>/<session>/id_04_duck.jpg (relative to this file);
+                                   # null = keep them in memory only (tc.templates())
+  template_margin: 0.15            # template crop = the toy's box + this share of its width / height on each side
+  template_jpeg_quality: 90        # JPEG quality of templates / thumbnails (0-100)
+  fps_window: 30                   # result 'fps' = frames processed per second over the last this many frames
+  mask_anomalies:                  # ANOMALY 'false_mask' = two masks on one toy (traycount/_anomaly.py)
+    overlap_frac: 0.3              # two toy masks overlapping by >= this share of the smaller one ...
+    overlap_min_s: 0.5             # ... on every frame for >= this long (2026-11-18: 0 alarms on 3 normal videos, 1 on b4be;
+                                   # 8 on the team's clip duck_new_video3 where one duck had 3 overlapping masks)
+    hold_s: 1.0                    # bridge a flicker of the overlap for up to this long - only while BOTH masks are still there and
+                                   # still overlap (1.2.2: never reported after one of the two masks has gone)
+    missing_min_s: 0.5             # ANOMALY 'mask_missing': a toy with NO mask whose place lies inside another toy's mask on every
+                                   # frame for >= this long (one mask covering two toys). 2026-11-19: team clip 4 alarms (#10 in #9),
+                                   # Farhan_1790 / 12-45 none, b4be 1 (a duck fully behind the tall die - looks the same). null = off
+
+# --- the models ---
+classes:                           # new class map (adds hand)
+  duck: 0
+  non_duck: 1
+  tray: 2
+  hand: 3
+model_predict_args:                # passed as-is to YOLO predict
+  imgsz: 960                       # as trained
+  conf: 0.25                       # masks the model is at least this sure of
+  iou: 0.7                         # YOLO's own duplicate filter - it compares BOXES, so part of a toy can survive it (-> toy_cleanup)
+  retina_masks: true               # masks at full frame size
+  quantize: 16                     # half precision
+  device: 0
+toy_cleanup:                       # one mask per toy (v2_helpers.toy_cleanup). Tested 2026-11-11 on all 8667 checked frames:
+                                   # trained videos 95.7% -> 99.7% of frames with exactly the right count
+  merge_inside_frac: 0.9           # a mask lying >= this share inside another = the same toy -> merged (union, higher score + its class)
+  weak_covered_frac: 0.8           # then: a weaker mask lying >= this share on stronger toy masks is not a toy -> dropped
+  compute_scale: 2                 # decide on masks shrunk by this factor (faster; the shares barely change)
+  fast: true                       # 1.3.0: same rule, numbers copied to the CPU once per merge round (2026-11-25 test, Farhan_1790
+                                   # 1086 frames: identical output, 112 -> 22 ms per frame). false = the 1.2.2 code path
+
+# --- toys on the tray only ---
+on_tray_base_frac: 0.2             # where a toy stands = bottom 20% of its outline; it counts only if that is inside the tray outline
+on_tray_tol_frac: 0.06             # ...or this close to the edge (x sqrt(tray area))
+                                   # (2026-11-08: was 0.03; toys along the back rim hide it from SAM2, so the outline's back
+                                   #  edge can cut through the back row -> 14-41 f3015 pink Among Us "off tray" at 8 px past
+                                   #  0.03. All 1209 key-frame toys at 0.05/0.06: only the real couch toy stays off (347 px))
+
+# --- hand in the tray (MediaPipe hand + person/arm mask) ---
+hand_min_conf: 0.5
+hand_tray_margin_frac: 0.03        # hand counts as "in tray" within this x sqrt(tray area) of the rim
+hand_person_conf: 0.25             # person masks above this confidence
+hand_person_imgsz: 1024
+hand_person_min_frac: 0.01         # person mask covering >= 1% of the tray (+ margin) = WEAK sign of a hand in the tray
+hand_person_strong_frac: 0.03      # ...>= 3% = STRONG sign. A hand moment needs a strong sign (this or a MediaPipe hand);
+                                   # weak-only moments are dropped: people standing behind the tray touch its far rim in
+                                   # the image at 1.0-1.4% (tested 2026-11-06: 1.5%-15% drop exactly those 4, no real arm)
+
+# --- toy IDs: look (colour + DINOv2) + size + place ---
+reid_hist_bins: [16, 8, 8]         # HSV colour histogram of each toy
+reid_erode_px: 3                   # leave the mask edge out of the histogram
+reid_embed_model: vit_small_patch14_dinov2.lvd142m   # DINOv2 (timm) image embedding of each toy: tells same-coloured toys apart
+reid_embed_size: 224
+reid_embed_fill_bgr: [124, 116, 104]  # crop pixels outside the toy's mask are painted this colour
+reid_w_app: 1.0                    # cost = w_app x colour difference (0..1)
+reid_w_emb: 2.0                    #      + w_emb x DINOv2 difference (1 - cosine, best of the toy's earlier views)
+reid_w_pos: 1.0                    #      + w_pos x position difference after the tray's turn (0..1, 1 = a toy-size or more away)
+reid_w_size: 0.3                   #      + w_size x size difference
+reid_cls_penalty: 10.0             #      + this if duck / non-duck differ (2026-11-09: was 0.5 -> Farhan_1790 f3003 gave the
+                                   #        blue Among Us's number to a duck; your key frames set the class, so never across)
+reid_pos_scale: 1.0                # position difference of 1 = this many toy sizes
+reid_pos_unknown: 0.6              # position term when the tray's turn could not be found / toy was not on the tray before
+reid_max_cost: 2.5                 # above this the toy gets a NEW ID (the same toys usually come back, so generous)
+reid_gallery_views: 12             # at most this many remembered views per toy (newest kept)
+
+# --- decisions per frame: counts, IDs, pause, missing toys, drawing ---
+runtime:
+  quick_margin: 0.3                # rule (a): a toy seen only briefly (hidden_min_s) takes a hidden toy's ID only if every
+                                   # missing toy looks worse by this much; else it waits new_min_s. null = off. 0.3 tested
+                                   # 2026-11-18 (b4be IDs 93.5% -> 95.0% with best_seg_v3, nothing else changed)
+  mask_scale: 2                    # masks handled at 1/2 size (outlines drawn from them)
+  min_toy_px: 150                  # a smaller mask is no toy (full-size pixels)
+  weak_conf: 0.10                  # masks between this and model_predict_args.conf only show that a KNOWN toy is still there
+  double_on_toy_frac: 0.5          # a mask lying >= this share on toys already found = a 2nd mask on them, not a toy
+  track_min_iou: 0.2               # the same toy in the next frame: masks overlap (IoU) at least this much
+  motion_ransac_px: 8              # the tray's turn between two frames from the toys seen in both (RANSAC tolerance, px)
+  hidden_pos_scale: 1.5            # a hidden toy is found again within this many toy sizes of its predicted place;
+  hidden_w_pos: 1.0                #   cost = w_pos x distance (0..1 of that limit)
+  hidden_w_app: 1.0                #        + w_app x colour difference (0..1) + reid_cls_penalty if the kind differs
+  hidden_max_cost: 1.0             #   at most this
+  hidden_local_k: 3                # a hidden toy's place moves like its this many nearest seen toys (0 = with the whole-tray turn,
+                                   # as before). Aditya 2026-11-12 b4be: the whole-tray turn drifted a hidden duck ~200 px (f680-716)
+                                   # -> not found again when it showed -> no outline for 1 s
+  new_min_s: 1.0                   # a mask that is no known toy, seen this long outside a hand -> hidden / missing / new toy
+  hidden_min_s: 0.2                # ... but already after this long -> a HIDDEN toy it clearly looks like (look cost <= the next
+  hidden_quick_max_cost: 2.5       # setting): it shows again (counts cannot change). Aditya 2026-11-12 b4be: a duck behind the tall
+                                   # blue die showed on the die's other side (camera turned) -> no outline for 1 s (f716-731)
+  back_margin: 0.5                 # after new_min_s: a MISSING toy comes back only if it looks better than the best hidden toy by
+                                   # this much (else the hidden toy, as before). b4be f514: a dropped-in white duck took the ID of a
+                                   # hidden black duck (the old rule ignored the look) -> those 2 IDs swapped
+  pending_gap_s: 0.5              # such a mask not seen for this long = gone (a passing 2nd mask)
+  hand:                            # what starts a pause: a MediaPipe hand or an arm >= hand_person_strong_frac (as the labels), but
+    mp_alone_max_arm: 0.0          # a MediaPipe hand with no arm pixels (share <= this) in the tray counts only when it is seen on
+    mp_alone_min_frames: 3         # at least this many frames within mp_alone_window_s (2026-11-12 12-45: MediaPipe takes a pink
+    mp_alone_window_s: 0.2         # toy's white wing for a hand for 1-2 frames once per tray turn -> 3 s false pauses)
+    arm_alone_min_frames: 2        # an ARM without a MediaPipe hand counts only when seen (>= hand_person_strong_frac) on at least
+    arm_alone_window_s: 0.2        # this many frames within this long. 2026-11-18 team clip: a resting arm's mask jumped for ONE
+                                   # frame -> 6 s false pause, now none; Friday videos: every real hand pause kept (b4be quick reach
+                                   # f387: 3 frames), counts 100 %, b4be IDs 94.98 -> 97.98 %. 1 = off (each frame counts, as 1.2.0)
+    arm_inside_rim_frac: null      # (tested 2026-11-18, kept OFF: missed a real quick reach) an ARM counts only with its pixels INSIDE the tray minus a rim band this wide (x sqrt(tray
+                                   # area)); null = the whole tray zone + margin as before (2026-11-18: team clip paused on an arm
+                                   # beside the tray)
+    mp_inside_min: 0.25            # a MediaPipe hand counts only if at least this share of its 21 points lies INSIDE the tray (not
+                                   # just within the rim margin). Aditya 2026-11-12, 12-45 f317-391: a bystander's fingertips just
+                                   # above the far rim paused 2.5 s. Tested (cache2): that pause never starts; every real hand in the
+                                   # 3 videos still pauses, at most 3 frames later. 0 = off. Needs a cache with hand points (cache2);
+                                   # an older cache -> the old rule
+  hand_hold_s: 0.5                 # the pause lasts this long after the last hand sign (labels: 3 sampled frames)
+  settle_s: 0.4                    # then this long for the toys to settle (labels: settle_frames)
+  confirm_s: 1.0                   # then every toy is found again over this long (still shown as paused). 2026-11-12: 2.0 -> 1.0
+                                   # (same counts on the 3 Friday videos, paused labelled frames Farhan 160 -> 100, b4be 50 -> 30)
+  start_s: 1.0                     # at the video start the toys are learned over this long ("Counting...")
+  confirm_min_frames: 3            # a toy must be seen in at least this many frames of such a window
+  confirm_min_share: 0.5           # ... and in at least this share of the window's frames (2026-11-12 Farhan_1790 f1627: a mask
+                                   # seen in 5 of 61 frames took the ID of a removed duck)
+  turn:                            # the tray's turn (2026-11-12: toys move ~0.6 (Farhan_1790) - 1 (b4be1c48) toy size per second)
+    fit_s: 1.0                     # measured from the toys' places over the last this-many seconds before a hand ...
+    min_toys: 6                    # ... from at least this many toys (seen at both ends)
+    ransac_toys: 0.25              # RANSAC tolerance = this x a toy's size
+    fit_best_share: 0.5            # after a hand: the best-matching share of the toys (by look) give the turn since the hand ...
+    fit_min_share: 0.5             # ... used only when at least this share of them agree on one turn (else: toys moved -> look only)
+  view_every_s: 0.5                # the look (colour + DINOv2) of every seen toy is stored this often (IDs after a hand)
+  reach:                           # a hand can only take a toy it reached: after a hand, a toy not found again is MISSING only
+    use: true                      # if its place lies near where the arm / hand was seen during that hand moment; otherwise
+                                   # it is hidden behind another toy and stays counted (2026-11-12: b4be1c48 f386 a hand touched
+                                   # the top of the tray for 0.2 s, a toy at the other side stayed hidden for 7 s -> was 'missing')
+    scale: 8                       # where the arm was is kept at 1/8 size
+    margin_toys: 1.0               # 'near' = within this many toy sizes of the arm / hand
+    max_unknown_turn_s: 1.0        # turn not measured: the rule is used only for hand moments up to this long
+    min_take_s: 0.0                # 0 = OFF. A hand in the tray shorter than this cannot lift a toy out (a toy not found after it is
+                                   # hidden). WAS 0.5 - WRONG (Aditya's review 2026-11-12): b4be1c48 f385-389 the hand DID take the
+                                   # pirate duck in 0.27 s (15 fps video) -> 0.5 kept it counted (17 shown, truth 16) until it came
+                                   # back. With 0: 17 -> 16 -> 17 -> 18 as in the video; the reach rule above still keeps toys the hand
+                                   # never came near. Restore: label_check_wip/backup_before_review_fixes/
+  tray_clean:                      # the tray outline (used for: toys on the tray, hand check area, drawing) - see clean_tray()
+    use: true                      # 2026-11-12: tested on all labelled frames of the 3 Friday videos vs your tray labels:
+                                   # b4be1c48 start (white box) 0.78 -> 0.90 IoU; Farhan_1790 and 12-45 unchanged
+    bright_L: 185                  # brighter than this (Lab L 0-255) = white box face (170 cut into Farhan_1790's tray)
+    bright_min_frac: 0.03          # ... a piece at least this share of the tray, touching its edge, no toy
+    bright_open_px: 2              # small specks of bright pixels ignored
+    toy_margin_px: 2               # toy masks grown by this (half size px): toy pixels are never cut
+    neck_frac: 0.06                # parts joined by a neck thinner than ~2 x this x sqrt(tray area) are cut off
+    restore_frac: 0.03             # ... then tray pixels within this x sqrt(tray area) of the rest are given back (corners)
+    neck_scale: 2                  # the neck cut runs at 1/this size (speed)
+    min_keep: 0.6                  # if less than this share would be left: keep the model's tray as it is
+  display:
+    width: null                    # output video width in px (null = as the video)
+    ref_width: 1920                # sizes below are for a 1920 px wide video (scaled for other widths)
+    line: 2                        # outline thickness (toys, tray)
+    parts:                         # COLOURFUL pieces in no toy mask, touching mainly one toy -> drawn as part of it (add_parts).
+      use: true                    # Aditya 2026-11-13 (Farhan): beaks / heads / tails uncovered for seconds - the model leaves
+      min_chroma: 35               # them out because its training outlines left them out (e.g. #17's beak f300-495). Lab chroma
+      min_frac: 0.01               # above min_chroma (grey tray, shadows, white never count); size min_frac..max_frac of the toy;
+      max_frac: 0.3                # the toy touching it most touches it >= dominant_ratio x the next one (1.0 = the toy touching
+      dominant_ratio: 1.0          # it most; stricter left real heads bare: Farhan #15 f1080 red part touches #15 22 px / #18 21 px).
+      max_outside: 0.1             # skip a piece whose surroundings lie more than this share outside the tray outline (12-45: green
+                                   # wall strips beyond the far rim were added to #6 on 204 frames; your Farhan beaks: 0% outside)
+      bright_over: 0               # white pieces (lightness >= the tray's + this): 0 = OFF (could take the white box beside the
+                                   # tray in b4be). DRAWING ONLY: counts / IDs unchanged
+    deep_overlap:                  # two toys' masks overlapping (>= min_frac of the smaller toy): drawn only with the toy the overlap
+      use: true                    # sits >= ratio x deeper inside (for the other it is a strip sticking out). 12-45 pink Among Us
+      min_frac: 0.03               # rectangle on the blue one (Aditya 2026-11-13). Touches 1 frame in Farhan, 2 in b4be
+      ratio: 1.3
+    piece_neck_px: 2               # ... 'detached' also when joined only by a neck thinner than ~2 x this (half size px)
+    piece_on_other_max: 0.5        # a DETACHED piece of a toy's mask lying >= this share on another toy's mask is not drawn (12-45:
+                                   # a rectangle of the pink Among Us' mask on the blue one came back with min_piece, 2026-11-13).
+                                   # 0 = off
+    min_piece: 0.01                # a toy is drawn with EVERY piece of its mask of at least this share of the mask (only specks
+                                   # dropped), at full size. Aditya 2026-11-13 (Farhan): heads / beaks / tails left uncovered for
+                                   # seconds - only the biggest piece was drawn (#16 head f1887-1956: 96% of your outline in the
+                                   # model's mask, 76% drawn) and outlines traced at half size shaved ~1 px off every edge
+    fill_alpha: 0.35               # toys drawn FILLED in their class colour at this strength, outline on top (0 = outline only, as
+                                   # before). Aditya 2026-11-12: wants filled masks. Restore: label_check_wip/backup_before_fill/
+    id_scale: 0.7                  # ID number text size
+    box_scale: 1.1                 # counts box text size
+    box_pad: 14
+    box_gap: 14
+    box_margin: 20
+    box_alpha: 0.6                 # counts box darkness
+    banner_scale: 1.4              # pause banner text size
+    banner_margin: 40              # pause banner distance from the bottom edge
+    show_tray: true                # draw the tray outline (the ROI) - only on frames where it is clean, see the next setting
+    tray_max_concave: 0.03         # draw it only when the tray mask is within this share of convex (a tray is convex; more = a strip of
+                                   # something else is still attached). 2026-11-12, all labelled frames of the 3 Friday videos: b4be1c48
+                                   # start (outline still ~50 px onto the white box) 0.034-0.055, every other frame <= 0.027
+    smooth:                        # STEADIER TOY OUTLINES - drawing only (counts, IDs, missing do not change). Aditya's review
+      use: true                    # 2026-11-12, 12-45: the 8-ball duck's head and a piece of the pink Among Us at the blue one's side
+      frames: 5                    # came and went. Outline drawn = pixels in the toy's mask on at least min_votes of its last
+      min_votes: 3                 # `frames` frames (older masks first moved with the tray's turn). Fewer frames (just found /
+      min_keep: 0.5                # after a pause), turn unknown, or less than min_keep of this frame's mask left -> this frame's
+                                   # mask as it is. use: false = as before. Tested 2026-11-12 (12-45, outline jumps > 0.12 between
+                                   # frames): raw 402 -> 2 of 3 frames 355, 3 of 5: 268, 4 of 7: 245 (but worse on the blue toy, and
+                                   # the outline size changes more); 8-ball duck 40 -> 16, blue/pink junction on/off 7x -> 1x
+                                   # (f499-508). A mask the model gets wrong on MOST frames (8-ball head f1150-1165, the box piece
+                                   # f508-517) stays: only the model can fix that
+      align_frac: 0.25             # each older mask is first moved with the tray's turn, then shifted (up to this x sqrt(mask px)) to
+                                   # overlap this frame's mask most. 0 = no line-up (= fix1/fix2: the whole-tray turn alone is off per
+                                   # toy -> outline DRIFT, Aditya 2026-11-12; drawn outline vs the model's mask b4be median 4.7 px /
+                                   # 90% 9.3 px). With 0.25 (scratch test): b4be 0.6 / 1.6 px, 12-45 0.4 / 1.0, Farhan 0.3 / 0.7;
+                                   # shape jumps raw -> 0 -> 0.25: b4be 52 -> 29 -> 23, 12-45 28 -> 11 -> 7, Farhan 32 -> 8 -> 8.
+                                   # Restore: label_check_wip/backup_before_drift_fix/
+      half_life_s: 0.0             # OFF 2026-11-13 (was 0.5): it cost Farhan coverage (#19 0.97 -> 0.92, #10 0.98 -> 0.95). > 0: outlines still from the frames vote above (= fix3, sits on the toy), plus a SHAPE MEMORY
+                                   # per toy (running average of its masks, counts half after this long) used ONLY where two toys'
+                                   # outlines overlap: the pixel goes to the toy holding it longer (Runtime.memory_outlines).
+                                   # Aditya 2026-11-12 (B): 12-45 blue/pink Among Us box piece (f499-518, f780-805) -> gone.
+                                   # NOT used for drawing whole shapes: fix4 did (memory >= 0.5 drawn) and sat 1.8-2.0 px median off
+                                   # your labels (overlap 0.89 vs fix3 0.94-0.95) - Aditya saw it drift. 0 = fix3 exactly
+      align_tie: 0.01              # line-up shifts within this share of the best overlap count as equal -> the one closest to the
+                                   # expected place (fix4 always took the top-left one: outlines pulled up-left)
+    colours: {duck: [0, 220, 0], non_duck: [0, 0, 255], tray: [255, 255, 255], text: [255, 255, 255], banner: [0, 0, 200], banner_text: [255, 255, 255]}   # BGR
+                                   # non_duck RED (was pink [255, 0, 255]; one Among Us toy is pink - Aditya 2026-11-12)
+    ducks: Ducks
+    non_ducks: Non-ducks
+    missing: Missing
+    duck_word: duck
+    ducks_word: ducks
+    non_duck_word: non-duck
+    non_ducks_word: non-ducks
+    counting: Counting...
+    paused: HAND IN TRAY - PAUSED
+
