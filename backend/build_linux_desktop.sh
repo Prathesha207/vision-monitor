@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 # Build Linux desktop artifacts from a native Ubuntu/Debian machine.
-# Run this script from duck-monitor-backend or repo root.
+# Run this script from backend or repo root.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 if [[ -f "$SCRIPT_DIR/run.py" ]]; then
   BACKEND_DIR="$SCRIPT_DIR"
-elif [[ -f "$PWD/duck-monitor-backend/run.py" ]]; then
-  BACKEND_DIR="$(cd "$PWD/duck-monitor-backend" && pwd -P)"
+elif [[ -f "$PWD/backend/run.py" ]]; then
+  BACKEND_DIR="$(cd "$PWD/backend" && pwd -P)"
 elif [[ -f "$PWD/run.py" ]]; then
   BACKEND_DIR="$PWD"
 else
-  echo "Error: Cannot locate duck-monitor-backend directory containing run.py."
+  echo "Error: Cannot locate backend directory containing run.py."
   exit 1
 fi
 
-if [[ -d "$BACKEND_DIR/../duck-monitor-frontend" ]]; then
-  FRONTEND_DIR="$(cd "$BACKEND_DIR/../duck-monitor-frontend" && pwd -P)"
-elif [[ -d "$PWD/duck-monitor-frontend" ]]; then
-  FRONTEND_DIR="$(cd "$PWD/duck-monitor-frontend" && pwd -P)"
+if [[ -d "$BACKEND_DIR/../frontend" ]]; then
+  FRONTEND_DIR="$(cd "$BACKEND_DIR/../frontend" && pwd -P)"
+elif [[ -d "$PWD/frontend" ]]; then
+  FRONTEND_DIR="$(cd "$PWD/frontend" && pwd -P)"
 else
-  echo "Error: Cannot locate duck-monitor-frontend directory."
+  echo "Error: Cannot locate frontend directory."
   exit 1
 fi
 
@@ -34,7 +34,7 @@ case "$MACHINE_ARCH" in
 esac
 
 if [[ ! -f "$FRONTEND_DIR/package.json" ]]; then
-  echo "duck-monitor-frontend must be beside duck-monitor-backend."
+  echo "frontend must be beside backend."
   exit 1
 fi
 

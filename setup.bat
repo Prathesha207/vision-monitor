@@ -16,7 +16,7 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0duck-monitor-backend\setup_windows.ps1" %*
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0backend\setup_windows.ps1" %*
 if %ERRORLEVEL% NEQ 0 (
     echo.
     echo =======================================================

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Install the backend and frontend on a Linux development machine.
-# Run from duck-monitor-backend (or via root ./setup.sh / ./clean_setup.sh).
+# Run from backend (or via root ./setup.sh / ./clean_setup.sh).
 # Pass --clean or -c to remove .venv and frontend dist before reinstalling.
 set -euo pipefail
 
 BACKEND_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FRONTEND_DIR="$(cd "$BACKEND_DIR/../duck-monitor-frontend" && pwd)"
+FRONTEND_DIR="$(cd "$BACKEND_DIR/../frontend" && pwd)"
 VENV_DIR="$BACKEND_DIR/.venv"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 if [[ ! -f "$FRONTEND_DIR/package.json" ]]; then
-  echo "duck-monitor-frontend must be beside duck-monitor-backend."
+  echo "frontend must be beside backend."
   exit 1
 fi
 

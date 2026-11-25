@@ -7,7 +7,7 @@ echo "======================================================="
 echo ""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-cd "$SCRIPT_DIR/duck-monitor-backend"
+cd "$SCRIPT_DIR/backend"
 chmod +x setup_linux.sh
 ./setup_linux.sh "$@"
 

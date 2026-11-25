@@ -3,7 +3,7 @@
 set -euo pipefail
 
 BACKEND_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FRONTEND_DIR="$(cd "$BACKEND_DIR/../duck-monitor-frontend" && pwd)"
+FRONTEND_DIR="$(cd "$BACKEND_DIR/../frontend" && pwd)"
 
 if [[ ! -x "$BACKEND_DIR/.venv/bin/python" ]]; then
   echo "Backend environment is missing. Creating environment and running setup..."
